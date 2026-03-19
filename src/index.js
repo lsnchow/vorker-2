@@ -26,6 +26,7 @@ Shared options:
   --model <id>           Set an ACP model after startup
   --auto-approve         Auto-select the most permissive tool approval option
   --debug                Print extra ACP status updates
+  --no-alt-screen        Keep the TUI inline instead of switching to the terminal alt screen
 
 Server options:
   --host <host>          Bind address for the web server (default: 127.0.0.1)
@@ -65,6 +66,7 @@ function parseCli(argv) {
       model: { type: "string" },
       "auto-approve": { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
+      "no-alt-screen": { type: "boolean", default: false },
       host: { type: "string" },
       port: { type: "string" },
       "tls-key": { type: "string" },
@@ -89,6 +91,7 @@ function parseCli(argv) {
     model: values.model ?? null,
     autoApprove: values["auto-approve"],
     debug: values.debug,
+    noAltScreen: values["no-alt-screen"],
     host: values.host ?? "127.0.0.1",
     port: values.port ?? "4173",
     tlsKey: values["tls-key"] ?? null,

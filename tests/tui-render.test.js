@@ -45,25 +45,33 @@ test("renderDashboard prints sessions, runs, tasks, and tunnel status", () => {
         state: "ready",
         publicUrl: "https://example.trycloudflare.com?transport=poll",
       },
+      events: [
+        { type: "task.updated", payload: { task: { title: "Wire event bus", status: "completed" } } },
+        { type: "run.updated", payload: { run: { name: "Bootstrap", status: "running" } } },
+      ],
     },
     {
       activeSessionId: "agent-1",
       activeRunId: "run-1",
       width: 100,
+      statusLine: "Ready for commands.",
     },
   );
 
   assert.match(output, /VORKER-2/);
-  assert.match(output, /Sessions/);
-  assert.match(output, /> Planner/);
-  assert.match(output, /Runs/);
+  assert.match(output, /ACTIVE SESSIONS/);
+  assert.match(output, /ACTIVE SESSION/);
+  assert.match(output, /RUN BOARD/);
+  assert.match(output, /EVENT FEED/);
+  assert.match(output, /Planner/);
   assert.match(output, /Bootstrap/);
   assert.match(output, /Wire event bus/);
   assert.match(output, /vorker\/task-task-1-wire-event-bus/);
   assert.match(output, /exec-1/);
   assert.match(output, /abc123def456/);
-  assert.match(output, /Tunnel: ready/);
+  assert.match(output, /ready/);
   assert.match(output, /Plan ready/);
+  assert.match(output, /Ready for commands/);
 });
 
 test("parseCommand handles slash commands and plain prompts", () => {

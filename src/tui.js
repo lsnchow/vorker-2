@@ -13,11 +13,25 @@ import { executeCommand } from "./tui/controller.js";
 import { renderDashboard } from "./tui/render.js";
 
 function clearScreen() {
-  process.stdout.write("\x1bc");
+  if (process.stdout.isTTY) {
+    process.stdout.write("\x1b[2J\x1b[H");
+  }
 }
 
 function resolveProtocol(options) {
   return options.tlsKey && options.tlsCert ? "https" : "http";
+}
+
+function enterAltScreen() {
+  if (process.stdout.isTTY) {
+    process.stdout.write("\x1b[?1049h\x1b[?25l");
+  }
+}
+
+function exitAltScreen() {
+  if (process.stdout.isTTY) {
+    process.stdout.write("\x1b[?25h\x1b[?1049l");
+  }
 }
 
 export async function runTui(options) {
@@ -64,6 +78,7 @@ export async function runTui(options) {
     statusLine:
       "Use /agent <name> to create an agent. Tunneling expects the web server to be running separately on the configured host and port.",
   };
+  const useAltScreen = process.stdout.isTTY && !options.noAltScreen;
 
   await restoreDurableSupervisorState({
     eventLog,
@@ -80,7 +95,9 @@ export async function runTui(options) {
         activeSessionId: state.activeSessionId,
         activeRunId: state.activeRunId,
         width: process.stdout.columns ?? 100,
-      })}\n\n${state.statusLine}\n`,
+        color: process.stdout.isTTY,
+        statusLine: state.statusLine,
+      })}\n\n`,
     );
   };
 
@@ -96,6 +113,10 @@ export async function runTui(options) {
   });
 
   try {
+    if (useAltScreen) {
+      enterAltScreen();
+    }
+    process.stdout.on("resize", redraw);
     redraw();
 
     while (true) {
@@ -122,12 +143,16 @@ export async function runTui(options) {
       redraw();
     }
   } finally {
+    process.stdout.off("resize", redraw);
     supervisor.off("event", onSupervisorEvent);
     rl.close();
     await supervisor.close();
     await manager.closeAll();
     if (tunnelManager.child) {
       await tunnelManager.stop();
+    }
+    if (useAltScreen) {
+      exitAltScreen();
     }
   }
 }
