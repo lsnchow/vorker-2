@@ -22,6 +22,10 @@ function parseSlashCommand(input) {
       return { type: "run.plan", runId: remainder || null };
     case "dispatch":
       return { type: "run.dispatch", runId: remainder || null };
+    case "merge":
+      return { type: "run.merge", runId: remainder || null };
+    case "merge-task":
+      return remainder ? { type: "task.merge", taskId: remainder } : { type: "invalid", reason: "Task id is required." };
     case "share":
       if (remainder === "start") {
         return { type: "share.start" };

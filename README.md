@@ -60,11 +60,14 @@ The TUI is built on top of the same supervisor state that will eventually feed t
 - `/run-use <run-id>` switches the active run
 - `/plan` plans the active run
 - `/dispatch` dispatches ready tasks in the active run
+- `/merge` merges completed task branches for the active run
+- `/merge-task <task-id>` merges one completed task branch
 - `/share start` or `/share stop` controls the Cloudflare tunnel wrapper
 - plain text sends a prompt to the active agent
 
 When a task is dispatched, `vorker-2` now creates or reuses a git worktree under `.vorker-2/worktrees`, spawns a task-specific Copilot agent rooted in that workspace, and records the workspace path, branch name, and execution agent id in the task state.
 If the worker changed files, `vorker-2` also creates a task-branch commit automatically so the task branch is immediately inspectable and ready for later merge/review workflows.
+Completed task branches can now be merged back into the base branch from the TUI or the existing task inspector; merges stay supervisor-owned instead of being left to ad hoc shell work.
 
 ## Remote web control plane
 

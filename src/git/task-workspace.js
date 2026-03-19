@@ -142,4 +142,32 @@ export class TaskWorkspaceManager {
       changedFiles,
     };
   }
+
+  async mergeTaskBranch(input) {
+    const currentBranch = await this.detectBaseBranch();
+    if (currentBranch !== input.baseBranch) {
+      throw new Error(`Cannot merge ${input.branchName} while repo root is on ${currentBranch}; expected ${input.baseBranch}.`);
+    }
+
+    try {
+      await runGit(["merge", "--no-ff", "--no-edit", input.branchName], { cwd: this.repoRoot });
+      const mergeCommitSha = await runGit(["rev-parse", "HEAD"], { cwd: this.repoRoot });
+      return {
+        status: "merged",
+        mergeCommitSha,
+      };
+    } catch (error) {
+      try {
+        await runGit(["merge", "--abort"], { cwd: this.repoRoot });
+      } catch {
+        // Ignore missing merge state.
+      }
+
+      return {
+        status: "conflict",
+        mergeCommitSha: null,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }

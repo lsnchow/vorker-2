@@ -70,5 +70,7 @@ test("parseCommand handles slash commands and plain prompts", () => {
   assert.deepEqual(parseCommand("/agent Planner"), { type: "agent.create", name: "Planner" });
   assert.deepEqual(parseCommand("/use agent-1"), { type: "session.select", sessionId: "agent-1" });
   assert.deepEqual(parseCommand("/share start"), { type: "share.start" });
+  assert.deepEqual(parseCommand("/merge"), { type: "run.merge", runId: null });
+  assert.deepEqual(parseCommand("/merge-task task-1"), { type: "task.merge", taskId: "task-1" });
   assert.deepEqual(parseCommand("ship it"), { type: "prompt.send", text: "ship it" });
 });

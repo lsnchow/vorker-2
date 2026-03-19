@@ -252,6 +252,10 @@ export class Orchestrator extends EventEmitter {
       commitSha: "commitSha" in updates ? normalizeString(updates.commitSha) || null : current.commitSha,
       changeCount: "changeCount" in updates && Number.isFinite(updates.changeCount) ? Number(updates.changeCount) : current.changeCount,
       changedFiles: Array.isArray(updates.changedFiles) ? normalizeStringArray(updates.changedFiles) : current.changedFiles,
+      mergeStatus: "mergeStatus" in updates ? normalizeString(updates.mergeStatus) || null : current.mergeStatus,
+      mergeCommitSha: "mergeCommitSha" in updates ? normalizeString(updates.mergeCommitSha) || null : current.mergeCommitSha,
+      mergeError: "mergeError" in updates ? normalizeString(updates.mergeError) || null : current.mergeError,
+      mergedAt: "mergedAt" in updates ? normalizeString(updates.mergedAt) || null : current.mergedAt,
       error: "error" in updates ? normalizeString(updates.error) || null : current.error,
       outputText: "outputText" in updates ? String(updates.outputText ?? "") : current.outputText,
     });
@@ -476,6 +480,41 @@ export class Orchestrator extends EventEmitter {
     return results;
   }
 
+  async mergeTask(taskId) {
+    const task = this.requireTask(taskId);
+    if (task.status !== "completed") {
+      throw new Error("Only completed tasks can be merged.");
+    }
+    if (!task.branchName || !task.baseBranch) {
+      throw new Error("Task is missing branch metadata.");
+    }
+
+    const result = await this.workspaceManager.mergeTaskBranch({
+      branchName: task.branchName,
+      baseBranch: task.baseBranch,
+    });
+
+    return this.updateTask(taskId, {
+      mergeStatus: result.status,
+      mergeCommitSha: result.mergeCommitSha ?? null,
+      mergeError: result.message ?? null,
+      mergedAt: result.status === "merged" ? nowIso() : null,
+    });
+  }
+
+  async mergeCompletedTasks(runId) {
+    const run = this.requireRun(runId);
+    const completedTasks = run.taskIds
+      .map((taskId) => this.requireTask(taskId))
+      .filter((task) => task.status === "completed" && task.mergeStatus !== "merged");
+
+    const results = [];
+    for (const task of completedTasks) {
+      results.push(await this.mergeTask(task.id));
+    }
+    return results;
+  }
+
   snapshot() {
     return {
       runs: this.listRuns(),
@@ -568,6 +607,10 @@ function createTaskRecord(task, runId) {
     commitSha: normalizeString(task.commitSha) || null,
     changeCount: Number.isFinite(task.changeCount) ? Number(task.changeCount) : 0,
     changedFiles: normalizeStringArray(task.changedFiles),
+    mergeStatus: normalizeString(task.mergeStatus) || null,
+    mergeCommitSha: normalizeString(task.mergeCommitSha) || null,
+    mergeError: normalizeString(task.mergeError) || null,
+    mergedAt: normalizeString(task.mergedAt) || null,
     lastDispatchAt: normalizeString(task.lastDispatchAt) || null,
     outputText: typeof task.outputText === "string" ? task.outputText : "",
     error: normalizeString(task.error) || null,

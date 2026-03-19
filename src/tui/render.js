@@ -46,6 +46,9 @@ function renderRuns(snapshot, activeRunId) {
       if (task.commitSha) {
         lines.push(`      commit ${truncate(task.commitSha, 16)} (${task.changeCount ?? 0} files)`);
       }
+      if (task.mergeStatus) {
+        lines.push(`      merge ${task.mergeStatus}${task.mergeCommitSha ? ` ${truncate(task.mergeCommitSha, 16)}` : ""}`);
+      }
     }
   }
   return lines.join("\n");
@@ -84,7 +87,7 @@ export function renderDashboard(snapshot, options = {}) {
     "",
     renderTranscript(snapshot, activeSessionId),
     "",
-    "Commands: /agent <name>, /use <session-id>, /run <name> | <goal>, /run-use <run-id>, /plan, /dispatch, /share start|stop, /quit",
+    "Commands: /agent <name>, /use <session-id>, /run <name> | <goal>, /run-use <run-id>, /plan, /dispatch, /merge, /merge-task <task-id>, /share start|stop, /quit",
   ];
 
   return sections.join("\n");

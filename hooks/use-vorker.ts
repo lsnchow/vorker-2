@@ -33,6 +33,10 @@ export interface Task {
   commitSha?: string;
   changeCount?: number;
   changedFiles?: string[];
+  mergeStatus?: string;
+  mergeCommitSha?: string;
+  mergeError?: string;
+  mergedAt?: string;
   modeId?: string;
   modelId?: string;
   skillIds?: string[];

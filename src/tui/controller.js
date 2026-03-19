@@ -64,6 +64,20 @@ export async function executeCommand(command, context) {
       state.statusLine = `Dispatched ready tasks for ${runId}.`;
       return null;
     }
+    case "run.merge": {
+      const runId = command.runId ?? state.activeRunId;
+      if (!runId) {
+        state.statusLine = "Select a run first.";
+        return null;
+      }
+      await orchestrator.mergeCompletedTasks(runId);
+      state.statusLine = `Merged completed tasks for ${runId}.`;
+      return null;
+    }
+    case "task.merge":
+      await orchestrator.mergeTask(command.taskId);
+      state.statusLine = `Merged task ${command.taskId}.`;
+      return null;
     case "share.start":
       await tunnelManager.start();
       state.statusLine = "Cloudflare tunnel started.";

@@ -829,10 +829,26 @@ export async function startRemoteServer(options) {
           { taskId: String(payload.taskId ?? "") },
         );
         return { type: "ok" };
+      case "merge_task":
+        void fireAndBroadcast(
+          async () => {
+            await orchestrator.mergeTask(String(payload.taskId ?? ""));
+          },
+          { taskId: String(payload.taskId ?? "") },
+        );
+        return { type: "ok" };
       case "auto_dispatch_run":
         void fireAndBroadcast(
           async () => {
             await orchestrator.autoDispatchReadyTasks(String(payload.runId ?? ""));
+          },
+          { runId: String(payload.runId ?? "") },
+        );
+        return { type: "ok" };
+      case "merge_run":
+        void fireAndBroadcast(
+          async () => {
+            await orchestrator.mergeCompletedTasks(String(payload.runId ?? ""));
           },
           { runId: String(payload.runId ?? "") },
         );

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, ListTodo, Plus, RefreshCw, Play, Sparkles, X, Send } from "lucide-react";
+import { Bot, ListTodo, Plus, RefreshCw, Play, Sparkles, X, Send, GitMerge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -92,6 +92,9 @@ function TasksTab({ vorker }: { vorker: any }) {
           <Button size="sm" className="h-7 text-xs" onClick={() => void sendCommand({ type: "auto_dispatch_run", runId: activeRun.id })}>
             <Play className="mr-1 h-3 w-3" /> Auto Dispatch
           </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void sendCommand({ type: "merge_run", runId: activeRun.id })}>
+            <GitMerge className="mr-1 h-3 w-3" /> Merge Completed
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -132,6 +135,7 @@ function TasksTab({ vorker }: { vorker: any }) {
                     {task.executionAgentId ? <div>exec: {task.executionAgentId}</div> : null}
                     {task.branchName ? <div>branch: {task.branchName}</div> : null}
                     {task.commitSha ? <div>commit: {task.commitSha.slice(0, 12)} ({task.changeCount ?? 0} files)</div> : null}
+                    {task.mergeStatus ? <div>merge: {task.mergeStatus}</div> : null}
                   </div>
                 )}
               </button>
@@ -193,23 +197,39 @@ function TasksTab({ vorker }: { vorker: any }) {
         <div className="flex gap-2">
           <Button type="submit" size="sm" className="flex-1 text-xs">{activeTask ? "Save" : "Create"}</Button>
           {activeTask && (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="text-xs"
-              onClick={() => {
-                void sendCommand({
-                  type: "dispatch_task",
-                  taskId: activeTask.id,
-                  agentId: taskForm.assignedAgentId || undefined,
-                  modeId: taskForm.modeId || undefined,
-                  modelId: taskForm.modelId || undefined,
-                });
-              }}
-            >
-              <Send className="mr-1 h-3 w-3" /> Dispatch
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="text-xs"
+                onClick={() => {
+                  void sendCommand({
+                    type: "dispatch_task",
+                    taskId: activeTask.id,
+                    agentId: taskForm.assignedAgentId || undefined,
+                    modeId: taskForm.modeId || undefined,
+                    modelId: taskForm.modelId || undefined,
+                  });
+                }}
+              >
+                <Send className="mr-1 h-3 w-3" /> Dispatch
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                onClick={() => {
+                  void sendCommand({
+                    type: "merge_task",
+                    taskId: activeTask.id,
+                  });
+                }}
+              >
+                <GitMerge className="mr-1 h-3 w-3" /> Merge
+              </Button>
+            </>
           )}
         </div>
 
@@ -221,6 +241,9 @@ function TasksTab({ vorker }: { vorker: any }) {
             {activeTask.baseBranch ? <div>base: {activeTask.baseBranch}</div> : null}
             {activeTask.commitSha ? <div>commit: {activeTask.commitSha}</div> : null}
             {activeTask.changedFiles?.length ? <div>files: {activeTask.changedFiles.join(", ")}</div> : null}
+            {activeTask.mergeStatus ? <div>merge: {activeTask.mergeStatus}</div> : null}
+            {activeTask.mergeCommitSha ? <div>merge commit: {activeTask.mergeCommitSha}</div> : null}
+            {activeTask.mergeError ? <div>merge error: {activeTask.mergeError}</div> : null}
             {activeTask.workspacePath ? <div className="break-all">workspace: {activeTask.workspacePath}</div> : null}
           </div>
         ) : null}
