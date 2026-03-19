@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import process from "node:process";
+import { TaskWorkspaceManager } from "./git/task-workspace.js";
 
 const RUN_STATUSES = ["draft", "planning", "ready", "running", "completed", "failed"];
 const TASK_STATUSES = ["draft", "ready", "running", "completed", "failed"];
@@ -30,6 +32,24 @@ function normalizeStringArray(values) {
     }
     seen.add(normalized);
     result.push(normalized);
+  }
+
+  return result;
+}
+
+function mergeUniqueStrings(...groups) {
+  const result = [];
+  const seen = new Set();
+
+  for (const group of groups) {
+    for (const value of group ?? []) {
+      const normalized = normalizeString(value);
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      result.push(normalized);
+    }
   }
 
   return result;
@@ -82,6 +102,8 @@ export class Orchestrator extends EventEmitter {
     this.manager = options.manager;
     this.runs = new Map();
     this.tasks = new Map();
+    const repoRoot = options.repoRoot ?? this.manager?.defaults?.cwd ?? process.cwd();
+    this.workspaceManager = options.workspaceManager ?? new TaskWorkspaceManager({ repoRoot });
   }
 
   publish(type, payload = {}) {
@@ -170,21 +192,7 @@ export class Orchestrator extends EventEmitter {
 
   createRun(input = {}) {
     const runId = randomUUID();
-    const createdAt = nowIso();
-    const run = {
-      id: runId,
-      name: normalizeString(input.name) || "New run",
-      goal: normalizeString(input.goal),
-      workspace: normalizeString(input.workspace),
-      arbitratorAgentId: normalizeString(input.arbitratorAgentId) || null,
-      workerAgentIds: normalizeStringArray(input.workerAgentIds),
-      status: RUN_STATUSES.includes(input.status) ? input.status : "draft",
-      notes: normalizeString(input.notes),
-      taskIds: [],
-      createdAt,
-      updatedAt: createdAt,
-      lastPlanText: "",
-    };
+    const run = createRunRecord({ ...input, id: runId }, []);
 
     this.runs.set(runId, run);
     this.publish("run_created", { run: this.snapshotRun(runId) });
@@ -194,23 +202,7 @@ export class Orchestrator extends EventEmitter {
   createTask(input = {}) {
     const run = this.requireRun(normalizeString(input.runId));
     const taskId = randomUUID();
-    const createdAt = nowIso();
-    const task = {
-      id: taskId,
-      runId: run.id,
-      title: normalizeString(input.title) || "Untitled task",
-      description: normalizeString(input.description) || normalizeString(input.title) || "No description",
-      status: TASK_STATUSES.includes(input.status) ? input.status : "draft",
-      assignedAgentId: normalizeString(input.assignedAgentId) || null,
-      skillIds: normalizeStringArray(input.skillIds),
-      modeId: normalizeString(input.modeId) || null,
-      modelId: normalizeString(input.modelId) || null,
-      lastDispatchAt: null,
-      outputText: "",
-      error: null,
-      createdAt,
-      updatedAt: createdAt,
-    };
+    const task = createTaskRecord({ ...input, id: taskId, runId: run.id }, run.id);
 
     this.tasks.set(taskId, task);
     this.runs.set(run.id, {
@@ -250,6 +242,13 @@ export class Orchestrator extends EventEmitter {
       skillIds: Array.isArray(updates.skillIds) ? normalizeStringArray(updates.skillIds) : current.skillIds,
       modeId: "modeId" in updates ? normalizeString(updates.modeId) || null : current.modeId,
       modelId: "modelId" in updates ? normalizeString(updates.modelId) || null : current.modelId,
+      templateAgentId:
+        "templateAgentId" in updates ? normalizeString(updates.templateAgentId) || null : current.templateAgentId,
+      executionAgentId:
+        "executionAgentId" in updates ? normalizeString(updates.executionAgentId) || null : current.executionAgentId,
+      workspacePath: "workspacePath" in updates ? normalizeString(updates.workspacePath) || null : current.workspacePath,
+      branchName: "branchName" in updates ? normalizeString(updates.branchName) || null : current.branchName,
+      baseBranch: "baseBranch" in updates ? normalizeString(updates.baseBranch) || null : current.baseBranch,
       error: "error" in updates ? normalizeString(updates.error) || null : current.error,
       outputText: "outputText" in updates ? String(updates.outputText ?? "") : current.outputText,
     });
@@ -344,6 +343,10 @@ export class Orchestrator extends EventEmitter {
   }
 
   chooseWorkerForTask(task, run, offset = 0) {
+    if (task.templateAgentId) {
+      return task.templateAgentId;
+    }
+
     if (task.assignedAgentId) {
       return task.assignedAgentId;
     }
@@ -355,41 +358,71 @@ export class Orchestrator extends EventEmitter {
     return run.workerAgentIds[offset % run.workerAgentIds.length];
   }
 
+  findAgentProfile(agentId) {
+    if (!agentId) {
+      return null;
+    }
+
+    const direct = this.manager?.getAgent?.(agentId);
+    if (direct?.snapshot) {
+      return direct.snapshot();
+    }
+
+    return this.manager?.listAgents?.().find((agent) => agent.id === agentId) ?? null;
+  }
+
   async dispatchTask(taskId, options = {}) {
     const task = this.requireTask(taskId);
     const run = this.requireRun(task.runId);
-    const workerAgentId = normalizeString(options.agentId) || this.chooseWorkerForTask(task, run, 0);
-    if (!workerAgentId) {
+    const templateAgentId = normalizeString(options.agentId) || this.chooseWorkerForTask(task, run, 0);
+    if (!templateAgentId) {
       throw new Error("No worker agent selected for this task.");
     }
 
     const modeId = normalizeString(options.modeId) || task.modeId;
     const modelId = normalizeString(options.modelId) || task.modelId;
+    const workspace = await this.workspaceManager.ensureTaskWorkspace({
+      runId: run.id,
+      taskId: task.id,
+      title: task.title,
+    });
+    const templateAgent = this.findAgentProfile(templateAgentId);
+    const executionAgent = await this.manager.createAgent({
+      name: `${templateAgent?.name ?? "Task Worker"} :: ${task.title}`,
+      cwd: workspace.workspacePath,
+      role: templateAgent?.role ?? "worker",
+      notes: templateAgent?.notes ?? "",
+      skillIds: mergeUniqueStrings(templateAgent?.skillIds, task.skillIds),
+      autoApprove: typeof templateAgent?.autoApprove === "boolean" ? templateAgent.autoApprove : false,
+      mode: modeId || templateAgent?.mode || null,
+      model: modelId || templateAgent?.model || null,
+    });
+    const executionAgentId = executionAgent?.id ?? executionAgent?.snapshot?.().id;
 
     this.setTask(taskId, {
       status: "running",
-      assignedAgentId: workerAgentId,
+      assignedAgentId: templateAgentId,
+      templateAgentId,
+      executionAgentId,
+      workspacePath: workspace.workspacePath,
+      branchName: workspace.branchName,
+      baseBranch: workspace.baseBranch,
       error: null,
       lastDispatchAt: nowIso(),
     });
     this.setRun(run.id, { status: "running" });
 
     try {
-      if (modeId) {
-        await this.manager.updateAgent(workerAgentId, { mode: modeId });
-      }
-
-      if (modelId) {
-        await this.manager.updateAgent(workerAgentId, { model: modelId });
-      }
-
-      const response = await this.manager.promptAgent(workerAgentId, task.description, {
+      const response = await this.manager.promptAgent(executionAgentId, task.description, {
         displayText: `Task: ${task.title}`,
         skillIds: task.skillIds,
         contextSections: [
           `Run: ${run.name}`,
           `Goal: ${run.goal}`,
           `Task title: ${task.title}`,
+          `Workspace: ${workspace.workspacePath}`,
+          `Branch: ${workspace.branchName}`,
+          `Base branch: ${workspace.baseBranch}`,
           "Work inside the assigned repository and report what you changed, any blockers, and the next recommended step.",
         ],
       });
@@ -408,10 +441,7 @@ export class Orchestrator extends EventEmitter {
       throw error;
     }
 
-    const remaining = run.taskIds
-      .map((candidateTaskId) => this.requireTask(candidateTaskId))
-      .filter((candidate) => candidate.status !== "completed");
-    this.setRun(run.id, { status: remaining.length === 0 ? "completed" : "running" });
+    this.recomputeRunStatus(run.id);
 
     return this.snapshotTask(taskId);
   }
@@ -422,17 +452,16 @@ export class Orchestrator extends EventEmitter {
       .map((taskId) => this.requireTask(taskId))
       .filter((task) => task.status === "ready" || task.status === "draft");
 
-    const results = [];
-    for (const [index, task] of readyTasks.entries()) {
-      const agentId = this.chooseWorkerForTask(task, run, index);
-      results.push(
-        await this.dispatchTask(task.id, {
+    const results = await Promise.allSettled(
+      readyTasks.map(async (task, index) => {
+        const agentId = this.chooseWorkerForTask(task, run, index);
+        return await this.dispatchTask(task.id, {
           agentId,
           modeId: task.modeId,
           modelId: task.modelId,
-        }),
-      );
-    }
+        });
+      }),
+    );
     return results;
   }
 
@@ -441,4 +470,95 @@ export class Orchestrator extends EventEmitter {
       runs: this.listRuns(),
     };
   }
+
+  hydrate(runs = []) {
+    this.runs.clear();
+    this.tasks.clear();
+
+    for (const run of runs ?? []) {
+      const taskIds = [];
+      for (const task of run.tasks ?? []) {
+        const createdTask = createTaskRecord(task, run.id);
+        this.tasks.set(createdTask.id, createdTask);
+        taskIds.push(createdTask.id);
+      }
+
+      const createdRun = createRunRecord(run, taskIds);
+      this.runs.set(createdRun.id, createdRun);
+    }
+
+    return this.snapshot();
+  }
+
+  recomputeRunStatus(runId) {
+    const run = this.requireRun(runId);
+    const tasks = run.taskIds.map((candidateTaskId) => this.requireTask(candidateTaskId));
+
+    if (tasks.some((candidate) => candidate.status === "failed")) {
+      this.setRun(run.id, { status: "failed" });
+      return "failed";
+    }
+
+    if (tasks.length > 0 && tasks.every((candidate) => candidate.status === "completed")) {
+      this.setRun(run.id, { status: "completed" });
+      return "completed";
+    }
+
+    if (tasks.some((candidate) => candidate.status === "running")) {
+      this.setRun(run.id, { status: "running" });
+      return "running";
+    }
+
+    if (tasks.some((candidate) => candidate.status === "ready")) {
+      this.setRun(run.id, { status: "ready" });
+      return "ready";
+    }
+
+    this.setRun(run.id, { status: "draft" });
+    return "draft";
+  }
+}
+
+function createRunRecord(run, taskIds = []) {
+  const createdAt = normalizeString(run.createdAt) || nowIso();
+  return {
+    id: normalizeString(run.id) || randomUUID(),
+    name: normalizeString(run.name) || "New run",
+    goal: normalizeString(run.goal),
+    workspace: normalizeString(run.workspace),
+    arbitratorAgentId: normalizeString(run.arbitratorAgentId) || null,
+    workerAgentIds: normalizeStringArray(run.workerAgentIds),
+    status: RUN_STATUSES.includes(run.status) ? run.status : "draft",
+    notes: normalizeString(run.notes),
+    taskIds,
+    createdAt,
+    updatedAt: normalizeString(run.updatedAt) || createdAt,
+    lastPlanText: typeof run.lastPlanText === "string" ? run.lastPlanText : "",
+  };
+}
+
+function createTaskRecord(task, runId) {
+  const createdAt = normalizeString(task.createdAt) || nowIso();
+  return {
+    id: normalizeString(task.id) || randomUUID(),
+    runId: normalizeString(task.runId) || runId,
+    title: normalizeString(task.title) || "Untitled task",
+    description: normalizeString(task.description) || normalizeString(task.title) || "No description",
+    status: TASK_STATUSES.includes(task.status) ? task.status : "draft",
+    assignedAgentId: normalizeString(task.assignedAgentId) || null,
+    skillIds: normalizeStringArray(task.skillIds),
+    modeId: normalizeString(task.modeId) || null,
+    modelId: normalizeString(task.modelId) || null,
+    templateAgentId: normalizeString(task.templateAgentId) || null,
+    executionAgentId: normalizeString(task.executionAgentId) || null,
+    workspacePath: normalizeString(task.workspacePath) || null,
+    branchName: normalizeString(task.branchName) || null,
+    baseBranch: normalizeString(task.baseBranch) || null,
+    lastDispatchAt: normalizeString(task.lastDispatchAt) || null,
+    outputText: typeof task.outputText === "string" ? task.outputText : "",
+    error: normalizeString(task.error) || null,
+    createdAt,
+    updatedAt: normalizeString(task.updatedAt) || createdAt,
+    parentTaskId: normalizeString(task.parentTaskId) || null,
+  };
 }

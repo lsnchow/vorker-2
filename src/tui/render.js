@@ -34,6 +34,15 @@ function renderRuns(snapshot, activeRunId) {
     lines.push(`${marker} ${truncate(run.name, 28)} (${run.status ?? "draft"})`);
     for (const task of (run.tasks ?? []).slice(0, 6)) {
       lines.push(`    - ${truncate(task.title, 36)} [${task.status ?? "draft"}]`);
+      if (task.executionAgentId) {
+        lines.push(`      exec ${truncate(task.executionAgentId, 24)}`);
+      }
+      if (task.branchName) {
+        lines.push(`      branch ${truncate(task.branchName, 56)}`);
+      }
+      if (task.workspacePath) {
+        lines.push(`      ws ${truncate(task.workspacePath, 56)}`);
+      }
     }
   }
   return lines.join("\n");

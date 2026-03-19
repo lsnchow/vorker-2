@@ -7,8 +7,8 @@
   },
   "scripts": {
     "check": "node --check src/index.js",
-    "check:server": "node --check src/index.js && node --check src/cli.js && node --check src/copilot.js && node --check src/server.js && node --check src/orchestrator.js && node --check src/skills.js && node --check src/tunnel.js && node --check src/share.js",
-    "check:cli": "node --check src/tui.js && node --check src/supervisor/events.js && node --check src/supervisor/event-log.js && node --check src/supervisor/store.js && node --check src/supervisor/service.js && node --check src/tui/commands.js && node --check src/tui/controller.js && node --check src/tui/render.js",
+    "check:server": "node --check src/index.js && node --check src/cli.js && node --check src/copilot.js && node --check src/server.js && node --check src/orchestrator.js && node --check src/git/task-workspace.js && node --check src/skills.js && node --check src/tunnel.js && node --check src/share.js",
+    "check:cli": "node --check src/tui.js && node --check src/supervisor/events.js && node --check src/supervisor/event-log.js && node --check src/supervisor/store.js && node --check src/supervisor/service.js && node --check src/supervisor/bootstrap.js && node --check src/tui/commands.js && node --check src/tui/controller.js && node --check src/tui/render.js",
     "check:web": "next build",
     "check:all": "npm run check:server && npm run check:cli && npm run check:web",
     "cert": "sh scripts/generate-dev-cert.sh",

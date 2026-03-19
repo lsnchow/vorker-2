@@ -25,6 +25,11 @@ export interface Task {
   description?: string;
   status?: string;
   assignedAgentId?: string;
+  templateAgentId?: string;
+  executionAgentId?: string;
+  workspacePath?: string;
+  branchName?: string;
+  baseBranch?: string;
   modeId?: string;
   modelId?: string;
   skillIds?: string[];

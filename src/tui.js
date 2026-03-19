@@ -6,6 +6,7 @@ import { Orchestrator } from "./orchestrator.js";
 import { SkillCatalog } from "./skills.js";
 import { TunnelManager } from "./tunnel.js";
 import { EventLog } from "./supervisor/event-log.js";
+import { restoreDurableSupervisorState } from "./supervisor/bootstrap.js";
 import { SupervisorService } from "./supervisor/service.js";
 import { parseCommand } from "./tui/commands.js";
 import { executeCommand } from "./tui/controller.js";
@@ -46,7 +47,7 @@ export async function runTui(options) {
   const logsDir = path.join(options.cwd, ".vorker-2", "logs");
   const eventLog = new EventLog({
     rootDir: logsDir,
-    filePath: path.join(logsDir, `session-${Date.now()}.ndjson`),
+    filePath: path.join(logsDir, "supervisor.ndjson"),
   });
 
   const supervisor = new SupervisorService({
@@ -64,6 +65,11 @@ export async function runTui(options) {
       "Use /agent <name> to create an agent. Tunneling expects the web server to be running separately on the configured host and port.",
   };
 
+  await restoreDurableSupervisorState({
+    eventLog,
+    orchestrator,
+    store: supervisor.store,
+  });
   await supervisor.start();
   await supervisor.refreshSkills();
 

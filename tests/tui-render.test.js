@@ -32,6 +32,9 @@ test("renderDashboard prints sessions, runs, tasks, and tunnel status", () => {
               title: "Wire event bus",
               status: "completed",
               assignedAgentId: "agent-1",
+              executionAgentId: "exec-1",
+              branchName: "vorker/task-task-1-wire-event-bus",
+              workspacePath: "/repo/.vorker-2/worktrees/task-1",
             },
           ],
         },
@@ -54,6 +57,8 @@ test("renderDashboard prints sessions, runs, tasks, and tunnel status", () => {
   assert.match(output, /Runs/);
   assert.match(output, /Bootstrap/);
   assert.match(output, /Wire event bus/);
+  assert.match(output, /vorker\/task-task-1-wire-event-bus/);
+  assert.match(output, /exec-1/);
   assert.match(output, /Tunnel: ready/);
   assert.match(output, /Plan ready/);
 });

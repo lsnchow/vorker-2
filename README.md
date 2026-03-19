@@ -10,6 +10,9 @@ A terminal-first control plane for orchestrating GitHub Copilot CLI agents in AC
 
 - Shared supervisor event model with NDJSON logging and state replay primitives
 - Terminal dashboard command flow via `vorker tui`
+- Git-backed per-task worktrees with task-specific execution agents
+- Durable run/task replay from `.vorker-2/logs/supervisor.ndjson`
+- Parallel auto-dispatch for ready tasks
 - Local CLI chat and REPL
 - Shared ACP session layer for spawning multiple Copilot agents
 - Authenticated Next.js web control plane for phone or desktop access
@@ -59,6 +62,8 @@ The TUI is built on top of the same supervisor state that will eventually feed t
 - `/dispatch` dispatches ready tasks in the active run
 - `/share start` or `/share stop` controls the Cloudflare tunnel wrapper
 - plain text sends a prompt to the active agent
+
+When a task is dispatched, `vorker-2` now creates or reuses a git worktree under `.vorker-2/worktrees`, spawns a task-specific Copilot agent rooted in that workspace, and records the workspace path, branch name, and execution agent id in the task state.
 
 ## Remote web control plane
 
@@ -188,7 +193,9 @@ Options:
 ## Architecture
 
 - [src/supervisor/events.js](./src/supervisor/events.js), [src/supervisor/store.js](./src/supervisor/store.js), and [src/supervisor/service.js](./src/supervisor/service.js) define the shared event model, reducer, and runtime bridge
+- [src/supervisor/bootstrap.js](./src/supervisor/bootstrap.js) restores durable run/task state from the supervisor NDJSON log
 - [src/tui.js](./src/tui.js) and [src/tui](./src/tui) implement the terminal dashboard and command surface
+- [src/git/task-workspace.js](./src/git/task-workspace.js) manages per-task git worktrees and branch allocation
 - [src/copilot.js](./src/copilot.js) contains the reusable ACP session and agent manager
 - [src/cli.js](./src/cli.js) contains the local REPL and one-shot chat flow
 - [src/server.js](./src/server.js) contains the authenticated HTTP/WebSocket server

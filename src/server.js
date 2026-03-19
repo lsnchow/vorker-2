@@ -10,6 +10,7 @@ import { CopilotManager } from "./copilot.js";
 import { Orchestrator } from "./orchestrator.js";
 import { SkillCatalog } from "./skills.js";
 import { EventLog as PersistentSupervisorEventLog } from "./supervisor/event-log.js";
+import { restoreDurableSupervisorState } from "./supervisor/bootstrap.js";
 import { SupervisorService } from "./supervisor/service.js";
 import { TunnelManager } from "./tunnel.js";
 
@@ -642,7 +643,7 @@ export async function startRemoteServer(options) {
   });
   const supervisorEventLog = new PersistentSupervisorEventLog({
     rootDir: path.join(normalized.cwd, ".vorker-2", "logs"),
-    filePath: path.join(normalized.cwd, ".vorker-2", "logs", `server-${Date.now()}.ndjson`),
+    filePath: path.join(normalized.cwd, ".vorker-2", "logs", "supervisor.ndjson"),
   });
   const supervisor = new SupervisorService({
     manager,
@@ -868,6 +869,11 @@ export async function startRemoteServer(options) {
     }
   };
 
+  await restoreDurableSupervisorState({
+    eventLog: supervisorEventLog,
+    orchestrator,
+    store: supervisor.store,
+  });
   await supervisor.start();
   await refreshSkills();
 

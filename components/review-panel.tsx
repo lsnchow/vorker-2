@@ -127,6 +127,12 @@ function TasksTab({ vorker }: { vorker: any }) {
                   </Badge>
                 </div>
                 {task.description && <div className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">{task.description}</div>}
+                {(task.executionAgentId || task.branchName) && (
+                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
+                    {task.executionAgentId ? <div>exec: {task.executionAgentId}</div> : null}
+                    {task.branchName ? <div>branch: {task.branchName}</div> : null}
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -205,6 +211,16 @@ function TasksTab({ vorker }: { vorker: any }) {
             </Button>
           )}
         </div>
+
+        {activeTask && (activeTask.workspacePath || activeTask.branchName || activeTask.executionAgentId) ? (
+          <div className="rounded-md border border-border bg-muted/20 p-2 text-[10px] text-muted-foreground">
+            {activeTask.templateAgentId ? <div>template worker: {activeTask.templateAgentId}</div> : null}
+            {activeTask.executionAgentId ? <div>execution agent: {activeTask.executionAgentId}</div> : null}
+            {activeTask.branchName ? <div>branch: {activeTask.branchName}</div> : null}
+            {activeTask.baseBranch ? <div>base: {activeTask.baseBranch}</div> : null}
+            {activeTask.workspacePath ? <div className="break-all">workspace: {activeTask.workspacePath}</div> : null}
+          </div>
+        ) : null}
       </form>
     </div>
   );

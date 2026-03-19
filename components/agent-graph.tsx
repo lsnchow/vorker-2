@@ -199,8 +199,9 @@ function buildGraph(props: GraphProps) {
 
       edges.push(makeEdge(`rt-${task.id}`, `run-${run.id}`, `task-${task.id}`, undefined, taskSelected ? "#10b981" : "#52525b"));
 
-      if (task.assignedAgentId) {
-        edges.push(makeEdge(`at-${task.id}`, `agent-${task.assignedAgentId}`, `task-${task.id}`, "assigned", tc.edge, task.status === "running"));
+      const executionTarget = task.executionAgentId || task.assignedAgentId;
+      if (executionTarget) {
+        edges.push(makeEdge(`at-${task.id}`, `agent-${executionTarget}`, `task-${task.id}`, "assigned", tc.edge, task.status === "running"));
       }
     }
   }

@@ -133,6 +133,11 @@ test("SupervisorStore applies task updates and preserves parent-child task relat
         title: "Child task",
         description: "Leaf scope",
         status: "completed",
+        templateAgentId: "template-1",
+        executionAgentId: "exec-1",
+        workspacePath: "/repo/.vorker-2/worktrees/task-child",
+        branchName: "vorker/task-task-child",
+        baseBranch: "main",
         outputText: "done",
         createdAt: "2026-03-19T00:02:00.000Z",
         updatedAt: "2026-03-19T00:03:00.000Z",
@@ -149,4 +154,9 @@ test("SupervisorStore applies task updates and preserves parent-child task relat
   assert.equal(child.parentTaskId, "task-parent");
   assert.equal(child.status, "completed");
   assert.equal(child.outputText, "done");
+  assert.equal(child.templateAgentId, "template-1");
+  assert.equal(child.executionAgentId, "exec-1");
+  assert.equal(child.workspacePath, "/repo/.vorker-2/worktrees/task-child");
+  assert.equal(child.branchName, "vorker/task-task-child");
+  assert.equal(child.baseBranch, "main");
 });
