@@ -1,0 +1,6 @@
+node_modules/
+.next/
+certs/
+.DS_Store
+.agents
+.vorker-2/
