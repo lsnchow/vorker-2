@@ -30,6 +30,9 @@ export interface Task {
   workspacePath?: string;
   branchName?: string;
   baseBranch?: string;
+  commitSha?: string;
+  changeCount?: number;
+  changedFiles?: string[];
   modeId?: string;
   modelId?: string;
   skillIds?: string[];

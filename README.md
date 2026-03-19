@@ -64,6 +64,7 @@ The TUI is built on top of the same supervisor state that will eventually feed t
 - plain text sends a prompt to the active agent
 
 When a task is dispatched, `vorker-2` now creates or reuses a git worktree under `.vorker-2/worktrees`, spawns a task-specific Copilot agent rooted in that workspace, and records the workspace path, branch name, and execution agent id in the task state.
+If the worker changed files, `vorker-2` also creates a task-branch commit automatically so the task branch is immediately inspectable and ready for later merge/review workflows.
 
 ## Remote web control plane
 

@@ -249,6 +249,9 @@ export class Orchestrator extends EventEmitter {
       workspacePath: "workspacePath" in updates ? normalizeString(updates.workspacePath) || null : current.workspacePath,
       branchName: "branchName" in updates ? normalizeString(updates.branchName) || null : current.branchName,
       baseBranch: "baseBranch" in updates ? normalizeString(updates.baseBranch) || null : current.baseBranch,
+      commitSha: "commitSha" in updates ? normalizeString(updates.commitSha) || null : current.commitSha,
+      changeCount: "changeCount" in updates && Number.isFinite(updates.changeCount) ? Number(updates.changeCount) : current.changeCount,
+      changedFiles: Array.isArray(updates.changedFiles) ? normalizeStringArray(updates.changedFiles) : current.changedFiles,
       error: "error" in updates ? normalizeString(updates.error) || null : current.error,
       outputText: "outputText" in updates ? String(updates.outputText ?? "") : current.outputText,
     });
@@ -426,9 +429,17 @@ export class Orchestrator extends EventEmitter {
           "Work inside the assigned repository and report what you changed, any blockers, and the next recommended step.",
         ],
       });
+      const commitSummary = await this.workspaceManager.commitTaskWorkspace({
+        workspacePath: workspace.workspacePath,
+        taskId: task.id,
+        title: task.title,
+      });
 
       this.setTask(taskId, {
         status: "completed",
+        commitSha: commitSummary.commitSha,
+        changeCount: commitSummary.changedFiles.length,
+        changedFiles: commitSummary.changedFiles,
         outputText: String(response.responseText ?? "").trim(),
         error: null,
       });
@@ -554,6 +565,9 @@ function createTaskRecord(task, runId) {
     workspacePath: normalizeString(task.workspacePath) || null,
     branchName: normalizeString(task.branchName) || null,
     baseBranch: normalizeString(task.baseBranch) || null,
+    commitSha: normalizeString(task.commitSha) || null,
+    changeCount: Number.isFinite(task.changeCount) ? Number(task.changeCount) : 0,
+    changedFiles: normalizeStringArray(task.changedFiles),
     lastDispatchAt: normalizeString(task.lastDispatchAt) || null,
     outputText: typeof task.outputText === "string" ? task.outputText : "",
     error: normalizeString(task.error) || null,

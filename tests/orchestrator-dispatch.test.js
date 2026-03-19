@@ -15,6 +15,14 @@ test("Orchestrator dispatchTask provisions an isolated task workspace and task-s
         baseBranch: "main",
       };
     },
+    async commitTaskWorkspace(input) {
+      calls.push(["commitTaskWorkspace", input]);
+      return {
+        createdCommit: true,
+        commitSha: "abc123",
+        changedFiles: ["src/index.js"],
+      };
+    },
   };
 
   const manager = {
@@ -77,6 +85,8 @@ test("Orchestrator dispatchTask provisions an isolated task workspace and task-s
   assert.equal(result.executionAgentId, "exec-1");
   assert.equal(result.workspacePath, "/repo/.vorker-2/worktrees/task-1");
   assert.equal(result.branchName, "vorker/task-task-1-wire-event-bus");
+  assert.equal(result.commitSha, "abc123");
+  assert.equal(result.changeCount, 1);
 
   assert.deepEqual(calls[0], [
     "ensureTaskWorkspace",
@@ -95,4 +105,12 @@ test("Orchestrator dispatchTask provisions an isolated task workspace and task-s
   assert.equal(calls[2][1], "exec-1");
   assert.match(calls[2][3].contextSections.join("\n"), /Branch: vorker\/task-task-1-wire-event-bus/);
   assert.match(calls[2][3].contextSections.join("\n"), /Workspace: \/repo\/.vorker-2\/worktrees\/task-1/);
+  assert.deepEqual(calls[3], [
+    "commitTaskWorkspace",
+    {
+      workspacePath: "/repo/.vorker-2/worktrees/task-1",
+      taskId: task.id,
+      title: "Wire event bus",
+    },
+  ]);
 });

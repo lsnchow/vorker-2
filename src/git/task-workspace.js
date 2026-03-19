@@ -31,6 +31,14 @@ async function pathExists(targetPath) {
 async function runGit(args, options = {}) {
   const { stdout } = await execFileAsync("git", args, {
     cwd: options.cwd,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Vorker",
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "vorker@local",
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? process.env.GIT_AUTHOR_NAME ?? "Vorker",
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? process.env.GIT_AUTHOR_EMAIL ?? "vorker@local",
+      ...(options.env ?? {}),
+    },
   });
   return stdout.trim();
 }
@@ -98,6 +106,40 @@ export class TaskWorkspaceManager {
       workspacePath,
       branchName,
       baseBranch,
+    };
+  }
+
+  async listChangedFiles(workspacePath) {
+    const output = await runGit(["status", "--short"], { cwd: workspacePath });
+    if (!output) {
+      return [];
+    }
+
+    return output
+      .split("\n")
+      .map((line) => line.replace(/^[ MADRCU?!]{1,2}\s+/, "").trim())
+      .filter(Boolean)
+      .map((filePath) => filePath.split(" -> ").at(-1) ?? filePath);
+  }
+
+  async commitTaskWorkspace(input) {
+    const changedFiles = await this.listChangedFiles(input.workspacePath);
+    if (changedFiles.length === 0) {
+      return {
+        createdCommit: false,
+        commitSha: null,
+        changedFiles: [],
+      };
+    }
+
+    await runGit(["add", "-A"], { cwd: input.workspacePath });
+    await runGit(["commit", "-m", `task(${input.taskId}): ${input.title}`], { cwd: input.workspacePath });
+    const commitSha = await runGit(["rev-parse", "HEAD"], { cwd: input.workspacePath });
+
+    return {
+      createdCommit: true,
+      commitSha,
+      changedFiles,
     };
   }
 }

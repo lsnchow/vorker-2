@@ -131,6 +131,7 @@ function TasksTab({ vorker }: { vorker: any }) {
                   <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
                     {task.executionAgentId ? <div>exec: {task.executionAgentId}</div> : null}
                     {task.branchName ? <div>branch: {task.branchName}</div> : null}
+                    {task.commitSha ? <div>commit: {task.commitSha.slice(0, 12)} ({task.changeCount ?? 0} files)</div> : null}
                   </div>
                 )}
               </button>
@@ -218,6 +219,8 @@ function TasksTab({ vorker }: { vorker: any }) {
             {activeTask.executionAgentId ? <div>execution agent: {activeTask.executionAgentId}</div> : null}
             {activeTask.branchName ? <div>branch: {activeTask.branchName}</div> : null}
             {activeTask.baseBranch ? <div>base: {activeTask.baseBranch}</div> : null}
+            {activeTask.commitSha ? <div>commit: {activeTask.commitSha}</div> : null}
+            {activeTask.changedFiles?.length ? <div>files: {activeTask.changedFiles.join(", ")}</div> : null}
             {activeTask.workspacePath ? <div className="break-all">workspace: {activeTask.workspacePath}</div> : null}
           </div>
         ) : null}

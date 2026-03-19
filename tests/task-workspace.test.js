@@ -63,3 +63,27 @@ test("TaskWorkspaceManager reuses an existing task worktree on repeated calls", 
   assert.equal(second.workspacePath, first.workspacePath);
   assert.equal(second.branchName, first.branchName);
 });
+
+test("TaskWorkspaceManager commits task workspace changes into the task branch", async () => {
+  const repoRoot = await createRepo();
+  const manager = new TaskWorkspaceManager({ repoRoot });
+  const workspace = await manager.ensureTaskWorkspace({
+    runId: "run-1",
+    taskId: "task-3",
+    title: "Commit workspace",
+  });
+
+  await writeFile(path.join(workspace.workspacePath, "src", "index.js"), "export const value = 2;\n", "utf8");
+
+  const summary = await manager.commitTaskWorkspace({
+    workspacePath: workspace.workspacePath,
+    taskId: "task-3",
+    title: "Commit workspace",
+  });
+  const lastMessage = await git(workspace.workspacePath, "log", "-1", "--pretty=%s");
+
+  assert.equal(summary.createdCommit, true);
+  assert.ok(summary.commitSha);
+  assert.deepEqual(summary.changedFiles, ["src/index.js"]);
+  assert.match(lastMessage, /task-3/);
+});

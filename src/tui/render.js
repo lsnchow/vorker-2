@@ -43,6 +43,9 @@ function renderRuns(snapshot, activeRunId) {
       if (task.workspacePath) {
         lines.push(`      ws ${truncate(task.workspacePath, 56)}`);
       }
+      if (task.commitSha) {
+        lines.push(`      commit ${truncate(task.commitSha, 16)} (${task.changeCount ?? 0} files)`);
+      }
     }
   }
   return lines.join("\n");

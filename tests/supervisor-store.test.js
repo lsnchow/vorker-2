@@ -138,6 +138,9 @@ test("SupervisorStore applies task updates and preserves parent-child task relat
         workspacePath: "/repo/.vorker-2/worktrees/task-child",
         branchName: "vorker/task-task-child",
         baseBranch: "main",
+        commitSha: "abc123",
+        changeCount: 1,
+        changedFiles: ["src/index.js"],
         outputText: "done",
         createdAt: "2026-03-19T00:02:00.000Z",
         updatedAt: "2026-03-19T00:03:00.000Z",
@@ -159,4 +162,7 @@ test("SupervisorStore applies task updates and preserves parent-child task relat
   assert.equal(child.workspacePath, "/repo/.vorker-2/worktrees/task-child");
   assert.equal(child.branchName, "vorker/task-task-child");
   assert.equal(child.baseBranch, "main");
+  assert.equal(child.commitSha, "abc123");
+  assert.equal(child.changeCount, 1);
+  assert.deepEqual(child.changedFiles, ["src/index.js"]);
 });
