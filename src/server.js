@@ -9,6 +9,8 @@ import { WebSocketServer } from "ws";
 import { CopilotManager } from "./copilot.js";
 import { Orchestrator } from "./orchestrator.js";
 import { SkillCatalog } from "./skills.js";
+import { EventLog as PersistentSupervisorEventLog } from "./supervisor/event-log.js";
+import { SupervisorService } from "./supervisor/service.js";
 import { TunnelManager } from "./tunnel.js";
 
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
@@ -638,6 +640,17 @@ export async function startRemoteServer(options) {
     edgeProtocol: options.cloudflaredProtocol,
     edgeIpVersion: options.cloudflaredEdgeIpVersion,
   });
+  const supervisorEventLog = new PersistentSupervisorEventLog({
+    rootDir: path.join(normalized.cwd, ".vorker-2", "logs"),
+    filePath: path.join(normalized.cwd, ".vorker-2", "logs", `server-${Date.now()}.ndjson`),
+  });
+  const supervisor = new SupervisorService({
+    manager,
+    orchestrator,
+    tunnelManager,
+    skillCatalog,
+    eventLog: supervisorEventLog,
+  });
 
   const broadcast = (payload) => {
     eventLog.publish(payload);
@@ -654,6 +667,7 @@ export async function startRemoteServer(options) {
   const refreshSkills = async () => {
     skillCatalog.setWorkspaceRoots([normalized.cwd, ...manager.listAgents().map((agent) => agent.cwd)]);
     const skills = await skillCatalog.refresh();
+    await supervisor.refreshSkills();
     broadcast({
       type: "skills_updated",
       skills,
@@ -671,6 +685,7 @@ export async function startRemoteServer(options) {
     runs: authenticated ? orchestrator.listRuns() : [],
     skills: authenticated ? skillCatalog.listSkills() : [],
     share: authenticated ? tunnelManager.snapshot() : null,
+    supervisor: authenticated ? supervisor.snapshot() : null,
     events: authenticated ? eventLog.getSince(0) : [],
   });
 
@@ -853,6 +868,7 @@ export async function startRemoteServer(options) {
     }
   };
 
+  await supervisor.start();
   await refreshSkills();
 
   manager.on("agent_created", ({ agent }) => {
@@ -1195,6 +1211,7 @@ export async function startRemoteServer(options) {
 
   const shutdown = async () => {
     await tunnelManager.stop().catch(() => {});
+    await supervisor.close();
     await manager.closeAll();
     wsServer.close();
     server.close();
@@ -1220,6 +1237,7 @@ export async function startRemoteServer(options) {
     manager,
     orchestrator,
     skillCatalog,
+    supervisor,
     tunnelManager,
   };
 }
