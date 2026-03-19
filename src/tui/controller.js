@@ -6,7 +6,7 @@ export async function executeCommand(command, context) {
       return null;
     case "help":
       state.statusLine =
-        "Use /agent <name>, /use <session-id>, /run <name> | <goal>, /run-use <run-id>, /plan, /dispatch, /share start|stop, or type plain text to prompt the active agent.";
+        "Arrow keys navigate agents, runs, and task lanes. Use /agent <name>, /use <session-id>, /run <name> | <goal>, /run-use <run-id>, /plan, /dispatch, /share start|stop, or type plain text to prompt the active agent.";
       return null;
     case "invalid":
       state.statusLine = command.reason;
