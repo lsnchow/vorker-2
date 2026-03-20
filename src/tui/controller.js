@@ -1,3 +1,91 @@
+function nextSequentialName(prefix, agents = []) {
+  const usedNumbers = new Set();
+
+  for (const agent of agents) {
+    const match = String(agent?.name ?? "").match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(\\d+)$`));
+    if (match) {
+      usedNumbers.add(Number(match[1]));
+    }
+  }
+
+  let index = 1;
+  while (usedNumbers.has(index)) {
+    index += 1;
+  }
+
+  return `${prefix} ${index}`;
+}
+
+function deriveRunName(goal) {
+  const trimmed = String(goal ?? "").trim();
+  return trimmed ? trimmed.slice(0, 72) : "New Swarm";
+}
+
+async function quickCreateAgent(context, command) {
+  const { manager, state, options = {} } = context;
+  const name = command.name || nextSequentialName("Agent", manager.listAgents?.() ?? []);
+  const agent = await manager.createAgent({
+    name,
+    ...(command.role ? { role: command.role } : {}),
+    ...(command.model ? { model: command.model } : {}),
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.mode ? { mode: options.mode } : {}),
+    ...(typeof options.autoApprove === "boolean" ? { autoApprove: options.autoApprove } : {}),
+  });
+  state.activeSessionId = agent.id;
+  state.statusLine = `Created agent ${agent.name}.`;
+  return agent;
+}
+
+async function launchSwarm(context, command) {
+  const { manager, orchestrator, state } = context;
+  const model = typeof command.model === "string" && command.model.trim() ? command.model.trim() : null;
+  const goal = String(command.goal ?? "").trim();
+
+  if (!goal) {
+    state.statusLine = "Swarm goal is required.";
+    return null;
+  }
+
+  const createdPlanner = await manager.createAgent({
+    name: nextSequentialName("Swarm Planner", manager.listAgents?.() ?? []),
+    role: "arbitrator",
+    ...(model ? { model } : {}),
+  });
+
+  const existingWorkers = (manager.listAgents?.() ?? []).filter((agent) => agent.id !== createdPlanner.id);
+  const neededWorkers = Math.max(0, 2 - existingWorkers.length);
+  const workerAgents = [...existingWorkers];
+
+  for (let index = 0; index < neededWorkers; index += 1) {
+    const worker = await manager.createAgent({
+      name: nextSequentialName("Swarm Worker", [...(manager.listAgents?.() ?? []), ...workerAgents]),
+      role: "worker",
+      ...(model ? { model } : {}),
+    });
+    workerAgents.push(worker);
+  }
+
+  const run = orchestrator.createRun({
+    name: deriveRunName(goal),
+    goal,
+  });
+
+  orchestrator.updateRun(run.id, {
+    arbitratorAgentId: createdPlanner.id,
+    workerAgentIds: workerAgents.slice(0, Math.max(2, workerAgents.length)).map((agent) => agent.id),
+  });
+
+  state.activeSessionId = createdPlanner.id;
+  state.activeRunId = run.id;
+
+  await orchestrator.planRun(run.id);
+  await orchestrator.autoDispatchReadyTasks(run.id);
+
+  state.statusLine = `Swarm running for ${run.name}.`;
+  return run;
+}
+
 export async function executeCommand(command, context) {
   const { manager, orchestrator, tunnelManager, state, options = {} } = context;
 
@@ -6,7 +94,7 @@ export async function executeCommand(command, context) {
       return null;
     case "help":
       state.statusLine =
-        "Arrow keys navigate agents, runs, and task lanes. Use /agent <name>, /use <session-id>, /run <name> | <goal>, /run-use <run-id>, /plan, /dispatch, /share start|stop, or type plain text to prompt the active agent.";
+        "Use arrows to choose MODEL, NEW AGENT, or SWARM. Enter activates the selected action. Slash commands still work for power use.";
       return null;
     case "invalid":
       state.statusLine = command.reason;
@@ -14,6 +102,10 @@ export async function executeCommand(command, context) {
     case "quit":
       state.statusLine = "Closing TUI.";
       return null;
+    case "agent.quickCreate":
+      return await quickCreateAgent(context, command);
+    case "swarm.launch":
+      return await launchSwarm(context, command);
     case "agent.create": {
       const agent = await manager.createAgent({
         name: command.name,

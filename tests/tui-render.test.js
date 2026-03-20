@@ -51,6 +51,9 @@ test("renderDashboard prints sessions, runs, tasks, and tunnel status", () => {
       ],
     },
     {
+      selectedActionId: "swarm",
+      selectedModelId: "gpt-5.4",
+      modelChoices: ["gpt-5.4", "gpt-5"],
       activeSessionId: "agent-1",
       activeRunId: "run-1",
       width: 100,
@@ -59,8 +62,12 @@ test("renderDashboard prints sessions, runs, tasks, and tunnel status", () => {
   );
 
   assert.match(output, /VORKER-2/);
-  assert.match(output, /ACTIVE SESSIONS/);
-  assert.match(output, /ACTIVE SESSION/);
+  assert.match(output, /LAUNCH RAIL/);
+  assert.match(output, /NEW AGENT/);
+  assert.match(output, /SWARM/);
+  assert.match(output, /gpt-5\.4/);
+  assert.match(output, /ACTIVE AGENTS/);
+  assert.match(output, /AGENT DETAIL/);
   assert.match(output, /RUN BOARD/);
   assert.match(output, /EVENT FEED/);
   assert.match(output, /Planner/);

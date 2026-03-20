@@ -18,12 +18,16 @@ export const COLORS = {
   yellow: "\x1b[33m",
   red: "\x1b[31m",
   cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
   white: "\x1b[97m",
   gray: "\x1b[90m",
   brightGreen: "\x1b[92m",
+  brightMagenta: "\x1b[95m",
   brightBlack: "\x1b[90m",
   bgGreen: "\x1b[42m",
   bgBrightGreen: "\x1b[102m",
+  bgMagenta: "\x1b[45m",
+  bgBrightMagenta: "\x1b[105m",
 };
 
 export function stripAnsi(text) {

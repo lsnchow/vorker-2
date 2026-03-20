@@ -85,9 +85,10 @@ function appendField(lines, label, value, width, color, options = {}) {
   }
 }
 
-function styleSelectable(line, selected, color) {
+function styleSelectable(line, selected, color, tone = "green") {
   if (selected) {
-    return color ? highlight(` ${truncate(line, 999)} `, color, { background: "bgGreen", foreground: "black" }) : `> ${line}`;
+    const background = tone === "magenta" ? "bgMagenta" : "bgGreen";
+    return color ? highlight(` ${truncate(line, 999)} `, color, { background, foreground: "black" }) : `> ${line}`;
   }
   return line;
 }
@@ -96,14 +97,18 @@ function buildPanel(title, lines, width, options = {}) {
   const color = Boolean(options.color);
   const innerWidth = Math.max(12, width - 2);
   const focused = Boolean(options.focused);
-  const borderColor = focused ? "brightGreen" : options.borderColor ?? "green";
+  const borderColor = options.borderColor ?? (focused ? "brightGreen" : "green");
+  const titleTone = options.titleTone ?? borderColor;
   const plainTitle = ` ${title} `;
   const fillerWidth = Math.max(0, innerWidth - plainTitle.length);
   const leftFill = "─".repeat(Math.floor(fillerWidth / 2));
   const rightFill = "─".repeat(Math.ceil(fillerWidth / 2));
   const titleText = focused
-    ? highlight(plainTitle, color, { background: "bgGreen", foreground: "black" })
-    : colorize(emphasize(plainTitle, color), borderColor, color);
+    ? highlight(plainTitle, color, {
+        background: options.focusBackground ?? (titleTone.includes("Magenta") || titleTone === "magenta" ? "bgMagenta" : "bgGreen"),
+        foreground: "black",
+      })
+    : colorize(emphasize(plainTitle, color), titleTone, color);
   const top = `${colorize(`┌${leftFill}`, borderColor, color)}${titleText}${colorize(`${rightFill}┐`, borderColor, color)}`;
   const body = (lines.length > 0 ? lines : [""]).map(
     (line) => `${colorize("│", borderColor, color)}${fit(line, innerWidth)}${colorize("│", borderColor, color)}`,
@@ -126,19 +131,84 @@ function combineColumns(leftLines, rightLines, gap = 1) {
   return result;
 }
 
+function renderChip(label, options = {}) {
+  const color = Boolean(options.color);
+  const tone = options.tone ?? "green";
+  const selected = Boolean(options.selected);
+  const background = tone === "magenta" ? "bgMagenta" : "bgGreen";
+  const foreground = tone === "magenta" ? "brightMagenta" : "brightGreen";
+  const text = ` ${label} `;
+
+  if (selected) {
+    return color ? highlight(text, color, { background, foreground: "black" }) : `> ${label} <`;
+  }
+
+  return colorize(`[${label}]`, foreground, color);
+}
+
 function renderBanner(width, color) {
   const strapline = [
     emphasize(colorize("VORKER CONTROL PLANE", "brightGreen", color), color),
     colorize("VORKER-2 supervisor mesh", "green", color),
-    colorize("arrow nav / task lanes / cloud tunnel", "gray", color),
+    colorize("agents left / launch rail top / swarm pink", "gray", color),
   ].join("   ");
 
   return [
     ...TITLE_ART.map((line) => colorize(line, "brightGreen", color)),
     strapline,
-    colorize("Agent lanes stay hot, merges stay visible, prompts stay one keystroke away.", "gray", color),
+    colorize("Use arrows to pick a model, spawn an agent, or launch a swarm. Enter commits the selection.", "gray", color),
     colorize("─".repeat(Math.max(40, Math.min(width, 120))), "green", color),
   ];
+}
+
+function renderActionRail(snapshot, options, width, color) {
+  const selectedActionId = options.selectedActionId ?? "new-agent";
+  const modelChip = renderChip(`MODEL ${options.selectedModelId ?? "unset"}`, {
+    color,
+    selected: selectedActionId === "model",
+  });
+  const agentChip = renderChip("NEW AGENT", {
+    color,
+    selected: selectedActionId === "new-agent",
+  });
+  const swarmChip = renderChip("SWARM", {
+    color,
+    selected: selectedActionId === "swarm",
+    tone: "magenta",
+  });
+
+  const lines = [`${modelChip}  ${agentChip}  ${swarmChip}`];
+
+  if (options.modelPickerOpen) {
+    const models = (options.modelChoices ?? []).map((model) =>
+      renderChip(model, {
+        color,
+        selected: model === options.selectedModelId,
+      }),
+    );
+    lines.push(`models ${models.join("  ")}`);
+    lines.push(colorize("Choose a model with arrows. Enter keeps it. Escape closes the picker.", "gray", color));
+  } else if (selectedActionId === "new-agent") {
+    lines.push(colorize(`Press Enter to create a new agent on ${options.selectedModelId ?? "the selected model"}.`, "gray", color));
+  } else if (selectedActionId === "swarm") {
+    lines.push(
+      `${colorize("pink lane", "brightMagenta", color)} ${colorize(
+        `Press Enter, type the swarm goal, and Vorker will launch a planner plus workers on ${options.selectedModelId ?? "the selected model"}.`,
+        "gray",
+        color,
+      )}`,
+    );
+  } else {
+    lines.push(colorize(`Current persistent model: ${options.selectedModelId ?? "unset"}.`, "gray", color));
+  }
+
+  return buildPanel("LAUNCH RAIL", lines, width, {
+    color,
+    focused: options.focusedPane === "actions" || options.modelPickerOpen,
+    borderColor: selectedActionId === "swarm" ? "brightMagenta" : "green",
+    titleTone: selectedActionId === "swarm" ? "brightMagenta" : "brightGreen",
+    focusBackground: selectedActionId === "swarm" ? "bgMagenta" : "bgGreen",
+  });
 }
 
 function renderSessionList(snapshot, options, width, color) {
@@ -151,9 +221,9 @@ function renderSessionList(snapshot, options, width, color) {
         const line = `${selected ? "▶" : "•"} ${session.name} ${status} ${colorize(`[${session.role ?? "worker"}]`, "gray", color)} ${model}`;
         return styleSelectable(line, selected, color);
       })
-    : [colorize("No agents yet. Use /agent <name> to start one.", "gray", color)];
+    : [colorize("No active agents. Move to NEW AGENT and press Enter.", "gray", color)];
 
-  return buildPanel("ACTIVE SESSIONS", lines, width, {
+  return buildPanel("ACTIVE AGENTS", lines, width, {
     color,
     focused: options.focusedPane === "sessions",
   });
@@ -164,7 +234,7 @@ function renderRunBoard(snapshot, options, width, color) {
   const activeRun = runs.find((entry) => entry.id === options.activeRunId) ?? runs[0] ?? null;
 
   if (!activeRun) {
-    return buildPanel("RUN BOARD", [colorize("No runs yet. Use /run <name> | <goal>.", "gray", color)], width, {
+    return buildPanel("RUN BOARD", [colorize("No runs yet. Launch a swarm to create one.", "gray", color)], width, {
       color,
       focused: options.focusedPane === "runs" || options.focusedPane === "tasks",
     });
@@ -187,7 +257,7 @@ function renderRunBoard(snapshot, options, width, color) {
   const selectedTask = (activeRun.tasks ?? []).find((task) => task.id === options.selectedTaskId) ?? activeRun.tasks?.[0] ?? null;
 
   if ((activeRun.tasks ?? []).length === 0) {
-    lines.push(colorize("No tasks in this run.", "gray", color));
+    lines.push(colorize("This swarm has no task lanes yet.", "gray", color));
   } else {
     for (const task of activeRun.tasks.slice(0, 7)) {
       const selected = task.id === selectedTask?.id;
@@ -209,15 +279,6 @@ function renderRunBoard(snapshot, options, width, color) {
     if (selectedTask.commitSha) {
       appendField(lines, "commit", `${selectedTask.commitSha} (${selectedTask.changeCount ?? 0} files)`, width, color);
     }
-    if (selectedTask.mergeStatus) {
-      appendField(
-        lines,
-        "merge",
-        `${selectedTask.mergeStatus}${selectedTask.mergeCommitSha ? ` ${selectedTask.mergeCommitSha}` : ""}`,
-        width,
-        color,
-      );
-    }
   }
 
   return buildPanel("RUN BOARD", lines, width, {
@@ -230,9 +291,8 @@ function renderActiveSession(snapshot, options, width, color) {
   const session = (snapshot.sessions ?? []).find((entry) => entry.id === options.activeSessionId) ?? snapshot.sessions?.[0] ?? null;
 
   if (!session) {
-    return buildPanel("ACTIVE SESSION", [colorize("No active session selected.", "gray", color)], width, {
+    return buildPanel("AGENT DETAIL", [colorize("No active agent selected yet.", "gray", color)], width, {
       color,
-      focused: options.focusedPane === "active",
     });
   }
 
@@ -254,7 +314,7 @@ function renderActiveSession(snapshot, options, width, color) {
     }
   }
 
-  return buildPanel("ACTIVE SESSION", lines, width, { color });
+  return buildPanel("AGENT DETAIL", lines, width, { color });
 }
 
 function renderEventFeed(snapshot, options, width, color) {
@@ -279,20 +339,22 @@ function renderEventFeed(snapshot, options, width, color) {
 
 function renderFooter(snapshot, options, width, color) {
   const shareState = snapshot.share?.state ?? "idle";
+  const inputLabel = options.inputMode === "swarm-goal" ? "swarm goal >" : "prompt >";
+  const inputPlaceholder =
+    options.inputMode === "swarm-goal"
+      ? "Describe the swarm goal and press Enter"
+      : options.activeSessionId
+        ? "Type a prompt for the selected agent and press Enter"
+        : "Create an agent first, then type a prompt";
   const lines = [
     `${colorize("status", "gray", color)} ${options.statusLine ?? "Ready."}`,
-    `${colorize("focus", "gray", color)} ${options.focusedPane ?? "sessions"}    ${colorize("tunnel", "gray", color)} ${colorize(shareState.toUpperCase(), statusColor(shareState), color)}`,
+    `${colorize("focus", "gray", color)} ${options.focusedPane ?? "actions"}    ${colorize("tunnel", "gray", color)} ${colorize(shareState.toUpperCase(), statusColor(shareState), color)}`,
   ];
   appendField(lines, "url", snapshot.share?.publicUrl ?? "not shared", width, color, { stacked: true });
-  appendField(
-    lines,
-    "input >",
-    options.commandBuffer?.length ? options.commandBuffer : "type a prompt or /command and press Enter",
-    width,
-    color,
-    { stacked: true },
-  );
-  lines.push(colorize("arrows move  tab cycles panes  enter sends  esc clears  ctrl+c quits", "gray", color));
+  appendField(lines, inputLabel, options.commandBuffer?.length ? options.commandBuffer : inputPlaceholder, width, color, {
+    stacked: true,
+  });
+  lines.push(colorize("arrows move  enter activates  esc cancels picker/prompt  ctrl+c quits", "gray", color));
   return buildPanel("COMMAND DECK", lines, width, { color, focused: true });
 }
 
@@ -306,7 +368,11 @@ export function renderDashboard(snapshot, options = {}) {
     activeSessionId: options.activeSessionId ?? null,
     activeRunId: options.activeRunId ?? null,
     selectedTaskId: options.selectedTaskId ?? null,
-    focusedPane: options.focusedPane ?? "sessions",
+    focusedPane: options.focusedPane ?? "actions",
+    selectedActionId: options.selectedActionId ?? "new-agent",
+    selectedModelId: options.selectedModelId ?? null,
+    modelChoices: options.modelChoices ?? [],
+    modelPickerOpen: Boolean(options.modelPickerOpen),
   };
 
   const sessionPanel = renderSessionList(snapshot, panelOptions, leftWidth, color);
@@ -316,6 +382,7 @@ export function renderDashboard(snapshot, options = {}) {
 
   const rows = [
     ...renderBanner(width, color),
+    ...renderActionRail(snapshot, panelOptions, width, color),
     ...combineColumns(sessionPanel, activePanel),
     ...combineColumns(runPanel, eventPanel),
     ...renderFooter(snapshot, options, width, color),

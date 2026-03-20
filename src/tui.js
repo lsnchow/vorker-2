@@ -27,13 +27,13 @@ function resolveProtocol(options) {
 
 function enterAltScreen() {
   if (process.stdout.isTTY) {
-    process.stdout.write("\x1b[?1049h\x1b[?25l");
+    process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?1h");
   }
 }
 
 function exitAltScreen() {
   if (process.stdout.isTTY) {
-    process.stdout.write("\x1b[?25h\x1b[?1049l");
+    process.stdout.write("\x1b[?1l\x1b[?25h\x1b[?1049l");
   }
 }
 
@@ -119,24 +119,84 @@ async function playBootAnimation(snapshot, skillCatalog) {
   await sleep(90);
 }
 
+function collectModelChoices(manager, state, options) {
+  const choices = [];
+  const seen = new Set();
+
+  const add = (value) => {
+    if (typeof value !== "string") {
+      return;
+    }
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    choices.push(normalized);
+  };
+
+  for (const model of state.modelChoices ?? []) {
+    add(model);
+  }
+  add(options.model);
+  for (const agent of manager.listAgents?.() ?? []) {
+    add(agent.model);
+    for (const model of agent.availableModels ?? []) {
+      add(model);
+    }
+  }
+  for (const fallback of ["gpt-5.4", "gpt-5", "gpt-4.1"]) {
+    add(fallback);
+  }
+  add(state.selectedModelId);
+
+  return choices;
+}
+
+function describeAction(state) {
+  if (state.modelPickerOpen) {
+    return `Select a model with arrows. Current: ${state.selectedModelId ?? "unset"}.`;
+  }
+  if (state.selectedActionId === "model") {
+    return `Model locked to ${state.selectedModelId ?? "unset"}. Press Enter to change it.`;
+  }
+  if (state.selectedActionId === "new-agent") {
+    return `Press Enter to create a new agent on ${state.selectedModelId ?? "the selected model"}.`;
+  }
+  if (state.selectedActionId === "swarm") {
+    return `Press Enter to launch a swarm on ${state.selectedModelId ?? "the selected model"}.`;
+  }
+  return "Choose an action.";
+}
+
 function describeFocus(snapshot, state) {
+  if (state.focusedPane === "actions") {
+    return describeAction(state);
+  }
+
   if (state.focusedPane === "sessions") {
     const session = (snapshot.sessions ?? []).find((entry) => entry.id === state.activeSessionId);
-    return session ? `Focused agent ${session.name}.` : "Focused agent list.";
+    return session ? `Selected agent ${session.name}.` : "No active agents yet.";
   }
 
   if (state.focusedPane === "runs") {
     const run = (snapshot.runs ?? []).find((entry) => entry.id === state.activeRunId);
-    return run ? `Focused run ${run.name}.` : "Focused run board.";
+    return run ? `Selected run ${run.name}.` : "No swarm runs yet.";
   }
 
   if (state.focusedPane === "tasks") {
     const run = (snapshot.runs ?? []).find((entry) => entry.id === state.activeRunId);
     const task = (run?.tasks ?? []).find((entry) => entry.id === state.selectedTaskId);
-    return task ? `Focused task ${task.title}.` : "Focused task lanes.";
+    return task ? `Selected task ${task.title}.` : "No task lanes in the current run.";
   }
 
-  return "Focused event feed.";
+  return "Watching the latest supervisor events.";
+}
+
+function syncUiState(manager, supervisor, state, options) {
+  state.modelChoices = collectModelChoices(manager, state, options);
+  state.defaultModel = options.model ?? "gpt-5.4";
+  Object.assign(state, reconcileNavigationState(supervisor.snapshot(), state));
 }
 
 async function runLineInputLoop(context) {
@@ -162,7 +222,7 @@ async function runLineInputLoop(context) {
 }
 
 async function runInteractiveInputLoop(context) {
-  const { redraw, handleLine, state, getSnapshot } = context;
+  const { redraw, handleLine, state, getSnapshot, syncState, runAction } = context;
 
   emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
@@ -203,23 +263,28 @@ async function runInteractiveInputLoop(context) {
         return;
       }
 
-      if (key.name === "tab") {
-        Object.assign(state, applyNavigationKey(state, getSnapshot(), key.shift ? "shift-tab" : "tab"));
-        state.statusLine = describeFocus(getSnapshot(), state);
-        redraw();
-        return;
-      }
-
-      if (["left", "right", "up", "down"].includes(key.name)) {
-        Object.assign(state, applyNavigationKey(state, getSnapshot(), key.name));
-        state.statusLine = describeFocus(getSnapshot(), state);
-        redraw();
-        return;
-      }
-
       if (key.name === "escape") {
-        state.commandBuffer = "";
-        state.statusLine = "Command buffer cleared.";
+        if (state.modelPickerOpen) {
+          state.modelPickerOpen = false;
+          state.statusLine = `Model kept at ${state.selectedModelId ?? "unset"}.`;
+        } else if (state.inputMode === "swarm-goal") {
+          state.inputMode = "prompt";
+          state.commandBuffer = "";
+          state.statusLine = "Swarm launch cancelled.";
+        } else {
+          state.commandBuffer = "";
+          state.statusLine = "Command buffer cleared.";
+        }
+        redraw();
+        return;
+      }
+
+      if (["left", "right", "up", "down", "tab"].includes(key.name)) {
+        if (state.inputMode === "swarm-goal" && !state.modelPickerOpen) {
+          return;
+        }
+        Object.assign(state, applyNavigationKey(state, getSnapshot(), key.shift ? "shift-tab" : key.name));
+        state.statusLine = describeFocus(getSnapshot(), state);
         redraw();
         return;
       }
@@ -231,6 +296,40 @@ async function runInteractiveInputLoop(context) {
       }
 
       if (key.name === "return") {
+        if (state.modelPickerOpen) {
+          state.modelPickerOpen = false;
+          state.statusLine = `Model locked to ${state.selectedModelId ?? "unset"}.`;
+          redraw();
+          return;
+        }
+
+        if (state.focusedPane === "actions" && !state.commandBuffer.trim()) {
+          if (state.selectedActionId === "model") {
+            state.modelPickerOpen = true;
+            state.statusLine = `Choose a model. Current: ${state.selectedModelId ?? "unset"}.`;
+            redraw();
+            return;
+          }
+
+          if (state.selectedActionId === "new-agent") {
+            enqueue(async () => {
+              await runAction({
+                type: "agent.quickCreate",
+                model: state.selectedModelId,
+              });
+            });
+            return;
+          }
+
+          if (state.selectedActionId === "swarm") {
+            state.inputMode = "swarm-goal";
+            state.commandBuffer = "";
+            state.statusLine = `Type the swarm goal for ${state.selectedModelId ?? "the selected model"} and press Enter.`;
+            redraw();
+            return;
+          }
+        }
+
         const line = state.commandBuffer.trim();
         state.commandBuffer = "";
         if (!line) {
@@ -238,11 +337,9 @@ async function runInteractiveInputLoop(context) {
           return;
         }
 
-        state.statusLine = `Running ${line.slice(0, 48)}${line.length > 48 ? "..." : ""}`;
-        redraw();
-
         enqueue(async () => {
           const shouldContinue = await handleLine(line);
+          syncState();
           redraw();
           if (!shouldContinue) {
             finish();
@@ -304,9 +401,14 @@ export async function runTui(options) {
     activeSessionId: null,
     activeRunId: null,
     selectedTaskId: null,
-    focusedPane: "sessions",
+    focusedPane: "actions",
+    selectedActionId: "new-agent",
+    selectedModelId: options.model ?? "gpt-5.4",
+    modelChoices: [],
+    modelPickerOpen: false,
     commandBuffer: "",
-    statusLine: "Arrow keys navigate agents, runs, and task lanes. Type a prompt or /command and press Enter.",
+    inputMode: "prompt",
+    statusLine: "Use arrows to pick MODEL, NEW AGENT, or SWARM. Enter activates the selection.",
   };
   const useAltScreen = process.stdout.isTTY && !options.noAltScreen;
 
@@ -317,11 +419,10 @@ export async function runTui(options) {
   });
   await supervisor.start();
   await supervisor.refreshSkills();
-
-  Object.assign(state, reconcileNavigationState(supervisor.snapshot(), state));
+  syncUiState(manager, supervisor, state, options);
 
   const redraw = () => {
-    Object.assign(state, reconcileNavigationState(supervisor.snapshot(), state));
+    syncUiState(manager, supervisor, state, options);
     clearScreen();
     process.stdout.write(
       `${renderDashboard(supervisor.snapshot(), {
@@ -329,6 +430,11 @@ export async function runTui(options) {
         activeRunId: state.activeRunId,
         selectedTaskId: state.selectedTaskId,
         focusedPane: state.focusedPane,
+        selectedActionId: state.selectedActionId,
+        selectedModelId: state.selectedModelId,
+        modelChoices: state.modelChoices,
+        modelPickerOpen: state.modelPickerOpen,
+        inputMode: state.inputMode,
         commandBuffer: state.commandBuffer,
         width: process.stdout.columns ?? 100,
         color: process.stdout.isTTY,
@@ -337,7 +443,35 @@ export async function runTui(options) {
     );
   };
 
+  const runAction = async (command) => {
+    try {
+      await executeCommand(command, {
+        manager,
+        orchestrator,
+        tunnelManager,
+        skillCatalog,
+        supervisor,
+        state,
+        options,
+      });
+      state.inputMode = "prompt";
+      syncUiState(manager, supervisor, state, options);
+    } catch (error) {
+      state.statusLine = error instanceof Error ? error.message : String(error);
+    }
+    redraw();
+  };
+
   const handleLine = async (line) => {
+    if (state.inputMode === "swarm-goal") {
+      await runAction({
+        type: "swarm.launch",
+        goal: line,
+        model: state.selectedModelId,
+      });
+      return true;
+    }
+
     const command = parseCommand(line);
     if (command.type === "quit") {
       state.statusLine = "Closing TUI.";
@@ -358,12 +492,12 @@ export async function runTui(options) {
       state.statusLine = error instanceof Error ? error.message : String(error);
     }
 
-    Object.assign(state, reconcileNavigationState(supervisor.snapshot(), state));
+    syncUiState(manager, supervisor, state, options);
     return true;
   };
 
   const onSupervisorEvent = () => {
-    Object.assign(state, reconcileNavigationState(supervisor.snapshot(), state));
+    syncUiState(manager, supervisor, state, options);
     redraw();
   };
 
@@ -382,6 +516,8 @@ export async function runTui(options) {
         handleLine,
         state,
         getSnapshot: () => supervisor.snapshot(),
+        syncState: () => syncUiState(manager, supervisor, state, options),
+        runAction,
       });
     } else {
       await runLineInputLoop({
