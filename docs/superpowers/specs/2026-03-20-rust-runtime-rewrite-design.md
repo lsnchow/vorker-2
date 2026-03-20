@@ -408,6 +408,48 @@ Planning assumption:
 
 - phase 2 includes fixture-based replay tests against real or representative JS NDJSON logs checked into the Rust test suite.
 
+### JS Replay Default Compatibility Appendix
+
+When older JS events omit fields, Rust replay must fall back to the same logical defaults currently used by the JS store:
+
+- session defaults
+  - `name = id or "session"`
+  - `role = "worker"`
+  - `status = "unknown"`
+  - `mode = null`
+  - `model = null`
+  - `cwd = ""`
+  - `transcript = []`
+- run defaults
+  - `name = "Untitled run"`
+  - `goal = ""`
+  - `status = "draft"`
+  - `notes = ""`
+  - `workerAgentIds = []`
+  - `arbitratorAgentId = null`
+  - `taskIds = []`
+- task defaults
+  - `title = "Untitled task"`
+  - `description = ""`
+  - `status = "draft"`
+  - `assignedAgentId = null`
+  - `templateAgentId = null`
+  - `executionAgentId = null`
+  - `workspacePath = null`
+  - `branchName = null`
+  - `baseBranch = null`
+  - `commitSha = null`
+  - `changeCount = 0`
+  - `changedFiles = []`
+  - `mergeStatus = null`
+  - `mergeCommitSha = null`
+  - `mergeError = null`
+  - `mergedAt = null`
+  - `outputText = ""`
+  - `error = null`
+
+The implementation plan should turn this appendix into explicit replay fixtures and assertions.
+
 ### Runtime Snapshot
 
 The canonical snapshot exposed to the TUI and server must include:
@@ -489,6 +531,196 @@ Rules:
 4. The planning phase must enumerate the exact current server message names from the JS implementation and map each one to the Rust equivalent before phase 5 begins.
 
 The migration should avoid inventing a brand-new protocol unless a compatibility adapter is added intentionally and scoped.
+
+#### Current JS Server Message Map
+
+The Rust server plan must preserve or intentionally adapt the following current JS protocol.
+
+##### HTTP endpoints
+
+- `POST /api/login`
+  - request: `{ password }`
+  - response on success: `{ ok, secureTransport, cwd, csrfToken }`
+- `POST /api/logout`
+  - response: `{ ok }`
+- `GET /api/me`
+  - response: `{ authenticated, secureTransport, transportMode, cwd, csrfToken }`
+- `GET /api/bootstrap`
+  - authenticated response:
+    - `{ authenticated, secureTransport, cwd, pairingPassword, agents, runs, skills, share, supervisor, events, csrfToken }`
+- `GET /api/agents`
+  - response: `{ agents }`
+- `GET /api/events?since=<cursor>&timeoutMs=<n>`
+  - response: `{ events, cursor, secureTransport }`
+- `POST /api/command`
+  - request body: command payload from the command list below
+  - response: `{ ok, response }` or `{ error }`
+
+##### Websocket bootstrap
+
+On connect, the JS server currently sends:
+
+- `hello`
+  - fields:
+    - `secureTransport`
+    - `cwd`
+    - `agents`
+    - `runs`
+    - `skills`
+    - `share`
+
+The Rust server should preserve `hello` unless the frontend is intentionally updated in the same slice.
+
+##### Client-to-server websocket or command message types
+
+Current command names handled by `handleClientCommand`:
+
+- `list_agents`
+- `list_runs`
+- `list_skills`
+- `create_agent`
+- `update_agent`
+- `send_prompt`
+- `set_mode`
+- `set_model`
+- `close_agent`
+- `refresh_skills`
+- `create_run`
+- `update_run`
+- `plan_run`
+- `create_task`
+- `update_task`
+- `dispatch_task`
+- `merge_task`
+- `auto_dispatch_run`
+- `merge_run`
+- `share_start`
+- `share_stop`
+- `permission_response`
+
+Required payload fields by command family:
+
+- `create_agent`
+  - `name?`
+  - `cwd?`
+  - `mode?`
+  - `model?`
+  - `role?`
+  - `notes?`
+  - `skillIds?`
+  - `autoApprove?`
+- `update_agent`
+  - `agentId`
+  - optional mutable fields mirroring create
+- `send_prompt`
+  - `agentId`
+  - `text`
+- `set_mode`
+  - `agentId`
+  - `modeId`
+- `set_model`
+  - `agentId`
+  - `modelId`
+- `close_agent`
+  - `agentId`
+- `create_run`
+  - `name`
+  - `goal`
+  - `workspace?`
+  - `arbitratorAgentId?`
+  - `workerAgentIds?`
+  - `notes?`
+- `update_run`
+  - `runId`
+  - mutable run fields
+- `plan_run`
+  - `runId`
+- `create_task`
+  - `runId`
+  - `title`
+  - `description`
+  - `status?`
+  - `assignedAgentId?`
+  - `skillIds?`
+  - `modeId?`
+  - `modelId?`
+- `update_task`
+  - `taskId`
+  - mutable task fields
+- `dispatch_task`
+  - `taskId`
+  - `agentId?`
+  - `modeId?`
+  - `modelId?`
+- `merge_task`
+  - `taskId`
+- `auto_dispatch_run`
+  - `runId`
+- `merge_run`
+  - `runId`
+- `share_start`
+  - `cloudflaredBin?`
+  - `edgeProtocol?`
+  - `edgeIpVersion?`
+- `share_stop`
+  - no fields
+- `permission_response`
+  - `requestId`
+  - `outcome`
+  - `optionId?`
+
+##### Server-to-client message types
+
+Direct command responses currently emitted:
+
+- `agents`
+- `runs`
+- `skills_updated`
+- `create_agent_ok`
+- `agent_state`
+- `run_created`
+- `run_updated`
+- `task_created`
+- `task_updated`
+- `share_state`
+- `ok`
+- `error`
+
+Broadcast/event messages currently emitted:
+
+- `agent_created`
+- `agents`
+- `skills_updated`
+- `permission_request`
+- `permission_expired`
+- `message_chunk`
+- `tool_call`
+- `tool_call_update`
+- `plan`
+- `usage`
+- `agent_state`
+- `agent_update`
+- `agent_error`
+- orchestrator event passthrough such as:
+  - `run_created`
+  - `run_updated`
+  - `task_created`
+  - `task_updated`
+- tunnel event payloads
+
+Planning requirement:
+
+- phase 5 must preserve these names or provide an explicit adapter table in the implementation plan for any renamed message.
+
+##### Authentication and session rules to preserve
+
+- authenticated HTTP APIs require the session cookie
+- state-changing HTTP commands require CSRF validation
+- websocket messages require a valid session and close on expired session
+- invalid JSON returns an `error` message
+- command errors return an `error` message with operator-readable text
+
+This is the minimum compatibility target for the Rust server.
 
 ## Migration Strategy
 
