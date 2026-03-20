@@ -191,6 +191,117 @@ Responsibilities:
 - configuration loading
 - process assembly
 
+## Ownership Model
+
+The runtime has a single source of truth for state transitions: the supervisor pipeline.
+
+Rules:
+
+1. Runtime commands enter through `vorker-cli`, `vorker-tui`, or `vorker-server`.
+2. Those commands call service entrypoints in `vorker-orchestrator`, `vorker-acp`, or `vorker-tunnel`.
+3. Services do not mutate shared snapshots directly.
+4. Services emit typed supervisor events through `vorker-core`.
+5. `vorker-core` applies events to the canonical store.
+6. The canonical store publishes the current snapshot to TUI and server subscribers.
+7. The durable event log is appended from the same supervisor event stream.
+
+This means:
+
+- `vorker-core` owns event definitions, event application, snapshot production, and durable replay.
+- `vorker-orchestrator` owns run/task command handling and derives the next events to emit, but does not own the canonical snapshot.
+- `vorker-acp` owns Copilot session side effects and emits session-related events, but does not own the canonical snapshot.
+- `vorker-git` owns git side effects and returns structured outcomes to `vorker-orchestrator`.
+- `vorker-server` and `vorker-tui` are clients of the runtime state, not independent state owners.
+
+## Service Interfaces
+
+The planning boundary should assume the following crate-level public interfaces.
+
+### `vorker-core`
+
+Public responsibilities:
+
+- `SupervisorEvent`
+- `SupervisorStore`
+- `Snapshot`
+- `EventLogReader`
+- `EventLogWriter`
+- compatibility decode for JS-produced NDJSON events
+
+### `vorker-acp`
+
+Public responsibilities:
+
+- `CopilotManager`
+- `CopilotSessionHandle`
+- commands:
+  - create session
+  - close session
+  - set mode
+  - set model
+  - prompt session
+- event outputs:
+  - session registered
+  - session updated
+  - prompt started
+  - prompt finished
+
+### `vorker-git`
+
+Public responsibilities:
+
+- `TaskWorkspaceManager`
+- commands:
+  - ensure task workspace
+  - commit task workspace
+  - merge task branch
+- structured results:
+  - workspace path
+  - branch name
+  - base branch
+  - changed files
+  - commit sha
+  - merge result
+
+### `vorker-orchestrator`
+
+Public responsibilities:
+
+- `Orchestrator`
+- commands:
+  - create run
+  - update run
+  - create task
+  - update task
+  - plan run
+  - dispatch task
+  - auto-dispatch ready tasks
+  - merge task
+  - merge completed tasks
+- event outputs:
+  - run created
+  - run updated
+  - task created
+  - task updated
+
+### `vorker-server`
+
+Public responsibilities:
+
+- authenticated websocket clients
+- request handlers that call orchestrator/acp/tunnel commands
+- snapshot fanout to web clients
+- protocol compatibility layer for the current web UI
+
+### `vorker-tui`
+
+Public responsibilities:
+
+- local operator interaction
+- rendering current snapshot
+- dispatching runtime commands
+- no direct mutation of shared state
+
 ## Process Model
 
 The Rust runtime will run as one process for normal CLI usage.
@@ -212,6 +323,46 @@ The canonical rule is:
 
 This preserves the current “NDJSON is the universal bus” model while making it type-safe.
 
+## Command and Event Flow
+
+The runtime command path must be explicit.
+
+### Agent Creation
+
+1. TUI or server sends `CreateAgent { name, role, model, mode, cwd }`
+2. `vorker-acp` starts the session
+3. `vorker-acp` emits `session.registered`
+4. `vorker-core` updates the store
+5. snapshot subscribers refresh
+
+### Prompt Send
+
+1. TUI or server sends `PromptAgent { session_id, text }`
+2. `vorker-acp` emits `session.prompt.started`
+3. ACP roundtrip completes
+4. `vorker-acp` emits `session.prompt.finished`
+5. `vorker-core` appends transcript and updates snapshot
+
+### Swarm Launch
+
+1. TUI or server sends `LaunchSwarm { goal, model }`
+2. `vorker-acp` creates planner and worker sessions
+3. `vorker-orchestrator` creates run and initial run metadata
+4. `vorker-orchestrator` emits run/task events during planning
+5. `vorker-orchestrator` dispatches ready tasks
+6. `vorker-git` provisions worktrees and merge inputs for task execution
+7. completion events update the canonical store
+
+### Merge Task
+
+1. TUI or server sends `MergeTask { task_id }`
+2. `vorker-orchestrator` validates task state
+3. `vorker-git` executes merge
+4. `vorker-orchestrator` emits `task.updated` and `run.updated`
+5. `vorker-core` updates snapshot and durable log
+
+The plan should treat these as the primary end-to-end flows to preserve.
+
 ## Data Contracts
 
 ### Durable Event Log
@@ -222,13 +373,40 @@ Requirements:
 
 - retain event-per-line semantics
 - support replay across restarts
-- support unknown-field tolerance where practical so the migration can read older JS-produced events
+- support explicit compatibility decoding for older JS-produced events
 - use explicit schema versioning if a breaking format change becomes unavoidable
 
 Recommendation:
 
 - keep the current payload shape initially
 - add a top-level version field only if needed for migration safety
+
+### Replay Compatibility Policy
+
+The Rust runtime must be able to read existing JS-produced event logs that contain at least these event families:
+
+- `run.created`
+- `run.updated`
+- `task.created`
+- `task.updated`
+- `session.registered`
+- `session.updated`
+- `session.prompt.started`
+- `session.prompt.finished`
+- `skills.updated`
+- `share.updated`
+
+Compatibility rules:
+
+1. Unknown top-level fields are ignored.
+2. Unknown payload fields are ignored.
+3. Missing fields fall back to the same logical defaults used by the current JS store, not new Rust-specific defaults.
+4. Rust-emitted events should remain shape-compatible with the current JS event families during the migration period.
+5. A true breaking event-schema change requires a top-level version field and an explicit migration reader.
+
+Planning assumption:
+
+- phase 2 includes fixture-based replay tests against real or representative JS NDJSON logs checked into the Rust test suite.
 
 ### Runtime Snapshot
 
@@ -245,16 +423,72 @@ This matches the current `SupervisorStore.snapshot()` behavior closely enough to
 
 ### Server Protocol
 
-The Rust server should initially preserve the current message vocabulary as much as possible:
+The Rust server should preserve the current web UI contract closely enough that the existing frontend can remain in place.
 
-- auth flow
-- agents list/update payloads
-- runs/tasks payloads
-- merge commands
+#### Connection Lifecycle
+
+1. client opens websocket
+2. server sends initial auth requirement or current authenticated state
+3. client authenticates with password if required
+4. server sends initial snapshot payloads
+5. client sends action messages
+6. server broadcasts incremental updates and refreshed snapshots
+
+#### Minimum Auth Flow
+
+Required messages:
+
+- client to server:
+  - `authenticate`
+- server to client:
+  - `auth_required`
+  - `auth_ok`
+  - `auth_error`
+
+Payload requirements:
+
+- `authenticate`
+  - `password`
+- `auth_required`
+  - `passwordHint` or equivalent current metadata if present
+- `auth_error`
+  - operator-readable message
+
+#### Minimum Runtime Message Vocabulary
+
+The Rust server must support, at minimum, the message families already implied by the current runtime:
+
+- snapshot and list messages
+  - agents
+  - runs
+  - tasks
+  - share
+  - skills
+- agent commands
+  - create agent
+  - update agent mode/model
+  - prompt agent
+- run/task commands
+  - create run
+  - select or inspect run/task state
+  - plan run
+  - dispatch run
+  - merge run
+  - merge task
 - share commands
-- prompt send actions
+  - start tunnel
+  - stop tunnel
 
-The migration should avoid introducing a new protocol unless the existing one is clearly blocking or incoherent.
+#### Payload Policy
+
+Rules:
+
+1. Message names remain stable during the migration wherever practical.
+2. Run, task, session, share, and skills payload shapes should mirror the canonical snapshot structures from `vorker-core`.
+3. Incremental update messages may be emitted alongside full snapshots, but the frontend must always be able to recover from a fresh snapshot.
+4. The planning phase must enumerate the exact current server message names from the JS implementation and map each one to the Rust equivalent before phase 5 begins.
+
+The migration should avoid inventing a brand-new protocol unless a compatibility adapter is added intentionally and scoped.
 
 ## Migration Strategy
 
