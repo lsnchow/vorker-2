@@ -44,6 +44,32 @@ vorker serve
 vorker share
 ```
 
+## Rust runtime (phase 1)
+
+The Rust rewrite now owns the supervisor core, the terminal renderer, and a native `vorker` CLI entrypoint. The web/mobile control plane and the Copilot/orchestrator runtime are still on the JavaScript side for now.
+
+Run the Rust TUI:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run -p vorker-cli -- tui
+```
+
+Render a single frame without entering the interactive loop:
+
+```bash
+source "$HOME/.cargo/env"
+cargo run -p vorker-cli -- tui --once
+```
+
+Verify the Rust workspace:
+
+```bash
+source "$HOME/.cargo/env"
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
 ## Terminal Dashboard
 
 Run the terminal-native dashboard:

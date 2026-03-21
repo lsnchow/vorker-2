@@ -11,6 +11,8 @@
     "check:cli": "node --check src/tui.js && node --check src/supervisor/events.js && node --check src/supervisor/event-log.js && node --check src/supervisor/store.js && node --check src/supervisor/service.js && node --check src/supervisor/bootstrap.js && node --check src/tui/commands.js && node --check src/tui/controller.js && node --check src/tui/render.js",
     "check:web": "next build",
     "check:all": "npm run check:server && npm run check:cli && npm run check:web",
+    "rust:check": "source \"$HOME/.cargo/env\" && cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings",
+    "rust:test": "source \"$HOME/.cargo/env\" && cargo test --workspace",
     "cert": "sh scripts/generate-dev-cert.sh",
     "serve": "node src/index.js serve",
     "start": "node src/index.js",
