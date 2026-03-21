@@ -154,3 +154,55 @@ fn render_dashboard_never_hits_terminal_wrap_column() {
         "renderer should stay under the terminal width to avoid wrap-pending misalignment:\n{output}"
     );
 }
+
+#[test]
+fn render_dashboard_leaves_extra_margin_for_real_terminals() {
+    let width = 120;
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width,
+            ..DashboardOptions::default()
+        },
+    );
+
+    let lines = output.lines().collect::<Vec<_>>();
+    assert!(
+        lines.iter().all(|line| line.chars().count() <= width - 4),
+        "renderer should leave a few spare columns to avoid terminal-specific wrapping drift:\n{output}"
+    );
+}
+
+#[test]
+fn render_dashboard_stacks_panels_on_medium_terminal_widths() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        !output
+            .lines()
+            .any(|line| line.contains("ACTIVE AGENTS") && line.contains("AGENT DETAIL")),
+        "120-column terminals should use stacked panels instead of cramped side-by-side panes:\n{output}"
+    );
+}
+
+#[test]
+fn render_dashboard_output_is_ascii_only() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.is_ascii(),
+        "dashboard output should stay ASCII-only for terminal compatibility:\n{output}"
+    );
+}

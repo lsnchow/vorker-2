@@ -46,11 +46,14 @@ pub fn truncate(text: &str, max_length: usize) -> String {
     if visible_length(text) <= max_length {
         return text.to_string();
     }
+    if max_length <= 3 {
+        return ".".repeat(max_length);
+    }
     let mut output = String::new();
-    for ch in strip_ansi(text).chars().take(max_length.saturating_sub(1)) {
+    for ch in strip_ansi(text).chars().take(max_length.saturating_sub(3)) {
         output.push(ch);
     }
-    output.push('…');
+    output.push_str("...");
     output
 }
 

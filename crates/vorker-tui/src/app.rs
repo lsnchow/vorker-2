@@ -1,8 +1,10 @@
+use crossterm::cursor::MoveTo;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, read};
 use crossterm::execute;
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
+    Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+    enable_raw_mode, size,
 };
 use std::io::{self, Write};
 
@@ -301,7 +303,8 @@ pub fn run_app(no_alt_screen: bool) -> io::Result<()> {
         let width = size()
             .map(|(columns, _)| usize::from(columns))
             .unwrap_or(120);
-        write!(stdout, "\x1b[2J\x1b[H{}", app.render(width))?;
+        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
+        write!(stdout, "{}", app.render(width))?;
         stdout.flush()?;
 
         if let Event::Key(key) = read()?

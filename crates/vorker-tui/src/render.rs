@@ -68,8 +68,8 @@ impl From<NavigationState> for DashboardOptions {
 
 pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> String {
     let color = options.color;
-    let width = options.width.clamp(60, 160).saturating_sub(1).max(40);
-    let stacked_layout = width < 96;
+    let width = options.width.clamp(60, 160).saturating_sub(4).max(40);
+    let stacked_layout = width < 128;
     let left_width = if width >= 130 { 46 } else { width * 42 / 100 };
     let right_width = width - left_width - 1;
 
