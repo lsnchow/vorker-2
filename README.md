@@ -29,6 +29,7 @@ A terminal-first control plane for orchestrating GitHub Copilot CLI agents in AC
 
 ```bash
 npm run tui
+npm run tui:once
 npm start -- repl
 npm start -- chat "summarize this repo"
 npm run serve
@@ -76,6 +77,26 @@ Run the terminal-native dashboard:
 
 ```bash
 npm run tui
+```
+
+That command uses the Rust launcher script and auto-sources `~/.cargo/env` when it exists, so you do not need a separate `source "$HOME/.cargo/env"` step.
+
+One-shot render for quick checks:
+
+```bash
+npm run tui:once
+```
+
+The old Node TUI is still available if you need it:
+
+```bash
+npm run tui:js
+```
+
+If you prefer a shell script directly:
+
+```bash
+./scripts/run-rust-tui.sh
 ```
 
 The TUI is built on top of the same supervisor state that will eventually feed the mobile and web control planes. Current commands:
