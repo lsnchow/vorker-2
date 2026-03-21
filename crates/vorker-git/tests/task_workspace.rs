@@ -17,7 +17,10 @@ fn git(cwd: &Path, args: &[&str]) -> String {
         args,
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).expect("utf8").trim().to_string()
+    String::from_utf8(output.stdout)
+        .expect("utf8")
+        .trim()
+        .to_string()
 }
 
 fn create_repo() -> PathBuf {
@@ -41,11 +44,16 @@ fn creates_an_isolated_git_worktree_and_branch_for_a_task() {
         .ensure_task_workspace("task-1", "Implement isolated dispatch")
         .expect("workspace created");
 
-    let branch_name = git(Path::new(&workspace.workspace_path), &["branch", "--show-current"]);
+    let branch_name = git(
+        Path::new(&workspace.workspace_path),
+        &["branch", "--show-current"],
+    );
 
-    assert!(workspace
-        .branch_name
-        .starts_with("vorker/task-task-1-implement-isolated-dispatch"));
+    assert!(
+        workspace
+            .branch_name
+            .starts_with("vorker/task-task-1-implement-isolated-dispatch")
+    );
     assert_eq!(branch_name, workspace.branch_name);
     assert_eq!(workspace.repo_root, repo_root.to_string_lossy());
     assert_eq!(workspace.base_branch, "main");
@@ -84,7 +92,10 @@ fn commits_task_workspace_changes_into_the_task_branch() {
     let summary = manager
         .commit_task_workspace(&workspace.workspace_path, "task-3", "Commit workspace")
         .expect("commit task workspace");
-    let last_message = git(Path::new(&workspace.workspace_path), &["log", "-1", "--pretty=%s"]);
+    let last_message = git(
+        Path::new(&workspace.workspace_path),
+        &["log", "-1", "--pretty=%s"],
+    );
 
     assert!(summary.created_commit);
     assert!(summary.commit_sha.is_some());

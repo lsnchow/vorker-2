@@ -133,7 +133,8 @@ impl TaskWorkspaceManager {
         Ok(output
             .lines()
             .filter_map(|line| {
-                let trimmed = line.trim_start_matches([' ', 'M', 'A', 'D', 'R', 'C', 'U', '?', '!']);
+                let trimmed =
+                    line.trim_start_matches([' ', 'M', 'A', 'D', 'R', 'C', 'U', '?', '!']);
                 let normalized = trimmed.trim();
                 if normalized.is_empty() {
                     None
@@ -179,7 +180,11 @@ impl TaskWorkspaceManager {
         })
     }
 
-    pub fn merge_task_branch(&self, branch_name: &str, base_branch: &str) -> GitResult<MergeSummary> {
+    pub fn merge_task_branch(
+        &self,
+        branch_name: &str,
+        base_branch: &str,
+    ) -> GitResult<MergeSummary> {
         let current_branch = self.detect_base_branch()?;
         if current_branch != base_branch {
             return Err(format!(
@@ -188,7 +193,10 @@ impl TaskWorkspaceManager {
             .into());
         }
 
-        match run_git(&self.repo_root, &["merge", "--no-ff", "--no-edit", branch_name]) {
+        match run_git(
+            &self.repo_root,
+            &["merge", "--no-ff", "--no-edit", branch_name],
+        ) {
             Ok(_) => Ok(MergeSummary {
                 status: "merged".to_string(),
                 merge_commit_sha: Some(run_git(&self.repo_root, &["rev-parse", "HEAD"])?),
@@ -241,7 +249,10 @@ fn run_git(cwd: &Path, args: &[&str]) -> GitResult<String> {
         .output()?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string().into());
+        return Err(String::from_utf8_lossy(&output.stderr)
+            .trim()
+            .to_string()
+            .into());
     }
 
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
