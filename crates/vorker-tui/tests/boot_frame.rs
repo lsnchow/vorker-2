@@ -29,7 +29,10 @@ fn render_boot_frame_shows_the_new_title_and_multi_agent_loading_lanes() {
         false,
     );
 
-    assert!(output.contains("██╗   ██╗"), "missing title art:\n{output}");
+    assert!(
+        output.contains("__     ______"),
+        "missing ascii title art:\n{output}"
+    );
     assert!(
         output.contains("worker-pool"),
         "missing worker-pool:\n{output}"
@@ -41,5 +44,21 @@ fn render_boot_frame_shows_the_new_title_and_multi_agent_loading_lanes() {
     assert!(
         output.contains("VORKER CONTROL PLANE"),
         "missing control plane title:\n{output}"
+    );
+}
+
+#[test]
+fn render_boot_frame_uses_ascii_safe_glyphs() {
+    let output = render_boot_frame(
+        96,
+        0,
+        None,
+        &[BootStep::new("event-log", "event log", "ready", "replayed")],
+        false,
+    );
+
+    assert!(
+        !output.contains('█') && !output.contains('╔') && !output.contains('─'),
+        "boot frame should avoid unicode glyphs that break terminal alignment:\n{output}"
     );
 }

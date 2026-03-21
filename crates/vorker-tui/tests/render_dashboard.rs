@@ -121,3 +121,18 @@ fn render_dashboard_respects_narrow_terminal_widths() {
         "narrow layout should stack panels instead of printing side-by-side:\n{output}"
     );
 }
+
+#[test]
+fn render_dashboard_uses_ascii_safe_borders() {
+    let output = render_dashboard(&Snapshot::default(), DashboardOptions::default());
+
+    assert!(
+        !output.contains('┌')
+            && !output.contains('┐')
+            && !output.contains('└')
+            && !output.contains('┘')
+            && !output.contains('│')
+            && !output.contains('─'),
+        "dashboard should avoid unicode border glyphs that break alignment:\n{output}"
+    );
+}

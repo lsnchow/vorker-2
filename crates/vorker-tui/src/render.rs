@@ -125,7 +125,7 @@ fn render_banner(width: usize, color: bool) -> String {
         ),
         width,
     ));
-    lines.push(colorize(&"─".repeat(width.clamp(40, 120)), "green", color));
+    lines.push(colorize(&"-".repeat(width.clamp(40, 120)), "green", color));
     lines.join("\n")
 }
 
@@ -237,7 +237,7 @@ fn render_session_list(
                 let model = session.model.as_deref().unwrap_or("no-model");
                 let line = format!(
                     "{} {} {} [{}] {}",
-                    if selected { "▶" } else { "•" },
+                    if selected { ">" } else { "*" },
                     session.name,
                     session.status.to_uppercase(),
                     if session.role.is_empty() {
@@ -308,7 +308,7 @@ fn render_run_board(
             count_tasks(&active_run.tasks, "completed"),
             count_tasks(&active_run.tasks, "failed")
         ),
-        "─".repeat(width.saturating_sub(6).max(10)),
+        "-".repeat(width.saturating_sub(6).max(10)),
     ];
 
     if active_run.tasks.is_empty() {
@@ -333,7 +333,7 @@ fn render_run_board(
     }
 
     if let Some(task) = selected_task {
-        lines.push("─".repeat(width.saturating_sub(6).max(10)));
+        lines.push("-".repeat(width.saturating_sub(6).max(10)));
         lines.push(colorize("selected lane", "gray", color));
         append_field(&mut lines, "task", &task.title, width, false);
         append_field(
@@ -407,7 +407,7 @@ fn render_active_session(
         format!("model {}", session.model.as_deref().unwrap_or("unset")),
     ];
     append_field(&mut lines, "cwd", &session.cwd, width, true);
-    lines.push("─".repeat(width.saturating_sub(6).max(10)));
+    lines.push("-".repeat(width.saturating_sub(6).max(10)));
 
     if session.transcript.is_empty() {
         lines.push(colorize("No transcript yet.", "gray", color));
@@ -445,7 +445,7 @@ fn render_event_feed(
         .iter()
         .rev()
         .take(8)
-        .map(|event| format!("• {}", summarize_event(event.kind.as_str(), &event.payload)))
+        .map(|event| format!("* {}", summarize_event(event.kind.as_str(), &event.payload)))
         .collect::<Vec<_>>();
 
     let fallback = [colorize("No supervisor events yet.", "gray", color)];
@@ -533,23 +533,23 @@ fn build_panel(title: &str, lines: &[String], width: usize, focused: bool) -> St
     let inner_width = width.saturating_sub(2).max(12);
     let plain_title = format!(" {title} ");
     let filler_width = inner_width.saturating_sub(plain_title.len());
-    let left_fill = "─".repeat(filler_width / 2);
-    let right_fill = "─".repeat(filler_width - (filler_width / 2));
+    let left_fill = "-".repeat(filler_width / 2);
+    let right_fill = "-".repeat(filler_width - (filler_width / 2));
     let top = format!(
-        "┌{}{}{}┐",
+        "+{}{}{}+",
         left_fill,
         emphasize(&plain_title, focused),
         right_fill
     );
     let body = if lines.is_empty() {
-        vec![format!("│{}│", " ".repeat(inner_width))]
+        vec![format!("|{}|", " ".repeat(inner_width))]
     } else {
         lines
             .iter()
-            .map(|line| format!("│{}│", fit(line, inner_width)))
+            .map(|line| format!("|{}|", fit(line, inner_width)))
             .collect()
     };
-    let bottom = format!("└{}┘", "─".repeat(inner_width));
+    let bottom = format!("+{}+", "-".repeat(inner_width));
 
     std::iter::once(top)
         .chain(body)
@@ -622,11 +622,11 @@ fn style_selectable(line: &str, selected: bool, color: bool, magenta: bool) -> S
 
 fn lane_meter(status: &str) -> &'static str {
     match status {
-        "completed" | "merged" => "■■■■",
-        "running" | "planning" | "starting" => "■■■□",
-        "ready" => "■□□□",
-        "failed" | "error" | "conflict" => "■■■■",
-        _ => "□□□□",
+        "completed" | "merged" => "####",
+        "running" | "planning" | "starting" => "###.",
+        "ready" => "#...",
+        "failed" | "error" | "conflict" => "!!!!",
+        _ => "....",
     }
 }
 

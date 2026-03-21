@@ -24,17 +24,13 @@ const SPINNER: [&str; 4] = ["|", "/", "-", "\\"];
 
 fn meter(status: &str, tick: usize, color: bool) -> String {
     match status {
-        "ready" => colorize("■■■■", "brightGreen", color),
+        "ready" => colorize("[####]", "brightGreen", color),
         "loading" => {
             let fill = (tick % 4) + 1;
-            format!(
-                "{}{}",
-                colorize(&"■".repeat(fill), "green", color),
-                colorize(&"□".repeat(4 - fill), "brightBlack", color)
-            )
+            format!("[{}{}]", "#".repeat(fill), ".".repeat(4 - fill))
         }
-        "error" => colorize("■■■■", "red", color),
-        _ => colorize("□□□□", "brightBlack", color),
+        "error" => colorize("[!!!!]", "red", color),
+        _ => colorize("[....]", "brightBlack", color),
     }
 }
 
@@ -63,7 +59,7 @@ pub fn render_boot_frame(
         "gray",
         color,
     ));
-    lines.push("─".repeat(width.max(40)));
+    lines.push("-".repeat(width.max(40)));
 
     for step in steps {
         let live_status = if active_step_id == Some(step.id.as_str()) {
