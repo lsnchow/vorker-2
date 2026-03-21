@@ -97,3 +97,27 @@ fn render_dashboard_prints_sessions_runs_tasks_and_tunnel_status() {
         );
     }
 }
+
+#[test]
+fn render_dashboard_respects_narrow_terminal_widths() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 60,
+            status_line: "Ready.".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    let lines = output.lines().collect::<Vec<_>>();
+    assert!(
+        lines.iter().all(|line| line.chars().count() <= 60),
+        "renderer overflowed narrow terminal:\n{output}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("ACTIVE AGENTS") && line.contains("AGENT DETAIL")),
+        "narrow layout should stack panels instead of printing side-by-side:\n{output}"
+    );
+}

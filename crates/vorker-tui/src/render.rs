@@ -68,7 +68,8 @@ impl From<NavigationState> for DashboardOptions {
 
 pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> String {
     let color = options.color;
-    let width = options.width.clamp(80, 160);
+    let width = options.width.clamp(60, 160);
+    let stacked_layout = width < 96;
     let left_width = if width >= 130 { 46 } else { width * 42 / 100 };
     let right_width = width - left_width - 1;
 
@@ -77,14 +78,27 @@ pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> Strin
     let active_panel = render_active_session(snapshot, &options, right_width, color);
     let event_panel = render_event_feed(snapshot, &options, right_width, color);
 
-    [
-        render_banner(width, color),
-        render_action_rail(&options, width, color),
-        combine_columns(&session_panel, &active_panel, 1).join("\n"),
-        combine_columns(&run_panel, &event_panel, 1).join("\n"),
-        render_footer(snapshot, &options, width, color),
-    ]
-    .join("\n")
+    if stacked_layout {
+        [
+            render_banner(width, color),
+            render_action_rail(&options, width, color),
+            render_session_list(snapshot, &options, width, color),
+            render_active_session(snapshot, &options, width, color),
+            render_run_board(snapshot, &options, width, color),
+            render_event_feed(snapshot, &options, width, color),
+            render_footer(snapshot, &options, width, color),
+        ]
+        .join("\n")
+    } else {
+        [
+            render_banner(width, color),
+            render_action_rail(&options, width, color),
+            combine_columns(&session_panel, &active_panel, 1).join("\n"),
+            combine_columns(&run_panel, &event_panel, 1).join("\n"),
+            render_footer(snapshot, &options, width, color),
+        ]
+        .join("\n")
+    }
 }
 
 fn render_banner(width: usize, color: bool) -> String {
@@ -98,17 +112,21 @@ fn render_banner(width: usize, color: bool) -> String {
         colorize("agents left / launch rail top / swarm pink", "gray", color)
     );
 
-    [
-        TITLE_ART.iter().map(|line| colorize(line, "brightGreen", color)).collect::<Vec<_>>().join("\n"),
-        strapline,
-        colorize(
+    let mut lines = TITLE_ART
+        .iter()
+        .map(|line| colorize(line, "brightGreen", color))
+        .collect::<Vec<_>>();
+    lines.extend(wrap_for_width(&strapline, width));
+    lines.extend(wrap_for_width(
+        &colorize(
             "Use arrows to pick a model, spawn an agent, or launch a swarm. Enter commits the selection.",
             "gray",
             color,
         ),
-        colorize(&"─".repeat(width.clamp(40, 120)), "green", color),
-    ]
-    .join("\n")
+        width,
+    ));
+    lines.push(colorize(&"─".repeat(width.clamp(40, 120)), "green", color));
+    lines.join("\n")
 }
 
 fn render_action_rail(options: &DashboardOptions, width: usize, color: bool) -> String {
@@ -561,6 +579,14 @@ fn combine_columns(left: &str, right: &str, gap: usize) -> Vec<String> {
         ));
     }
     output
+}
+
+fn wrap_for_width(line: &str, width: usize) -> Vec<String> {
+    if visible_length(line) <= width {
+        return vec![line.to_string()];
+    }
+
+    hard_wrap(line, width)
 }
 
 fn append_field(lines: &mut Vec<String>, label: &str, value: &str, width: usize, stacked: bool) {
