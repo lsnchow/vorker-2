@@ -821,6 +821,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vorker-git"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "vorker-tui"
 version = "0.1.0"
 dependencies = [
