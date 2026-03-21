@@ -135,7 +135,7 @@ impl App {
                     self.input_mode = InputMode::Prompt;
                 }
                 InputMode::Prompt => {
-                    self.status_line = format!("Queued prompt: {}", self.navigation.command_buffer);
+                    self.send_prompt(self.navigation.command_buffer.clone());
                     self.navigation.command_buffer.clear();
                 }
             }
@@ -245,6 +245,41 @@ impl App {
         }
         self.snapshot = store.snapshot();
         self.status_line = "Swarm launched.".to_string();
+    }
+
+    fn send_prompt(&mut self, prompt: String) {
+        let Some(session_id) = self.navigation.active_session_id.clone() else {
+            self.status_line = "Create an agent first.".to_string();
+            return;
+        };
+
+        self.snapshot.events.push(create_supervisor_event(
+            "session.prompt.started",
+            serde_json::json!({
+                "sessionId": session_id,
+                "message": {
+                    "role": "user",
+                    "text": prompt
+                }
+            }),
+        ));
+        self.snapshot.events.push(create_supervisor_event(
+            "session.prompt.finished",
+            serde_json::json!({
+                "sessionId": session_id,
+                "message": {
+                    "role": "assistant",
+                    "text": format!("Acknowledged: {}", self.navigation.command_buffer)
+                }
+            }),
+        ));
+
+        let mut store = vorker_core::SupervisorStore::new();
+        for event in self.snapshot.events.clone() {
+            store.append(event);
+        }
+        self.snapshot = store.snapshot();
+        self.status_line = "Prompt recorded.".to_string();
     }
 }
 
