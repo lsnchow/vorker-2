@@ -136,3 +136,21 @@ fn render_dashboard_uses_ascii_safe_borders() {
         "dashboard should avoid unicode border glyphs that break alignment:\n{output}"
     );
 }
+
+#[test]
+fn render_dashboard_never_hits_terminal_wrap_column() {
+    let width = 120;
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width,
+            ..DashboardOptions::default()
+        },
+    );
+
+    let lines = output.lines().collect::<Vec<_>>();
+    assert!(
+        lines.iter().all(|line| line.chars().count() < width),
+        "renderer should stay under the terminal width to avoid wrap-pending misalignment:\n{output}"
+    );
+}
