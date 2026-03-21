@@ -1,0 +1,17 @@
+[package]
+name = "vorker-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vorker"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.39", features = ["derive"] }
+vorker-tui = { path = "../vorker-tui" }
+
+[dev-dependencies]
+assert_cmd = "2.0.17"
+predicates = "3.1.3"

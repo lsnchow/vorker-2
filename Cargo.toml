@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/vorker-cli", "crates/vorker-core", "crates/vorker-git", "crates/vorker-tui"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "ISC"
+version = "0.1.0"

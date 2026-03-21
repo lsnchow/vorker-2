@@ -5,3 +5,4 @@ certs/
 .agents
 .vorker-2/
 .worktrees/
+target/
