@@ -21,7 +21,7 @@ fn tui_once_renders_a_real_dashboard_frame() {
     cmd.arg("tui").arg("--once").assert().success().stdout(
         contains("[vorker]")
             .and(contains("ACTIONS"))
-            .and(contains("AGENTS"))
+            .and(contains("NAVIGATION"))
             .and(contains("INPUT")),
     );
 }

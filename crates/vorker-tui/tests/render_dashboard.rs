@@ -74,13 +74,12 @@ fn render_dashboard_prints_sessions_runs_tasks_and_tunnel_status() {
     for needle in [
         "[vorker]",
         "ACTIONS",
+        "NAVIGATION",
         "NEW AGENT",
         "SWARM",
         "gpt-5.4",
-        "AGENTS",
-        "DETAIL",
-        "RUNS",
-        "ACTIVITY",
+        "TRANSCRIPT",
+        "TASK INSPECTOR",
         "INPUT",
         "Planner",
         "Bootstrap",
@@ -90,8 +89,26 @@ fn render_dashboard_prints_sessions_runs_tasks_and_tunnel_status() {
         "abc123def456",
         "ready",
         "Plan ready",
-        "Ready for commands",
+        "Ready for",
     ] {
+        assert!(
+            output.contains(needle),
+            "missing {needle} in output:\n{output}"
+        );
+    }
+}
+
+#[test]
+fn render_dashboard_empty_state_uses_a_getting_started_surface() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            ..DashboardOptions::default()
+        },
+    );
+
+    for needle in ["GET STARTED", "Create agent", "Launch swarm", "NAVIGATION", "INPUT"] {
         assert!(
             output.contains(needle),
             "missing {needle} in output:\n{output}"
@@ -159,6 +176,26 @@ fn render_dashboard_uses_ascii_safe_borders() {
 }
 
 #[test]
+fn render_dashboard_surfaces_create_agent_overlay() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            create_agent_overlay_open: true,
+            create_agent_role: Some("planner".to_string()),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("CREATE AGENT"),
+        "create-agent flow should be rendered as an overlay panel:\n{output}"
+    );
+    assert!(output.contains("planner"), "missing chosen role:\n{output}");
+}
+
+#[test]
 fn render_dashboard_surfaces_a_real_model_picker_panel() {
     let output = render_dashboard(
         &Snapshot::default(),
@@ -176,6 +213,27 @@ fn render_dashboard_surfaces_a_real_model_picker_panel() {
         output.contains("MODEL PICKER"),
         "picker mode should be rendered as a distinct panel:\n{output}"
     );
+}
+
+#[test]
+fn render_dashboard_surfaces_swarm_launch_overlay() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            swarm_overlay_open: true,
+            swarm_goal: "ship the runtime".to_string(),
+            swarm_strategy: Some("parallel".to_string()),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("LAUNCH SWARM"),
+        "swarm launch flow should be rendered as an overlay panel:\n{output}"
+    );
+    assert!(output.contains("ship the runtime"), "missing swarm goal:\n{output}");
 }
 
 #[test]
@@ -208,7 +266,7 @@ fn render_dashboard_avoids_internal_separator_rows_inside_panels() {
     assert!(
         !output
             .lines()
-            .any(|line| line.starts_with('|') && line.contains("-----")),
+            .any(|line| line.starts_with("|-----")),
         "content panels should not draw fake internal separator rows:\n{output}"
     );
 }
@@ -250,7 +308,7 @@ fn render_dashboard_leaves_extra_margin_for_real_terminals() {
 }
 
 #[test]
-fn render_dashboard_stacks_panels_on_medium_terminal_widths() {
+fn render_dashboard_uses_split_navigation_layout_on_roomy_terminals() {
     let output = render_dashboard(
         &Snapshot::default(),
         DashboardOptions {
@@ -260,10 +318,10 @@ fn render_dashboard_stacks_panels_on_medium_terminal_widths() {
     );
 
     assert!(
-        !output
+        output
             .lines()
-            .any(|line| line.contains("AGENTS") && line.contains("DETAIL")),
-        "120-column terminals should use stacked panels instead of cramped side-by-side panes:\n{output}"
+            .any(|line| line.contains("NAVIGATION") && line.contains("GET STARTED")),
+        "120-column terminals should use a left navigation column with a main work surface:\n{output}"
     );
 }
 

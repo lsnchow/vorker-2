@@ -25,6 +25,11 @@ pub struct DashboardOptions {
     pub selected_task_id: Option<String>,
     pub command_buffer: String,
     pub input_mode: InputMode,
+    pub create_agent_overlay_open: bool,
+    pub create_agent_role: Option<String>,
+    pub swarm_overlay_open: bool,
+    pub swarm_goal: String,
+    pub swarm_strategy: Option<String>,
 }
 
 impl Default for DashboardOptions {
@@ -43,6 +48,11 @@ impl Default for DashboardOptions {
             selected_task_id: None,
             command_buffer: String::new(),
             input_mode: InputMode::Prompt,
+            create_agent_overlay_open: false,
+            create_agent_role: None,
+            swarm_overlay_open: false,
+            swarm_goal: String::new(),
+            swarm_strategy: None,
         }
     }
 }
@@ -67,47 +77,41 @@ impl From<NavigationState> for DashboardOptions {
 pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> String {
     let color = options.color;
     let width = options.width.clamp(60, 160).saturating_sub(4).max(40);
-    let stacked_layout = width < 128;
-    let left_width = if width >= 130 { 46 } else { width * 42 / 100 };
-    let right_width = width - left_width - 1;
+    let stacked_layout = width < 108;
+    let left_width = if stacked_layout { width } else { width.clamp(32, 34) };
+    let right_width = if stacked_layout {
+        width
+    } else {
+        width - left_width - 1
+    };
     let action_panel = render_action_rail(&options, width, color);
-    let model_picker_panel = render_model_picker(&options, width, color);
-
-    let session_panel = render_session_list(snapshot, &options, left_width, color);
-    let run_panel = render_run_board(snapshot, &options, left_width, color);
-    let active_panel = render_active_session(snapshot, &options, right_width, color);
-    let event_panel = render_event_feed(snapshot, &options, right_width, color);
+    let navigation_panel = render_navigation_panel(snapshot, &options, left_width, color);
+    let main_panel = render_main_surface(snapshot, &options, right_width, color);
+    let secondary_panel = render_secondary_surface(snapshot, &options, right_width, color);
 
     if stacked_layout {
-        let mut sections = vec![
+        [
             render_header(snapshot, &options, width, color),
             action_panel,
-        ];
-        if let Some(panel) = model_picker_panel {
-            sections.push(panel);
-        }
-        sections.extend([
-            render_session_list(snapshot, &options, width, color),
-            render_active_session(snapshot, &options, width, color),
-            render_run_board(snapshot, &options, width, color),
-            render_event_feed(snapshot, &options, width, color),
+            navigation_panel,
+            render_main_surface(snapshot, &options, width, color),
+            render_secondary_surface(snapshot, &options, width, color),
             render_footer(snapshot, &options, width, color),
-        ]);
-        sections.join("\n")
+        ]
+        .join("\n")
     } else {
-        let mut sections = vec![
+        [
             render_header(snapshot, &options, width, color),
             action_panel,
-        ];
-        if let Some(panel) = model_picker_panel {
-            sections.push(panel);
-        }
-        sections.extend([
-            combine_columns(&session_panel, &active_panel, 1).join("\n"),
-            combine_columns(&run_panel, &event_panel, 1).join("\n"),
+            combine_columns(
+                &navigation_panel,
+                &[main_panel, secondary_panel].join("\n"),
+                1,
+            )
+            .join("\n"),
             render_footer(snapshot, &options, width, color),
-        ]);
-        sections.join("\n")
+        ]
+        .join("\n")
     }
 }
 
@@ -118,17 +122,11 @@ fn render_header(
     color: bool,
 ) -> String {
     let model = options.selected_model_id.as_deref().unwrap_or("unset");
-    let target = snapshot
-        .sessions
-        .iter()
-        .find(|session| options.active_session_id.as_deref() == Some(session.id.as_str()))
-        .or_else(|| snapshot.sessions.first())
-        .map(|session| session.name.as_str())
-        .unwrap_or("none");
+    let target = current_target(snapshot, options);
     let tunnel = share_field(snapshot.share.as_ref(), "state")
         .unwrap_or("idle")
         .to_uppercase();
-    let status = truncate(&options.status_line, 24);
+    let status = truncate(&options.status_line, 40);
     let line = format!(
         "{}  model {}  target {}  focus {}  tunnel {}  status {}",
         emphasize(&colorize("[vorker]", "brightGreen", color), color),
@@ -237,48 +235,69 @@ fn render_model_picker(options: &DashboardOptions, width: usize, color: bool) ->
     ))
 }
 
-fn render_session_list(
+fn render_navigation_panel(
     snapshot: &Snapshot,
     options: &DashboardOptions,
     width: usize,
     color: bool,
 ) -> String {
-    let lines = if snapshot.sessions.is_empty() {
-        vec![colorize(
-            "No active agents. Move to NEW AGENT and press Enter.",
-            "gray",
-            color,
-        )]
+    let mut lines = vec![section_label("Agents", options.focused_pane == Pane::Sessions, color)];
+    if snapshot.sessions.is_empty() {
+        lines.push(colorize("  none yet", "gray", color));
     } else {
-        snapshot
-            .sessions
-            .iter()
-            .map(|session| {
-                let selected = options.active_session_id.as_deref() == Some(session.id.as_str());
-                let model = session.model.as_deref().unwrap_or("no-model");
-                let line = format!(
-                    "{} {} {} [{}] {}",
-                    if selected { ">" } else { "*" },
-                    session.name,
-                    session.status.to_uppercase(),
-                    if session.role.is_empty() {
-                        "worker"
-                    } else {
-                        &session.role
-                    },
-                    model
-                );
-                style_selectable(&line, selected, color, false)
-            })
-            .collect()
-    };
+        lines.extend(snapshot.sessions.iter().map(|session| {
+            let selected = options.active_session_id.as_deref() == Some(session.id.as_str());
+            let line = format!(
+                "{} {} [{}]",
+                if selected { ">" } else { " " },
+                session.name,
+                session.status
+            );
+            style_selectable(&line, selected, color, false)
+        }));
+    }
 
-    build_panel(
-        "AGENTS",
-        &lines,
-        width,
-        options.focused_pane == Pane::Sessions,
-    )
+    lines.push(String::new());
+    lines.push(section_label("Runs", options.focused_pane == Pane::Runs, color));
+    if snapshot.runs.is_empty() {
+        lines.push(colorize("  none yet", "gray", color));
+    } else {
+        lines.extend(snapshot.runs.iter().map(|run| {
+            let selected = options.active_run_id.as_deref() == Some(run.id.as_str());
+            let line = format!(
+                "{} {} [{}]",
+                if selected { ">" } else { " " },
+                run.name,
+                run.status
+            );
+            style_selectable(&line, selected, color, false)
+        }));
+    }
+
+    lines.push(String::new());
+    lines.push(section_label("Tasks", options.focused_pane == Pane::Tasks, color));
+    let tasks = snapshot
+        .runs
+        .iter()
+        .find(|run| options.active_run_id.as_deref() == Some(run.id.as_str()))
+        .map(|run| run.tasks.as_slice())
+        .unwrap_or(&[]);
+    if tasks.is_empty() {
+        lines.push(colorize("  select a run", "gray", color));
+    } else {
+        lines.extend(tasks.iter().map(|task| {
+            let selected = options.selected_task_id.as_deref() == Some(task.id.as_str());
+            let line = format!(
+                "{} {} [{}]",
+                if selected { ">" } else { " " },
+                task.title,
+                task.status
+            );
+            style_selectable(&line, selected, color, false)
+        }));
+    }
+
+    build_panel("NAVIGATION", &lines, width, matches!(options.focused_pane, Pane::Sessions | Pane::Runs | Pane::Tasks))
 }
 
 fn render_run_board(
@@ -295,8 +314,8 @@ fn render_run_board(
 
     let Some(active_run) = active_run else {
         return build_panel(
-            "RUNS",
-            &[colorize("No runs. Press Enter on SWARM.", "gray", color)],
+            "RUN OVERVIEW",
+            &[colorize("No run selected yet.", "gray", color)],
             width,
             options.focused_pane == Pane::Runs || options.focused_pane == Pane::Tasks,
         );
@@ -376,7 +395,7 @@ fn render_run_board(
     }
 
     build_panel(
-        "RUNS",
+        "RUN OVERVIEW",
         &lines,
         width,
         options.focused_pane == Pane::Runs || options.focused_pane == Pane::Tasks,
@@ -397,7 +416,7 @@ fn render_active_session(
 
     let Some(session) = session else {
         return build_panel(
-            "DETAIL",
+            "TRANSCRIPT",
             &[colorize("No active agent selected yet.", "gray", color)],
             width,
             false,
@@ -446,7 +465,7 @@ fn render_active_session(
         );
     }
 
-    build_panel("DETAIL", &lines, width, false)
+    build_panel("TRANSCRIPT", &lines, width, false)
 }
 
 fn render_event_feed(
@@ -472,6 +491,209 @@ fn render_event_feed(
     )
 }
 
+fn render_main_surface(
+    snapshot: &Snapshot,
+    options: &DashboardOptions,
+    width: usize,
+    color: bool,
+) -> String {
+    if options.create_agent_overlay_open {
+        return render_create_agent_overlay(options, width, color);
+    }
+    if options.model_picker_open {
+        return render_model_picker(options, width, color)
+            .unwrap_or_else(|| build_panel("MODEL PICKER", &[], width, true));
+    }
+    if options.swarm_overlay_open {
+        return render_swarm_overlay(options, width, color);
+    }
+    if snapshot.sessions.is_empty() && snapshot.runs.is_empty() {
+        return render_get_started(width, color);
+    }
+    if options.focused_pane == Pane::Tasks
+        && let Some(panel) = render_task_detail(snapshot, options, width, color)
+    {
+        return panel;
+    }
+    if options.focused_pane == Pane::Runs {
+        return render_run_board(snapshot, options, width, color);
+    }
+    render_active_session(snapshot, options, width, color)
+}
+
+fn render_secondary_surface(
+    snapshot: &Snapshot,
+    options: &DashboardOptions,
+    width: usize,
+    color: bool,
+) -> String {
+    if let Some(panel) = render_task_inspector(snapshot, options, width, color) {
+        return panel;
+    }
+    render_event_feed(snapshot, options, width, color)
+}
+
+fn render_get_started(width: usize, color: bool) -> String {
+    build_panel(
+        "GET STARTED",
+        &[
+            emphasize("Create agent", color),
+            colorize(
+                "Start one operator-facing Copilot worker and land in transcript view.",
+                "gray",
+                color,
+            ),
+            String::new(),
+            emphasize("Launch swarm", color),
+            colorize(
+                "Start a run with planning plus worker lanes, then switch into run overview.",
+                "gray",
+                color,
+            ),
+        ],
+        width,
+        false,
+    )
+}
+
+fn render_create_agent_overlay(options: &DashboardOptions, width: usize, color: bool) -> String {
+    build_panel(
+        "CREATE AGENT",
+        &[
+            format!(
+                "role {}",
+                highlight(
+                    options.create_agent_role.as_deref().unwrap_or("worker"),
+                    color,
+                    "bgGreen",
+                    "black",
+                )
+            ),
+            format!(
+                "model {}",
+                options.selected_model_id.as_deref().unwrap_or("gpt-5.4")
+            ),
+            colorize("arrows choose role  enter creates  esc closes", "gray", color),
+        ],
+        width,
+        true,
+    )
+}
+
+fn render_swarm_overlay(options: &DashboardOptions, width: usize, color: bool) -> String {
+    build_panel(
+        "LAUNCH SWARM",
+        &[
+            format!("goal {}", options.swarm_goal),
+            format!(
+                "model {}",
+                options.selected_model_id.as_deref().unwrap_or("gpt-5.4")
+            ),
+            format!(
+                "strategy {}",
+                options.swarm_strategy.as_deref().unwrap_or("parallel")
+            ),
+            colorize("type goal  arrows change strategy  enter launches", "gray", color),
+        ],
+        width,
+        true,
+    )
+}
+
+fn render_task_detail(
+    snapshot: &Snapshot,
+    options: &DashboardOptions,
+    width: usize,
+    _color: bool,
+) -> Option<String> {
+    let run = snapshot
+        .runs
+        .iter()
+        .find(|entry| options.active_run_id.as_deref() == Some(entry.id.as_str()))
+        .or_else(|| snapshot.runs.first())?;
+    let task = run
+        .tasks
+        .iter()
+        .find(|entry| options.selected_task_id.as_deref() == Some(entry.id.as_str()))
+        .or_else(|| run.tasks.first())?;
+
+    let mut lines = vec![
+        format!("task {}", task.title),
+        format!("status {}", task.status),
+        format!(
+            "agent {}",
+            task.execution_agent_id
+                .as_deref()
+                .or(task.assigned_agent_id.as_deref())
+                .unwrap_or("queue")
+        ),
+    ];
+    if let Some(path) = &task.workspace_path {
+        append_field(&mut lines, "workspace", path, width, true);
+    }
+    if let Some(branch) = &task.branch_name {
+        append_field(&mut lines, "branch", branch, width, true);
+    }
+    if let Some(commit) = &task.commit_sha {
+        append_field(
+            &mut lines,
+            "commit",
+            &format!("{commit} ({} files)", task.change_count),
+            width,
+            false,
+        );
+    }
+
+    Some(build_panel("TASK DETAIL", &lines, width, options.focused_pane == Pane::Tasks))
+}
+
+fn render_task_inspector(
+    snapshot: &Snapshot,
+    options: &DashboardOptions,
+    width: usize,
+    _color: bool,
+) -> Option<String> {
+    let run = snapshot
+        .runs
+        .iter()
+        .find(|entry| options.active_run_id.as_deref() == Some(entry.id.as_str()))
+        .or_else(|| snapshot.runs.first())?;
+    let task = run
+        .tasks
+        .iter()
+        .find(|entry| options.selected_task_id.as_deref() == Some(entry.id.as_str()))
+        .or_else(|| run.tasks.first())?;
+
+    let mut lines = vec![
+        format!("run {}", run.name),
+        format!("task {}", task.title),
+        format!("status {}", task.status),
+    ];
+    if let Some(agent) = task
+        .execution_agent_id
+        .as_deref()
+        .or(task.assigned_agent_id.as_deref())
+    {
+        append_field(&mut lines, "agent", agent, width, false);
+    }
+    if let Some(branch) = &task.branch_name {
+        append_field(&mut lines, "branch", branch, width, true);
+    }
+    if let Some(commit) = &task.commit_sha {
+        append_field(
+            &mut lines,
+            "commit",
+            &format!("{commit} ({} files)", task.change_count),
+            width,
+            false,
+        );
+    }
+    if let Some(path) = &task.workspace_path {
+        append_field(&mut lines, "workspace", path, width, true);
+    }
+    Some(build_panel("TASK INSPECTOR", &lines, width, options.focused_pane == Pane::Tasks || options.focused_pane == Pane::Runs || options.focused_pane == Pane::Events))
+}
+
 fn render_footer(
     snapshot: &Snapshot,
     options: &DashboardOptions,
@@ -481,13 +703,7 @@ fn render_footer(
     let share_state = share_field(snapshot.share.as_ref(), "state")
         .unwrap_or("idle")
         .to_uppercase();
-    let target = snapshot
-        .sessions
-        .iter()
-        .find(|session| options.active_session_id.as_deref() == Some(session.id.as_str()))
-        .or_else(|| snapshot.sessions.first())
-        .map(|session| session.name.as_str())
-        .unwrap_or("none");
+    let target = current_target(snapshot, options);
     let mode = match options.input_mode {
         InputMode::SwarmGoal => "swarm-goal",
         InputMode::Prompt => "prompt",
@@ -495,8 +711,12 @@ fn render_footer(
     let input_placeholder = match options.input_mode {
         InputMode::SwarmGoal => "Describe the swarm goal and press Enter",
         InputMode::Prompt => {
-            if options.active_session_id.is_some() {
-                "Type a prompt for the selected agent and press Enter"
+            if options.focused_pane == Pane::Tasks && options.selected_task_id.is_some() {
+                "Ask the task agent what to do next"
+            } else if options.focused_pane == Pane::Runs && options.active_run_id.is_some() {
+                "Inspect the run or move into a task"
+            } else if options.active_session_id.is_some() {
+                "Type to prompt the selected agent"
             } else {
                 "Create an agent first, then type a prompt"
             }
@@ -628,6 +848,14 @@ fn style_selectable(line: &str, selected: bool, color: bool, magenta: bool) -> S
     }
 }
 
+fn section_label(label: &str, focused: bool, color: bool) -> String {
+    if focused {
+        colorize(&format!("[{label}]"), "brightGreen", color)
+    } else {
+        colorize(label, "gray", color)
+    }
+}
+
 fn lane_meter(status: &str) -> &'static str {
     match status {
         "completed" | "merged" => "####",
@@ -708,6 +936,48 @@ fn share_field<'a>(share: Option<&'a Value>, field: &str) -> Option<&'a str> {
     share
         .and_then(|value| value.get(field))
         .and_then(Value::as_str)
+}
+
+fn current_target(snapshot: &Snapshot, options: &DashboardOptions) -> String {
+    if options.swarm_overlay_open {
+        return "swarm launch".to_string();
+    }
+    if options.create_agent_overlay_open {
+        return "create agent".to_string();
+    }
+    if options.model_picker_open {
+        return "model picker".to_string();
+    }
+    if options.focused_pane == Pane::Tasks
+        && let Some(run) = snapshot
+            .runs
+            .iter()
+            .find(|entry| options.active_run_id.as_deref() == Some(entry.id.as_str()))
+            .or_else(|| snapshot.runs.first())
+        && let Some(task) = run
+            .tasks
+            .iter()
+            .find(|entry| options.selected_task_id.as_deref() == Some(entry.id.as_str()))
+            .or_else(|| run.tasks.first())
+    {
+        return format!("task {}", task.id);
+    }
+    if options.focused_pane == Pane::Runs
+        && let Some(run) = snapshot
+            .runs
+            .iter()
+            .find(|entry| options.active_run_id.as_deref() == Some(entry.id.as_str()))
+            .or_else(|| snapshot.runs.first())
+    {
+        return format!("run {}", run.name);
+    }
+    snapshot
+        .sessions
+        .iter()
+        .find(|session| options.active_session_id.as_deref() == Some(session.id.as_str()))
+        .or_else(|| snapshot.sessions.first())
+        .map(|session| format!("agent {}", session.name))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 #[allow(dead_code)]
