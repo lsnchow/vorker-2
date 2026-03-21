@@ -6,16 +6,54 @@ pub const TITLE_ART: [&str; 5] = [
     "   \\_/\\____/_/ |_/_/ |_/_____/_/ |_|",
 ];
 
-pub fn colorize(text: &str, _tone: &str, _enabled: bool) -> String {
-    text.to_string()
+pub fn colorize(text: &str, tone: &str, enabled: bool) -> String {
+    if !enabled {
+        return text.to_string();
+    }
+
+    let code = match tone {
+        "green" => "32",
+        "brightGreen" => "92",
+        "gray" => "90",
+        "magenta" => "35",
+        "brightMagenta" => "95",
+        "black" => "30",
+        "bgGreen" => "42",
+        "bgMagenta" => "45",
+        "bgGray" => "100",
+        _ => "0",
+    };
+
+    format!("\u{1b}[{code}m{text}\u{1b}[0m")
 }
 
-pub fn emphasize(text: &str, _enabled: bool) -> String {
-    text.to_string()
+pub fn emphasize(text: &str, enabled: bool) -> String {
+    if !enabled {
+        return text.to_string();
+    }
+    format!("\u{1b}[1m{text}\u{1b}[0m")
 }
 
-pub fn highlight(text: &str, _enabled: bool, _background: &str, _foreground: &str) -> String {
-    text.to_string()
+pub fn highlight(text: &str, enabled: bool, background: &str, foreground: &str) -> String {
+    if !enabled {
+        return text.to_string();
+    }
+
+    let background_code = match background {
+        "bgGreen" => "42",
+        "bgMagenta" => "45",
+        "bgGray" => "100",
+        _ => "49",
+    };
+    let foreground_code = match foreground {
+        "black" => "30",
+        "brightGreen" => "92",
+        "green" => "32",
+        "white" => "97",
+        _ => "39",
+    };
+
+    format!("\u{1b}[1;{background_code};{foreground_code}m{text}\u{1b}[0m")
 }
 
 pub fn strip_ansi(text: &str) -> String {

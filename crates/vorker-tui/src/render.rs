@@ -2,9 +2,7 @@ use serde_json::Value;
 use vorker_core::{RunSnapshot, Snapshot, TaskRecord};
 
 use crate::navigation::{ActionItem, NavigationState, Pane};
-use crate::theme::{
-    TITLE_ART, colorize, emphasize, fit, hard_wrap, highlight, pad, truncate, visible_length,
-};
+use crate::theme::{colorize, emphasize, fit, hard_wrap, highlight, pad, truncate, visible_length};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputMode {
@@ -72,6 +70,8 @@ pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> Strin
     let stacked_layout = width < 128;
     let left_width = if width >= 130 { 46 } else { width * 42 / 100 };
     let right_width = width - left_width - 1;
+    let action_panel = render_action_rail(&options, width, color);
+    let model_picker_panel = render_model_picker(&options, width, color);
 
     let session_panel = render_session_list(snapshot, &options, left_width, color);
     let run_panel = render_run_board(snapshot, &options, left_width, color);
@@ -79,54 +79,66 @@ pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> Strin
     let event_panel = render_event_feed(snapshot, &options, right_width, color);
 
     if stacked_layout {
-        [
-            render_banner(width, color),
-            render_action_rail(&options, width, color),
+        let mut sections = vec![
+            render_header(snapshot, &options, width, color),
+            action_panel,
+        ];
+        if let Some(panel) = model_picker_panel {
+            sections.push(panel);
+        }
+        sections.extend([
             render_session_list(snapshot, &options, width, color),
             render_active_session(snapshot, &options, width, color),
             render_run_board(snapshot, &options, width, color),
             render_event_feed(snapshot, &options, width, color),
             render_footer(snapshot, &options, width, color),
-        ]
-        .join("\n")
+        ]);
+        sections.join("\n")
     } else {
-        [
-            render_banner(width, color),
-            render_action_rail(&options, width, color),
+        let mut sections = vec![
+            render_header(snapshot, &options, width, color),
+            action_panel,
+        ];
+        if let Some(panel) = model_picker_panel {
+            sections.push(panel);
+        }
+        sections.extend([
             combine_columns(&session_panel, &active_panel, 1).join("\n"),
             combine_columns(&run_panel, &event_panel, 1).join("\n"),
             render_footer(snapshot, &options, width, color),
-        ]
-        .join("\n")
+        ]);
+        sections.join("\n")
     }
 }
 
-fn render_banner(width: usize, color: bool) -> String {
-    let strapline = format!(
-        "{}   {}   {}",
-        emphasize(
-            &colorize("VORKER CONTROL PLANE", "brightGreen", color),
-            color
-        ),
-        colorize("VORKER-2 supervisor mesh", "green", color),
-        colorize("agents left / launch rail top / swarm pink", "gray", color)
-    );
-
-    let mut lines = TITLE_ART
+fn render_header(
+    snapshot: &Snapshot,
+    options: &DashboardOptions,
+    width: usize,
+    color: bool,
+) -> String {
+    let model = options.selected_model_id.as_deref().unwrap_or("unset");
+    let target = snapshot
+        .sessions
         .iter()
-        .map(|line| colorize(line, "brightGreen", color))
-        .collect::<Vec<_>>();
-    lines.extend(wrap_for_width(&strapline, width));
-    lines.extend(wrap_for_width(
-        &colorize(
-            "Use arrows to pick a model, spawn an agent, or launch a swarm. Enter commits the selection.",
-            "gray",
-            color,
-        ),
-        width,
-    ));
-    lines.push(colorize(&"-".repeat(width.clamp(40, 120)), "green", color));
-    lines.join("\n")
+        .find(|session| options.active_session_id.as_deref() == Some(session.id.as_str()))
+        .or_else(|| snapshot.sessions.first())
+        .map(|session| session.name.as_str())
+        .unwrap_or("none");
+    let tunnel = share_field(snapshot.share.as_ref(), "state")
+        .unwrap_or("idle")
+        .to_uppercase();
+    let status = truncate(&options.status_line, 24);
+    let line = format!(
+        "{}  model {}  target {}  focus {}  tunnel {}  status {}",
+        emphasize(&colorize("[vorker]", "brightGreen", color), color),
+        model,
+        target,
+        options.focused_pane,
+        tunnel,
+        status
+    );
+    truncate(&line, width)
 }
 
 fn render_action_rail(options: &DashboardOptions, width: usize, color: bool) -> String {
@@ -153,54 +165,34 @@ fn render_action_rail(options: &DashboardOptions, width: usize, color: bool) -> 
     );
 
     let mut lines = vec![format!("{model_chip}  {agent_chip}  {swarm_chip}")];
-    if options.model_picker_open {
-        let models = options
-            .model_choices
-            .iter()
-            .map(|model| {
-                render_chip(
-                    model,
-                    options.selected_model_id.as_deref() == Some(model),
-                    "green",
-                    color,
-                )
-            })
-            .collect::<Vec<_>>();
-        lines.push(format!("models {}", models.join("  ")));
-        lines.push(colorize(
-            "Choose a model with arrows. Enter keeps it. Escape closes the picker.",
-            "gray",
-            color,
-        ));
-    } else if options.selected_action_id == ActionItem::NewAgent {
+    if options.selected_action_id == ActionItem::NewAgent {
         lines.push(colorize(
             &format!(
-                "Press Enter to create a new agent on {}.",
+                "enter: create agent on {}",
                 options
                     .selected_model_id
                     .as_deref()
-                    .unwrap_or("the selected model")
+                    .unwrap_or("selected model")
             ),
             "gray",
             color,
         ));
     } else if options.selected_action_id == ActionItem::Swarm {
-        lines.push(format!(
-            "{} {}",
-            colorize("pink lane", "brightMagenta", color),
-            colorize(
-                &format!(
-                    "Press Enter, type the swarm goal, and Vorker will launch a planner plus workers on {}.",
-                    options.selected_model_id.as_deref().unwrap_or("the selected model")
-                ),
-                "gray",
-                color
-            )
+        lines.push(colorize(
+            &format!(
+                "enter: start swarm on {}",
+                options
+                    .selected_model_id
+                    .as_deref()
+                    .unwrap_or("selected model")
+            ),
+            "magenta",
+            color,
         ));
     } else {
         lines.push(colorize(
             &format!(
-                "Current persistent model: {}.",
+                "enter: change persistent model ({})",
                 options.selected_model_id.as_deref().unwrap_or("unset")
             ),
             "gray",
@@ -209,11 +201,40 @@ fn render_action_rail(options: &DashboardOptions, width: usize, color: bool) -> 
     }
 
     build_panel(
-        "LAUNCH RAIL",
+        "ACTIONS",
         &lines,
         width,
         options.focused_pane == Pane::Actions || options.model_picker_open,
     )
+}
+
+fn render_model_picker(options: &DashboardOptions, width: usize, color: bool) -> Option<String> {
+    if !options.model_picker_open {
+        return None;
+    }
+
+    let models = options
+        .model_choices
+        .iter()
+        .map(|model| {
+            render_chip(
+                model,
+                options.selected_model_id.as_deref() == Some(model),
+                "green",
+                color,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    Some(build_panel(
+        "MODEL PICKER",
+        &[
+            format!("models {}", models.join("  ")),
+            colorize("arrows: change  enter: keep  esc: close", "gray", color),
+        ],
+        width,
+        true,
+    ))
 }
 
 fn render_session_list(
@@ -253,7 +274,7 @@ fn render_session_list(
     };
 
     build_panel(
-        "ACTIVE AGENTS",
+        "AGENTS",
         &lines,
         width,
         options.focused_pane == Pane::Sessions,
@@ -274,12 +295,8 @@ fn render_run_board(
 
     let Some(active_run) = active_run else {
         return build_panel(
-            "RUN BOARD",
-            &[colorize(
-                "No runs yet. Launch a swarm to create one.",
-                "gray",
-                color,
-            )],
+            "RUNS",
+            &[colorize("No runs. Press Enter on SWARM.", "gray", color)],
             width,
             options.focused_pane == Pane::Runs || options.focused_pane == Pane::Tasks,
         );
@@ -308,7 +325,6 @@ fn render_run_board(
             count_tasks(&active_run.tasks, "completed"),
             count_tasks(&active_run.tasks, "failed")
         ),
-        "-".repeat(width.saturating_sub(6).max(10)),
     ];
 
     if active_run.tasks.is_empty() {
@@ -333,8 +349,7 @@ fn render_run_board(
     }
 
     if let Some(task) = selected_task {
-        lines.push("-".repeat(width.saturating_sub(6).max(10)));
-        lines.push(colorize("selected lane", "gray", color));
+        lines.push(colorize("selected", "gray", color));
         append_field(&mut lines, "task", &task.title, width, false);
         append_field(
             &mut lines,
@@ -361,7 +376,7 @@ fn render_run_board(
     }
 
     build_panel(
-        "RUN BOARD",
+        "RUNS",
         &lines,
         width,
         options.focused_pane == Pane::Runs || options.focused_pane == Pane::Tasks,
@@ -382,7 +397,7 @@ fn render_active_session(
 
     let Some(session) = session else {
         return build_panel(
-            "AGENT DETAIL",
+            "DETAIL",
             &[colorize("No active agent selected yet.", "gray", color)],
             width,
             false,
@@ -407,7 +422,7 @@ fn render_active_session(
         format!("model {}", session.model.as_deref().unwrap_or("unset")),
     ];
     append_field(&mut lines, "cwd", &session.cwd, width, true);
-    lines.push("-".repeat(width.saturating_sub(6).max(10)));
+    lines.push(colorize("transcript", "gray", color));
 
     if session.transcript.is_empty() {
         lines.push(colorize("No transcript yet.", "gray", color));
@@ -431,7 +446,7 @@ fn render_active_session(
         );
     }
 
-    build_panel("AGENT DETAIL", &lines, width, false)
+    build_panel("DETAIL", &lines, width, false)
 }
 
 fn render_event_feed(
@@ -450,7 +465,7 @@ fn render_event_feed(
 
     let fallback = [colorize("No supervisor events yet.", "gray", color)];
     build_panel(
-        "EVENT FEED",
+        "ACTIVITY",
         if lines.is_empty() { &fallback } else { &lines },
         width,
         options.focused_pane == Pane::Events,
@@ -463,10 +478,19 @@ fn render_footer(
     width: usize,
     color: bool,
 ) -> String {
-    let share_state = share_field(snapshot.share.as_ref(), "state").unwrap_or("idle");
-    let input_label = match options.input_mode {
-        InputMode::SwarmGoal => "swarm goal >",
-        InputMode::Prompt => "prompt >",
+    let share_state = share_field(snapshot.share.as_ref(), "state")
+        .unwrap_or("idle")
+        .to_uppercase();
+    let target = snapshot
+        .sessions
+        .iter()
+        .find(|session| options.active_session_id.as_deref() == Some(session.id.as_str()))
+        .or_else(|| snapshot.sessions.first())
+        .map(|session| session.name.as_str())
+        .unwrap_or("none");
+    let mode = match options.input_mode {
+        InputMode::SwarmGoal => "swarm-goal",
+        InputMode::Prompt => "prompt",
     };
     let input_placeholder = match options.input_mode {
         InputMode::SwarmGoal => "Describe the swarm goal and press Enter",
@@ -480,37 +504,29 @@ fn render_footer(
     };
 
     let mut lines = vec![
-        format!("status {}", options.status_line),
         format!(
-            "focus {}    tunnel {}",
-            options.focused_pane,
-            share_state.to_uppercase()
+            "target {}    mode {}    tunnel {}",
+            target, mode, share_state
+        ),
+        format!(
+            "{} {}",
+            colorize(">", "brightGreen", color),
+            if options.command_buffer.is_empty() {
+                input_placeholder.to_string()
+            } else {
+                options.command_buffer.clone()
+            }
         ),
     ];
-    append_field(
-        &mut lines,
-        "url",
-        share_field(snapshot.share.as_ref(), "publicUrl").unwrap_or("not shared"),
-        width,
-        true,
-    );
-    append_field(
-        &mut lines,
-        input_label,
-        if options.command_buffer.is_empty() {
-            input_placeholder
-        } else {
-            &options.command_buffer
-        },
-        width,
-        true,
-    );
+    if let Some(url) = share_field(snapshot.share.as_ref(), "publicUrl") {
+        append_field(&mut lines, "share", url, width, true);
+    }
     lines.push(colorize(
         "arrows move  enter activates  esc cancels picker/prompt  ctrl+c quits",
         "gray",
         color,
     ));
-    build_panel("COMMAND DECK", &lines, width, true)
+    build_panel("INPUT", &lines, width, true)
 }
 
 fn render_chip(label: &str, selected: bool, tone: &str, color: bool) -> String {
@@ -526,21 +542,21 @@ fn render_chip(label: &str, selected: bool, tone: &str, color: bool) -> String {
             "black",
         );
     }
-    format!("[{label}]")
+    format!("[{}]", colorize(label, tone, color))
 }
 
 fn build_panel(title: &str, lines: &[String], width: usize, focused: bool) -> String {
     let inner_width = width.saturating_sub(2).max(12);
-    let plain_title = format!(" {title} ");
+    let title_label = if focused {
+        format!(">{title}<")
+    } else {
+        title.to_string()
+    };
+    let plain_title = format!(" {title_label} ");
     let filler_width = inner_width.saturating_sub(plain_title.len());
     let left_fill = "-".repeat(filler_width / 2);
     let right_fill = "-".repeat(filler_width - (filler_width / 2));
-    let top = format!(
-        "+{}{}{}+",
-        left_fill,
-        emphasize(&plain_title, focused),
-        right_fill
-    );
+    let top = format!("+{}{}{}+", left_fill, plain_title, right_fill);
     let body = if lines.is_empty() {
         vec![format!("|{}|", " ".repeat(inner_width))]
     } else {
@@ -579,14 +595,6 @@ fn combine_columns(left: &str, right: &str, gap: usize) -> Vec<String> {
         ));
     }
     output
-}
-
-fn wrap_for_width(line: &str, width: usize) -> Vec<String> {
-    if visible_length(line) <= width {
-        return vec![line.to_string()];
-    }
-
-    hard_wrap(line, width)
 }
 
 fn append_field(lines: &mut Vec<String>, label: &str, value: &str, width: usize, stacked: bool) {

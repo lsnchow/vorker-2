@@ -40,10 +40,11 @@ impl App {
         }
     }
 
-    pub fn render(&self, width: usize) -> String {
+    pub fn render(&self, width: usize, color: bool) -> String {
         render_dashboard(
             &self.snapshot,
             DashboardOptions {
+                color,
                 width,
                 status_line: self.status_line.clone(),
                 input_mode: self.input_mode.clone(),
@@ -56,7 +57,6 @@ impl App {
                 active_run_id: self.navigation.active_run_id.clone(),
                 selected_task_id: self.navigation.selected_task_id.clone(),
                 command_buffer: self.navigation.command_buffer.clone(),
-                ..DashboardOptions::default()
             },
         )
     }
@@ -287,7 +287,7 @@ impl App {
 
 #[must_use]
 pub fn render_once(width: usize) -> String {
-    App::new(Snapshot::default()).render(width)
+    App::new(Snapshot::default()).render(width, false)
 }
 
 pub fn run_app(no_alt_screen: bool) -> io::Result<()> {
@@ -304,7 +304,7 @@ pub fn run_app(no_alt_screen: bool) -> io::Result<()> {
             .map(|(columns, _)| usize::from(columns))
             .unwrap_or(120);
         execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
-        write!(stdout, "{}", app.render(width))?;
+        write!(stdout, "{}", app.render(width, true))?;
         stdout.flush()?;
 
         if let Event::Key(key) = read()?

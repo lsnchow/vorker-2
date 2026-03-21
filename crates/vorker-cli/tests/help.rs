@@ -19,8 +19,9 @@ fn tui_once_renders_a_real_dashboard_frame() {
     let mut cmd = Command::cargo_bin("vorker").expect("binary exists");
 
     cmd.arg("tui").arg("--once").assert().success().stdout(
-        contains("VORKER CONTROL PLANE")
-            .and(contains("LAUNCH RAIL"))
-            .and(contains("ACTIVE AGENTS")),
+        contains("[vorker]")
+            .and(contains("ACTIONS"))
+            .and(contains("AGENTS"))
+            .and(contains("INPUT")),
     );
 }

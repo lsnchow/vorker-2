@@ -12,6 +12,7 @@ test("Rust TUI launcher script boots the one-shot dashboard", async () => {
     cwd: process.cwd(),
   });
 
-  assert.match(stdout, /VORKER CONTROL PLANE/);
-  assert.match(stdout, /LAUNCH RAIL/);
+  assert.match(stdout, /\[vorker\]/);
+  assert.match(stdout, /ACTIONS/);
+  assert.match(stdout, /INPUT/);
 });

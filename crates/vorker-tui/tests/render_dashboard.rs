@@ -72,15 +72,16 @@ fn render_dashboard_prints_sessions_runs_tasks_and_tunnel_status() {
     );
 
     for needle in [
-        "VORKER-2",
-        "LAUNCH RAIL",
+        "[vorker]",
+        "ACTIONS",
         "NEW AGENT",
         "SWARM",
         "gpt-5.4",
-        "ACTIVE AGENTS",
-        "AGENT DETAIL",
-        "RUN BOARD",
-        "EVENT FEED",
+        "AGENTS",
+        "DETAIL",
+        "RUNS",
+        "ACTIVITY",
+        "INPUT",
         "Planner",
         "Bootstrap",
         "Wire event bus",
@@ -96,6 +97,26 @@ fn render_dashboard_prints_sessions_runs_tasks_and_tunnel_status() {
             "missing {needle} in output:\n{output}"
         );
     }
+}
+
+#[test]
+fn render_dashboard_uses_a_compact_operator_header() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("[vorker]"),
+        "missing compact title bar:\n{output}"
+    );
+    assert!(
+        !output.contains("__     ______"),
+        "large ascii masthead should be gone:\n{output}"
+    );
 }
 
 #[test]
@@ -117,7 +138,7 @@ fn render_dashboard_respects_narrow_terminal_widths() {
     assert!(
         !lines
             .iter()
-            .any(|line| line.contains("ACTIVE AGENTS") && line.contains("AGENT DETAIL")),
+            .any(|line| line.contains("AGENTS") && line.contains("DETAIL")),
         "narrow layout should stack panels instead of printing side-by-side:\n{output}"
     );
 }
@@ -134,6 +155,61 @@ fn render_dashboard_uses_ascii_safe_borders() {
             && !output.contains('│')
             && !output.contains('─'),
         "dashboard should avoid unicode border glyphs that break alignment:\n{output}"
+    );
+}
+
+#[test]
+fn render_dashboard_surfaces_a_real_model_picker_panel() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            model_picker_open: true,
+            selected_action_id: "model".parse().expect("action"),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            model_choices: vec!["gpt-5.4".to_string(), "gpt-5".to_string()],
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("MODEL PICKER"),
+        "picker mode should be rendered as a distinct panel:\n{output}"
+    );
+}
+
+#[test]
+fn render_dashboard_uses_focus_styling_when_color_is_enabled() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            color: true,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("\u{1b}["),
+        "color-enabled render should emit ansi styling for focus affordance:\n{output}"
+    );
+}
+
+#[test]
+fn render_dashboard_avoids_internal_separator_rows_inside_panels() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        !output
+            .lines()
+            .any(|line| line.starts_with('|') && line.contains("-----")),
+        "content panels should not draw fake internal separator rows:\n{output}"
     );
 }
 
@@ -186,7 +262,7 @@ fn render_dashboard_stacks_panels_on_medium_terminal_widths() {
     assert!(
         !output
             .lines()
-            .any(|line| line.contains("ACTIVE AGENTS") && line.contains("AGENT DETAIL")),
+            .any(|line| line.contains("AGENTS") && line.contains("DETAIL")),
         "120-column terminals should use stacked panels instead of cramped side-by-side panes:\n{output}"
     );
 }
