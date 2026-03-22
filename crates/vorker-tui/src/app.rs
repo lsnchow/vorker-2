@@ -8,7 +8,9 @@ use crossterm::terminal::{
 };
 use std::io::{self, Write};
 
-use vorker_core::{Snapshot, create_supervisor_event, now_iso};
+use vorker_core::{
+    EventLog, Snapshot, create_supervisor_event, now_iso, restore_durable_supervisor_state,
+};
 
 use crate::navigation::{
     ActionItem, NavKey, NavigationState, apply_navigation_key, reconcile_navigation_state,
@@ -78,10 +80,7 @@ impl App {
                     }
                     _ => None,
                 },
-                swarm_overlay_open: matches!(
-                    self.overlay,
-                    Some(OverlayState::SwarmLaunch { .. })
-                ),
+                swarm_overlay_open: matches!(self.overlay, Some(OverlayState::SwarmLaunch { .. })),
                 swarm_goal: match &self.overlay {
                     Some(OverlayState::SwarmLaunch { goal, .. }) => goal.clone(),
                     _ => String::new(),
@@ -193,7 +192,10 @@ impl App {
                 self.navigation.model_picker_open = false;
                 self.status_line = format!(
                     "Model locked to {}.",
-                    self.navigation.selected_model_id.as_deref().unwrap_or("unset")
+                    self.navigation
+                        .selected_model_id
+                        .as_deref()
+                        .unwrap_or("unset")
                 );
             }
             _ => {}
@@ -296,8 +298,7 @@ impl App {
                 });
                 self.input_mode = InputMode::SwarmGoal;
                 self.status_line =
-                    "Swarm launch: type goal, arrows change strategy, Enter confirms."
-                        .to_string();
+                    "Swarm launch: type goal, arrows change strategy, Enter confirms.".to_string();
             }
         }
     }
@@ -437,7 +438,7 @@ fn cycle_index(current: usize, len: usize, delta: isize) -> usize {
 
 #[must_use]
 pub fn render_once(width: usize) -> String {
-    App::new(Snapshot::default()).render(width, false)
+    App::new(load_bootstrap_snapshot()).render(width, false)
 }
 
 fn normalize_for_raw_terminal(frame: &str) -> String {
@@ -462,7 +463,7 @@ fn normalize_for_raw_terminal(frame: &str) -> String {
 }
 
 pub fn run_app(no_alt_screen: bool) -> io::Result<()> {
-    let mut app = App::new(Snapshot::default());
+    let mut app = App::new(load_bootstrap_snapshot());
     enable_raw_mode()?;
     let mut stdout = io::stdout();
 
@@ -491,6 +492,15 @@ pub fn run_app(no_alt_screen: bool) -> io::Result<()> {
     }
     disable_raw_mode()?;
     Ok(())
+}
+
+fn load_bootstrap_snapshot() -> Snapshot {
+    let Ok(cwd) = std::env::current_dir() else {
+        return Snapshot::default();
+    };
+    let log_root = cwd.join(".vorker-2").join("logs");
+    let event_log = EventLog::new(&log_root, Some(log_root.join("supervisor.ndjson")));
+    restore_durable_supervisor_state(&event_log).unwrap_or_default()
 }
 
 #[cfg(test)]

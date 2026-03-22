@@ -9,9 +9,6 @@ use crate::store::SupervisorStore;
 
 type CoreResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-const DURABLE_EVENT_TYPES: &[&str] =
-    &["run.created", "run.updated", "task.created", "task.updated"];
-
 #[derive(Debug, Clone)]
 pub struct EventLog {
     root_dir: PathBuf,
@@ -67,10 +64,17 @@ pub fn restore_durable_supervisor_state(event_log: &EventLog) -> CoreResult<Snap
     let mut store = SupervisorStore::new();
 
     for event in event_log.read_all()? {
-        if DURABLE_EVENT_TYPES.contains(&event.kind.as_str()) {
+        if is_durable_event(&event.kind) {
             store.append(event);
         }
     }
 
     Ok(store.snapshot())
+}
+
+fn is_durable_event(kind: &str) -> bool {
+    matches!(
+        kind,
+        "run.created" | "run.updated" | "task.created" | "task.updated"
+    ) || kind.starts_with("preflight.")
 }

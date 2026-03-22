@@ -8,6 +8,7 @@ fn cli_help_lists_tui_and_serve_commands() {
 
     cmd.arg("--help").assert().success().stdout(
         contains("tui")
+            .and(contains("preflight"))
             .and(contains("serve"))
             .and(contains("--copilot-bin"))
             .and(contains("--no-alt-screen")),

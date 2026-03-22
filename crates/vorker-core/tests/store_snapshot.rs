@@ -199,3 +199,94 @@ fn supervisor_event_round_trips_with_json_shape_used_by_js_runtime() {
     assert_eq!(decoded.kind, "share.updated");
     assert_eq!(decoded.payload["share"]["status"], "ready");
 }
+
+#[test]
+fn supervisor_store_tracks_preflight_state_from_explicit_preflight_events() {
+    let mut store = SupervisorStore::new();
+
+    store.append(create_supervisor_event(
+        "run.created",
+        json!({
+            "run": {
+                "id": "preflight-1",
+                "name": "Preflight octocat/hello-world",
+                "goal": "Vet https://github.com/octocat/Hello-World",
+                "status": "running",
+                "type": "preflight",
+                "createdAt": "2026-03-21T00:00:00.000Z",
+                "updatedAt": "2026-03-21T00:00:00.000Z"
+            },
+            "preflight": {
+                "runId": "preflight-1",
+                "repoInput": "https://github.com/octocat/Hello-World",
+                "repoSourceType": "github",
+                "stage": "intake",
+                "sandboxState": "idle",
+                "artifactsDir": "/tmp/preflight-1"
+            }
+        }),
+    ));
+
+    store.append(create_supervisor_event(
+        "preflight.classified",
+        json!({
+            "run": {
+                "id": "preflight-1",
+                "status": "running",
+                "updatedAt": "2026-03-21T00:01:00.000Z"
+            },
+            "preflight": {
+                "runId": "preflight-1",
+                "stage": "risk",
+                "classification": "web app",
+                "classificationConfidence": "0.86",
+                "strategy": "node-web",
+                "runtimeFamily": "node",
+                "packageManager": "pnpm"
+            }
+        }),
+    ));
+
+    store.append(create_supervisor_event(
+        "preflight.verified",
+        json!({
+            "run": {
+                "id": "preflight-1",
+                "status": "completed",
+                "updatedAt": "2026-03-21T00:02:00.000Z"
+            },
+            "preflight": {
+                "runId": "preflight-1",
+                "stage": "report",
+                "riskLevel": "low",
+                "sandboxBackend": "docker",
+                "sandboxState": "completed",
+                "outcome": "Verified",
+                "previewUrl": "http://127.0.0.1:4173",
+                "summaryPath": "/tmp/preflight-1/summary.md",
+                "reportPath": "/tmp/preflight-1/report.json"
+            }
+        }),
+    ));
+
+    let snapshot = store.snapshot();
+    let run = &snapshot.runs[0];
+    let preflight = run.preflight.as_ref().expect("preflight metadata");
+
+    assert_eq!(run.run_type.as_deref(), Some("preflight"));
+    assert_eq!(
+        preflight.repo_input,
+        "https://github.com/octocat/Hello-World"
+    );
+    assert_eq!(preflight.classification.as_deref(), Some("web app"));
+    assert_eq!(preflight.classification_confidence.as_deref(), Some("0.86"));
+    assert_eq!(preflight.strategy.as_deref(), Some("node-web"));
+    assert_eq!(preflight.package_manager.as_deref(), Some("pnpm"));
+    assert_eq!(preflight.stage, "report");
+    assert_eq!(preflight.risk_level.as_deref(), Some("low"));
+    assert_eq!(preflight.outcome.as_deref(), Some("Verified"));
+    assert_eq!(
+        preflight.preview_url.as_deref(),
+        Some("http://127.0.0.1:4173")
+    );
+}

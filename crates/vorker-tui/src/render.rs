@@ -78,7 +78,11 @@ pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> Strin
     let color = options.color;
     let width = options.width.clamp(60, 160).saturating_sub(4).max(40);
     let stacked_layout = width < 108;
-    let left_width = if stacked_layout { width } else { width.clamp(32, 34) };
+    let left_width = if stacked_layout {
+        width
+    } else {
+        width.clamp(32, 34)
+    };
     let right_width = if stacked_layout {
         width
     } else {
@@ -241,7 +245,11 @@ fn render_navigation_panel(
     width: usize,
     color: bool,
 ) -> String {
-    let mut lines = vec![section_label("Agents", options.focused_pane == Pane::Sessions, color)];
+    let mut lines = vec![section_label(
+        "Agents",
+        options.focused_pane == Pane::Sessions,
+        color,
+    )];
     if snapshot.sessions.is_empty() {
         lines.push(colorize("  none yet", "gray", color));
     } else {
@@ -258,7 +266,11 @@ fn render_navigation_panel(
     }
 
     lines.push(String::new());
-    lines.push(section_label("Runs", options.focused_pane == Pane::Runs, color));
+    lines.push(section_label(
+        "Runs",
+        options.focused_pane == Pane::Runs,
+        color,
+    ));
     if snapshot.runs.is_empty() {
         lines.push(colorize("  none yet", "gray", color));
     } else {
@@ -275,7 +287,11 @@ fn render_navigation_panel(
     }
 
     lines.push(String::new());
-    lines.push(section_label("Tasks", options.focused_pane == Pane::Tasks, color));
+    lines.push(section_label(
+        "Tasks",
+        options.focused_pane == Pane::Tasks,
+        color,
+    ));
     let tasks = snapshot
         .runs
         .iter()
@@ -297,7 +313,15 @@ fn render_navigation_panel(
         }));
     }
 
-    build_panel("NAVIGATION", &lines, width, matches!(options.focused_pane, Pane::Sessions | Pane::Runs | Pane::Tasks))
+    build_panel(
+        "NAVIGATION",
+        &lines,
+        width,
+        matches!(
+            options.focused_pane,
+            Pane::Sessions | Pane::Runs | Pane::Tasks
+        ),
+    )
 }
 
 fn render_run_board(
@@ -326,6 +350,68 @@ fn render_run_board(
         .iter()
         .find(|task| options.selected_task_id.as_deref() == Some(task.id.as_str()))
         .or_else(|| active_run.tasks.first());
+
+    if active_run.run_type.as_deref() == Some("preflight") || active_run.preflight.is_some() {
+        let mut lines = vec![
+            format!(
+                "type {}",
+                active_run.run_type.as_deref().unwrap_or("preflight")
+            ),
+            format!(
+                "repo {}",
+                truncate(&active_run.goal, width.saturating_sub(10))
+            ),
+            format!("status {}", active_run.status),
+        ];
+
+        if let Some(preflight) = &active_run.preflight {
+            append_field(&mut lines, "stage", &preflight.stage, width, false);
+            append_field(
+                &mut lines,
+                "class",
+                preflight.classification.as_deref().unwrap_or("unknown"),
+                width,
+                false,
+            );
+            append_field(
+                &mut lines,
+                "risk",
+                preflight.risk_level.as_deref().unwrap_or("unknown"),
+                width,
+                false,
+            );
+            append_field(
+                &mut lines,
+                "sandbox",
+                &format!(
+                    "{} {}",
+                    preflight
+                        .sandbox_backend
+                        .as_deref()
+                        .unwrap_or("unavailable"),
+                    preflight.sandbox_state.as_deref().unwrap_or("idle")
+                ),
+                width,
+                false,
+            );
+            if let Some(outcome) = &preflight.outcome {
+                append_field(&mut lines, "outcome", outcome, width, false);
+            }
+            if let Some(failure) = &preflight.latest_failure {
+                append_field(&mut lines, "failure", failure, width, true);
+            }
+            if let Some(artifacts) = &preflight.artifacts_dir {
+                append_field(&mut lines, "artifacts", artifacts, width, true);
+            }
+        }
+
+        return build_panel(
+            "RUN OVERVIEW",
+            &lines,
+            width,
+            options.focused_pane == Pane::Runs || options.focused_pane == Pane::Tasks,
+        );
+    }
 
     let mut lines = vec![
         format!(
@@ -515,7 +601,9 @@ fn render_main_surface(
     {
         return panel;
     }
-    if options.focused_pane == Pane::Runs {
+    if options.focused_pane == Pane::Runs
+        || (snapshot.sessions.is_empty() && !snapshot.runs.is_empty())
+    {
         return render_run_board(snapshot, options, width, color);
     }
     render_active_session(snapshot, options, width, color)
@@ -573,7 +661,11 @@ fn render_create_agent_overlay(options: &DashboardOptions, width: usize, color: 
                 "model {}",
                 options.selected_model_id.as_deref().unwrap_or("gpt-5.4")
             ),
-            colorize("arrows choose role  enter creates  esc closes", "gray", color),
+            colorize(
+                "arrows choose role  enter creates  esc closes",
+                "gray",
+                color,
+            ),
         ],
         width,
         true,
@@ -593,7 +685,11 @@ fn render_swarm_overlay(options: &DashboardOptions, width: usize, color: bool) -
                 "strategy {}",
                 options.swarm_strategy.as_deref().unwrap_or("parallel")
             ),
-            colorize("type goal  arrows change strategy  enter launches", "gray", color),
+            colorize(
+                "type goal  arrows change strategy  enter launches",
+                "gray",
+                color,
+            ),
         ],
         width,
         true,
@@ -644,7 +740,12 @@ fn render_task_detail(
         );
     }
 
-    Some(build_panel("TASK DETAIL", &lines, width, options.focused_pane == Pane::Tasks))
+    Some(build_panel(
+        "TASK DETAIL",
+        &lines,
+        width,
+        options.focused_pane == Pane::Tasks,
+    ))
 }
 
 fn render_task_inspector(
@@ -691,7 +792,14 @@ fn render_task_inspector(
     if let Some(path) = &task.workspace_path {
         append_field(&mut lines, "workspace", path, width, true);
     }
-    Some(build_panel("TASK INSPECTOR", &lines, width, options.focused_pane == Pane::Tasks || options.focused_pane == Pane::Runs || options.focused_pane == Pane::Events))
+    Some(build_panel(
+        "TASK INSPECTOR",
+        &lines,
+        width,
+        options.focused_pane == Pane::Tasks
+            || options.focused_pane == Pane::Runs
+            || options.focused_pane == Pane::Events,
+    ))
 }
 
 fn render_footer(

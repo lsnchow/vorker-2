@@ -108,7 +108,13 @@ fn render_dashboard_empty_state_uses_a_getting_started_surface() {
         },
     );
 
-    for needle in ["GET STARTED", "Create agent", "Launch swarm", "NAVIGATION", "INPUT"] {
+    for needle in [
+        "GET STARTED",
+        "Create agent",
+        "Launch swarm",
+        "NAVIGATION",
+        "INPUT",
+    ] {
         assert!(
             output.contains(needle),
             "missing {needle} in output:\n{output}"
@@ -233,7 +239,10 @@ fn render_dashboard_surfaces_swarm_launch_overlay() {
         output.contains("LAUNCH SWARM"),
         "swarm launch flow should be rendered as an overlay panel:\n{output}"
     );
-    assert!(output.contains("ship the runtime"), "missing swarm goal:\n{output}");
+    assert!(
+        output.contains("ship the runtime"),
+        "missing swarm goal:\n{output}"
+    );
 }
 
 #[test]
@@ -254,6 +263,57 @@ fn render_dashboard_uses_focus_styling_when_color_is_enabled() {
 }
 
 #[test]
+fn render_dashboard_surfaces_preflight_stage_and_risk_for_selected_run() {
+    let output = render_dashboard(
+        &Snapshot {
+            runs: vec![RunSnapshot {
+                id: "preflight-1".to_string(),
+                name: "Preflight octocat/hello-world".to_string(),
+                goal: "Vet https://github.com/octocat/Hello-World".to_string(),
+                status: "running".to_string(),
+                run_type: Some("preflight".to_string()),
+                preflight: Some(vorker_core::PreflightRecord {
+                    run_id: "preflight-1".to_string(),
+                    repo_input: "https://github.com/octocat/Hello-World".to_string(),
+                    repo_source_type: "github".to_string(),
+                    stage: "setup".to_string(),
+                    classification: Some("web app".to_string()),
+                    classification_confidence: Some("0.86".to_string()),
+                    risk_level: Some("medium".to_string()),
+                    sandbox_backend: Some("docker".to_string()),
+                    sandbox_state: Some("running".to_string()),
+                    latest_failure: Some("missing .env".to_string()),
+                    artifacts_dir: Some("/tmp/preflight-1".to_string()),
+                    ..vorker_core::PreflightRecord::default()
+                }),
+                ..RunSnapshot::default()
+            }],
+            ..Snapshot::default()
+        },
+        DashboardOptions {
+            width: 120,
+            active_run_id: Some("preflight-1".to_string()),
+            ..DashboardOptions::default()
+        },
+    );
+
+    for needle in [
+        "preflight",
+        "setup",
+        "web app",
+        "medium",
+        "docker",
+        "missing .env",
+        "/tmp/preflight-1",
+    ] {
+        assert!(
+            output.contains(needle),
+            "missing {needle} in output:\n{output}"
+        );
+    }
+}
+
+#[test]
 fn render_dashboard_avoids_internal_separator_rows_inside_panels() {
     let output = render_dashboard(
         &Snapshot::default(),
@@ -264,9 +324,7 @@ fn render_dashboard_avoids_internal_separator_rows_inside_panels() {
     );
 
     assert!(
-        !output
-            .lines()
-            .any(|line| line.starts_with("|-----")),
+        !output.lines().any(|line| line.starts_with("|-----")),
         "content panels should not draw fake internal separator rows:\n{output}"
     );
 }

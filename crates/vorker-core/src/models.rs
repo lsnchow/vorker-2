@@ -5,6 +5,34 @@ use crate::events::SupervisorEvent;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct PreflightRecord {
+    pub run_id: String,
+    pub repo_input: String,
+    pub repo_source_type: String,
+    pub repo_origin: Option<String>,
+    pub repo_path: Option<String>,
+    pub classification: Option<String>,
+    pub classification_confidence: Option<String>,
+    pub strategy: Option<String>,
+    pub runtime_family: Option<String>,
+    pub package_manager: Option<String>,
+    pub risk_level: Option<String>,
+    pub risk_reasons: Vec<String>,
+    pub sandbox_backend: Option<String>,
+    pub sandbox_state: Option<String>,
+    pub stage: String,
+    pub outcome: Option<String>,
+    pub preview_url: Option<String>,
+    pub latest_failure: Option<String>,
+    pub artifacts_dir: Option<String>,
+    pub patch_diff_path: Option<String>,
+    pub summary_path: Option<String>,
+    pub report_path: Option<String>,
+    pub metadata_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct TranscriptEntry {
     pub role: String,
     pub text: String,
@@ -61,9 +89,12 @@ pub struct RunRecord {
     pub goal: String,
     pub status: String,
     pub notes: String,
+    #[serde(rename = "type")]
+    pub run_type: Option<String>,
     pub worker_agent_ids: Vec<String>,
     pub arbitrator_agent_id: Option<String>,
     pub task_ids: Vec<String>,
+    pub preflight: Option<PreflightRecord>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -76,9 +107,12 @@ pub struct RunSnapshot {
     pub goal: String,
     pub status: String,
     pub notes: String,
+    #[serde(rename = "type")]
+    pub run_type: Option<String>,
     pub worker_agent_ids: Vec<String>,
     pub arbitrator_agent_id: Option<String>,
     pub task_ids: Vec<String>,
+    pub preflight: Option<PreflightRecord>,
     pub created_at: String,
     pub updated_at: String,
     pub tasks: Vec<TaskRecord>,

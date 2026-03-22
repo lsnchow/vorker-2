@@ -4,7 +4,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::events::{SupervisorEvent, now_iso};
-use crate::models::{RunRecord, RunSnapshot, SessionRecord, Snapshot, TaskRecord, TranscriptEntry};
+use crate::models::{
+    PreflightRecord, RunRecord, RunSnapshot, SessionRecord, Snapshot, TaskRecord, TranscriptEntry,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct SupervisorStore {
@@ -46,9 +48,11 @@ impl SupervisorStore {
                 goal: run.goal,
                 status: run.status,
                 notes: run.notes,
+                run_type: run.run_type,
                 worker_agent_ids: run.worker_agent_ids,
                 arbitrator_agent_id: run.arbitrator_agent_id,
                 task_ids: run.task_ids,
+                preflight: run.preflight,
                 created_at: run.created_at,
                 updated_at: run.updated_at,
             })
@@ -72,6 +76,19 @@ impl SupervisorStore {
             "run.created" | "run.updated" => {
                 if let Ok(payload) = serde_json::from_value::<RunPayload>(event.payload.clone()) {
                     self.apply_run(payload.run);
+                    if let Some(preflight) = payload.preflight {
+                        self.apply_preflight(preflight);
+                    }
+                }
+            }
+            kind if kind.starts_with("preflight.") => {
+                if let Ok(payload) =
+                    serde_json::from_value::<PreflightEventPayload>(event.payload.clone())
+                {
+                    if let Some(run) = payload.run {
+                        self.apply_run(run);
+                    }
+                    self.apply_preflight(payload.preflight);
                 }
             }
             "task.created" | "task.updated" => {
@@ -117,9 +134,11 @@ impl SupervisorStore {
             goal: String::new(),
             status: "draft".into(),
             notes: String::new(),
+            run_type: None,
             worker_agent_ids: Vec::new(),
             arbitrator_agent_id: None,
             task_ids: Vec::new(),
+            preflight: None,
             created_at: input.created_at.clone().unwrap_or_else(now_iso),
             updated_at: input.updated_at.clone().unwrap_or_else(now_iso),
         });
@@ -131,6 +150,10 @@ impl SupervisorStore {
             goal: normalize_option(input.goal).unwrap_or(current.goal),
             status: normalize_option(input.status).unwrap_or(current.status),
             notes: normalize_option(input.notes).unwrap_or(current.notes),
+            run_type: input
+                .run_type
+                .and_then(normalize_string)
+                .or(current.run_type),
             worker_agent_ids: normalize_vec(input.worker_agent_ids)
                 .unwrap_or(current.worker_agent_ids),
             arbitrator_agent_id: input
@@ -138,6 +161,7 @@ impl SupervisorStore {
                 .and_then(normalize_string)
                 .or(current.arbitrator_agent_id),
             task_ids,
+            preflight: current.preflight,
             created_at: normalize_option(input.created_at).unwrap_or(current.created_at),
             updated_at: normalize_option(input.updated_at).unwrap_or(current.updated_at),
         };
@@ -253,9 +277,11 @@ impl SupervisorStore {
                 goal: String::new(),
                 status: "draft".into(),
                 notes: String::new(),
+                run_type: None,
                 worker_agent_ids: Vec::new(),
                 arbitrator_agent_id: None,
                 task_ids: Vec::new(),
+                preflight: None,
                 created_at: now_iso(),
                 updated_at: now_iso(),
             });
@@ -308,6 +334,127 @@ impl SupervisorStore {
                 transcript: current.transcript,
                 created_at: normalize_option(input.created_at).unwrap_or(current.created_at),
                 updated_at: normalize_option(input.updated_at).unwrap_or(current.updated_at),
+            },
+        );
+    }
+
+    fn apply_preflight(&mut self, input: PreflightInput) {
+        let Some(run_id) = normalize_option(input.run_id) else {
+            return;
+        };
+
+        let current_run = self
+            .runs
+            .get(&run_id)
+            .cloned()
+            .unwrap_or_else(|| RunRecord {
+                id: run_id.clone(),
+                name: "Untitled run".into(),
+                goal: String::new(),
+                status: "draft".into(),
+                notes: String::new(),
+                run_type: Some("preflight".into()),
+                worker_agent_ids: Vec::new(),
+                arbitrator_agent_id: None,
+                task_ids: Vec::new(),
+                preflight: None,
+                created_at: now_iso(),
+                updated_at: now_iso(),
+            });
+
+        let current = current_run.preflight.unwrap_or_else(|| PreflightRecord {
+            run_id: run_id.clone(),
+            repo_input: String::new(),
+            repo_source_type: String::new(),
+            stage: "intake".into(),
+            ..PreflightRecord::default()
+        });
+
+        let next = PreflightRecord {
+            run_id: run_id.clone(),
+            repo_input: normalize_option(input.repo_input).unwrap_or(current.repo_input),
+            repo_source_type: normalize_option(input.repo_source_type)
+                .unwrap_or(current.repo_source_type),
+            repo_origin: input
+                .repo_origin
+                .and_then(normalize_string)
+                .or(current.repo_origin),
+            repo_path: input
+                .repo_path
+                .and_then(normalize_string)
+                .or(current.repo_path),
+            classification: input
+                .classification
+                .and_then(normalize_string)
+                .or(current.classification),
+            classification_confidence: input
+                .classification_confidence
+                .and_then(normalize_string)
+                .or(current.classification_confidence),
+            strategy: input
+                .strategy
+                .and_then(normalize_string)
+                .or(current.strategy),
+            runtime_family: input
+                .runtime_family
+                .and_then(normalize_string)
+                .or(current.runtime_family),
+            package_manager: input
+                .package_manager
+                .and_then(normalize_string)
+                .or(current.package_manager),
+            risk_level: input
+                .risk_level
+                .and_then(normalize_string)
+                .or(current.risk_level),
+            risk_reasons: normalize_vec(input.risk_reasons).unwrap_or(current.risk_reasons),
+            sandbox_backend: input
+                .sandbox_backend
+                .and_then(normalize_string)
+                .or(current.sandbox_backend),
+            sandbox_state: input
+                .sandbox_state
+                .and_then(normalize_string)
+                .or(current.sandbox_state),
+            stage: normalize_option(input.stage).unwrap_or(current.stage),
+            outcome: input.outcome.and_then(normalize_string).or(current.outcome),
+            preview_url: input
+                .preview_url
+                .and_then(normalize_string)
+                .or(current.preview_url),
+            latest_failure: input
+                .latest_failure
+                .and_then(normalize_string)
+                .or(current.latest_failure),
+            artifacts_dir: input
+                .artifacts_dir
+                .and_then(normalize_string)
+                .or(current.artifacts_dir),
+            patch_diff_path: input
+                .patch_diff_path
+                .and_then(normalize_string)
+                .or(current.patch_diff_path),
+            summary_path: input
+                .summary_path
+                .and_then(normalize_string)
+                .or(current.summary_path),
+            report_path: input
+                .report_path
+                .and_then(normalize_string)
+                .or(current.report_path),
+            metadata_path: input
+                .metadata_path
+                .and_then(normalize_string)
+                .or(current.metadata_path),
+        };
+
+        self.runs.insert(
+            run_id,
+            RunRecord {
+                run_type: Some("preflight".into()),
+                preflight: Some(next),
+                updated_at: now_iso(),
+                ..current_run
             },
         );
     }
@@ -372,6 +519,8 @@ fn normalize_vec(value: Option<Vec<String>>) -> Option<Vec<String>> {
 #[derive(Debug, Deserialize)]
 struct RunPayload {
     run: RunInput,
+    #[serde(default)]
+    preflight: Option<PreflightInput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -382,10 +531,47 @@ struct RunInput {
     goal: Option<String>,
     status: Option<String>,
     notes: Option<String>,
+    #[serde(rename = "type")]
+    run_type: Option<String>,
     worker_agent_ids: Option<Vec<String>>,
     arbitrator_agent_id: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreflightEventPayload {
+    #[serde(default)]
+    run: Option<RunInput>,
+    preflight: PreflightInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreflightInput {
+    run_id: Option<String>,
+    repo_input: Option<String>,
+    repo_source_type: Option<String>,
+    repo_origin: Option<String>,
+    repo_path: Option<String>,
+    classification: Option<String>,
+    classification_confidence: Option<String>,
+    strategy: Option<String>,
+    runtime_family: Option<String>,
+    package_manager: Option<String>,
+    risk_level: Option<String>,
+    risk_reasons: Option<Vec<String>>,
+    sandbox_backend: Option<String>,
+    sandbox_state: Option<String>,
+    stage: Option<String>,
+    outcome: Option<String>,
+    preview_url: Option<String>,
+    latest_failure: Option<String>,
+    artifacts_dir: Option<String>,
+    patch_diff_path: Option<String>,
+    summary_path: Option<String>,
+    report_path: Option<String>,
+    metadata_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

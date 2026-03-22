@@ -1,4 +1,7 @@
 use clap::{Args, CommandFactory, Parser, Subcommand};
+use std::env;
+use vorker_core::EventLog;
+use vorker_preflight::{LocalContainerSandbox, PreflightRequest, PreflightRunner};
 use vorker_tui::{render_once, run_app};
 
 #[derive(Debug, Parser)]
@@ -35,6 +38,7 @@ struct SharedOptions {
 #[derive(Debug, Subcommand)]
 enum Command {
     Tui(TuiOptions),
+    Preflight { repo: String },
     Repl,
     Chat { prompt: Option<String> },
     Serve(ServeOptions),
@@ -76,12 +80,24 @@ struct ShareOptions {
 
 fn main() {
     let cli = Cli::parse();
+    if let Some(cwd) = &cli.shared.cwd
+        && let Err(error) = env::set_current_dir(cwd)
+    {
+        eprintln!("failed to change directory to {cwd}: {error}");
+        std::process::exit(1);
+    }
 
     match cli.command {
         Some(Command::Tui(tui)) => {
             if tui.once {
                 println!("{}", render_once(120));
             } else if let Err(error) = run_app(cli.shared.no_alt_screen) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        Some(Command::Preflight { repo }) => {
+            if let Err(error) = run_preflight(repo, cli.shared.auto_approve) {
                 eprintln!("{error}");
                 std::process::exit(1);
             }
@@ -103,4 +119,36 @@ fn main() {
             println!();
         }
     }
+}
+
+fn run_preflight(
+    repo: String,
+    auto_approve: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let runner = PreflightRunner::new(LocalContainerSandbox::detect());
+    let result = runner.run(PreflightRequest::new(repo).approve_high_risk(auto_approve))?;
+
+    let logs_root = env::current_dir()?.join(".vorker-2").join("logs");
+    let event_log = EventLog::new(&logs_root, Some(logs_root.join("supervisor.ndjson")));
+    for event in &result.events {
+        event_log.append(event)?;
+    }
+
+    println!("preflight {}", result.report.run_id);
+    println!("outcome   {}", result.report.outcome);
+    println!("class     {}", result.report.repo_class);
+    println!("risk      {}", result.report.risk.level);
+    println!("stage     {}", result.report.stage);
+    if let Some(failure) = &result.report.latest_failure {
+        println!("failure   {failure}");
+    }
+    println!("summary   {}", result.report.summary_path);
+    println!("report    {}", result.report.report_path);
+    println!("artifacts {}", result.artifacts_dir.display());
+    if result.report.risk.level == "high" && !auto_approve {
+        println!(
+            "hint      rerun with --auto-approve to allow sandbox execution for a high-risk repo"
+        );
+    }
+    Ok(())
 }

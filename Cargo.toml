@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/vorker-cli", "crates/vorker-core", "crates/vorker-git", "crates/vorker-tui"]
+members = [
+    "crates/vorker-cli",
+    "crates/vorker-core",
+    "crates/vorker-git",
+    "crates/vorker-preflight",
+    "crates/vorker-tui",
+]
 resolver = "2"
 
 [workspace.package]
