@@ -13,17 +13,24 @@ use vorker_core::{
 };
 
 use crate::navigation::{
-    ActionItem, NavKey, NavigationState, Pane, apply_navigation_key, reconcile_navigation_state,
+    NavKey, NavigationState, Pane, apply_navigation_key, reconcile_navigation_state,
 };
 use crate::render::{DashboardOptions, InputMode, render_dashboard};
+use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
 
 const AGENT_ROLES: [&str; 3] = ["worker", "planner", "reviewer"];
 const SWARM_STRATEGIES: [&str; 3] = ["parallel", "review-first", "repair-first"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum OverlayState {
-    CreateAgent { role_index: usize },
-    SwarmLaunch { goal: String, strategy_index: usize },
+    CreateAgent {
+        role_index: usize,
+    },
+    #[allow(dead_code)]
+    SwarmLaunch {
+        goal: String,
+        strategy_index: usize,
+    },
 }
 
 pub struct App {
@@ -31,7 +38,10 @@ pub struct App {
     pub navigation: NavigationState,
     pub status_line: String,
     pub input_mode: InputMode,
+    provider_id: String,
+    workspace_path: String,
     overlay: Option<OverlayState>,
+    slash_menu_selected_index: usize,
     next_agent_index: usize,
     next_run_index: usize,
     next_task_index: usize,
@@ -41,15 +51,30 @@ impl App {
     #[must_use]
     pub fn new(snapshot: Snapshot) -> Self {
         let navigation = reconcile_navigation_state(&snapshot, NavigationState::default());
+        let workspace_path = std::env::current_dir()
+            .ok()
+            .map(|path| path.display().to_string())
+            .or_else(|| snapshot.sessions.first().map(|session| session.cwd.clone()))
+            .unwrap_or_else(|| ".".to_string());
+        let next_task_index = snapshot
+            .runs
+            .iter()
+            .map(|run| run.tasks.len())
+            .sum::<usize>()
+            + 1;
+
         Self {
             snapshot,
             navigation,
-            status_line: "Ready for commands.".to_string(),
+            status_line: "Ready for prompts.".to_string(),
             input_mode: InputMode::Prompt,
+            provider_id: "copilot".to_string(),
+            workspace_path,
             overlay: None,
+            slash_menu_selected_index: 0,
             next_agent_index: 1,
             next_run_index: 1,
-            next_task_index: 1,
+            next_task_index,
         }
     }
 
@@ -59,6 +84,8 @@ impl App {
             DashboardOptions {
                 color,
                 width,
+                provider_id: self.provider_id.clone(),
+                workspace_path: self.workspace_path.clone(),
                 status_line: self.status_line.clone(),
                 input_mode: self.input_mode.clone(),
                 focused_pane: self.navigation.focused_pane,
@@ -70,6 +97,7 @@ impl App {
                 active_run_id: self.navigation.active_run_id.clone(),
                 selected_task_id: self.navigation.selected_task_id.clone(),
                 command_buffer: self.navigation.command_buffer.clone(),
+                slash_menu_selected_index: self.slash_menu_selected_index,
                 create_agent_overlay_open: matches!(
                     self.overlay,
                     Some(OverlayState::CreateAgent { .. })
@@ -115,19 +143,23 @@ impl App {
         match key.code {
             KeyCode::Left => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Left)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Left);
             }
             KeyCode::Right => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Right)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Right);
             }
             KeyCode::Up => {
-                self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Up)
+                if !self.navigate_slash_menu(-1) {
+                    self.navigation =
+                        apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Up);
+                }
             }
             KeyCode::Down => {
-                self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Down)
+                if !self.navigate_slash_menu(1) {
+                    self.navigation =
+                        apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Down);
+                }
             }
             KeyCode::Tab => {
                 let nav_key = if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -139,25 +171,30 @@ impl App {
                     apply_navigation_key(self.navigation.clone(), &self.snapshot, nav_key);
             }
             KeyCode::Esc => {
-                self.navigation.command_buffer.clear();
+                self.overlay = None;
                 self.input_mode = InputMode::Prompt;
-                if self.navigation.focused_pane == Pane::Input {
-                    self.navigation.focused_pane = if self.snapshot.sessions.is_empty() {
-                        Pane::Actions
-                    } else {
-                        Pane::Sessions
-                    };
+                if self.navigation.command_buffer.is_empty() {
+                    self.status_line = "Ready for prompts.".to_string();
+                } else {
+                    self.navigation.command_buffer.clear();
+                    self.slash_menu_selected_index = 0;
+                    self.status_line = "Input cleared.".to_string();
                 }
-                self.status_line = "Input cleared.".to_string();
             }
             KeyCode::Enter => self.activate_current_selection(),
             KeyCode::Backspace => {
                 self.navigation.focused_pane = Pane::Input;
                 let _ = self.navigation.command_buffer.pop();
+                self.sync_slash_index();
             }
             KeyCode::Char(ch) => {
-                self.navigation.focused_pane = Pane::Input;
-                self.navigation.command_buffer.push(ch);
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                {
+                    self.navigation.focused_pane = Pane::Input;
+                    self.navigation.command_buffer.push(ch);
+                    self.sync_slash_index();
+                }
             }
             _ => {}
         }
@@ -170,19 +207,19 @@ impl App {
         match key.code {
             KeyCode::Left => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Left)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Left);
             }
             KeyCode::Right => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Right)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Right);
             }
             KeyCode::Up => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Up)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Up);
             }
             KeyCode::Down => {
                 self.navigation =
-                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Down)
+                    apply_navigation_key(self.navigation.clone(), &self.snapshot, NavKey::Down);
             }
             KeyCode::Tab => {
                 let nav_key = if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -285,60 +322,139 @@ impl App {
     }
 
     fn activate_current_selection(&mut self) {
-        if self.navigation.focused_pane == Pane::Input && !self.navigation.command_buffer.is_empty()
+        match self.navigation.focused_pane {
+            Pane::Input => {
+                if self.navigation.command_buffer.trim().is_empty() {
+                    self.status_line = "Type a prompt or /command.".to_string();
+                    return;
+                }
+
+                if is_slash_mode(&self.navigation.command_buffer) {
+                    self.execute_slash_command();
+                    return;
+                }
+
+                let prompt = self.navigation.command_buffer.clone();
+                self.navigation.command_buffer.clear();
+                self.slash_menu_selected_index = 0;
+                self.send_prompt(prompt);
+            }
+            Pane::Sessions => {
+                self.navigation.focused_pane = Pane::Input;
+                self.status_line = "Agent selected. Type a prompt.".to_string();
+            }
+            Pane::Runs => {
+                self.status_line = "Run selected.".to_string();
+            }
+            Pane::Tasks => {
+                self.status_line = "Task selected.".to_string();
+            }
+            Pane::Actions | Pane::Events => {
+                self.navigation.focused_pane = Pane::Input;
+            }
+        }
+    }
+
+    fn navigate_slash_menu(&mut self, delta: isize) -> bool {
+        if self.navigation.focused_pane != Pane::Input
+            || !is_slash_mode(&self.navigation.command_buffer)
         {
-            self.send_prompt(self.navigation.command_buffer.clone());
-            self.navigation.command_buffer.clear();
+            return false;
+        }
+
+        let commands = filtered_commands(&self.navigation.command_buffer);
+        if commands.is_empty() {
+            return false;
+        }
+
+        let len = commands.len() as isize;
+        self.slash_menu_selected_index =
+            (self.slash_menu_selected_index as isize + delta).rem_euclid(len) as usize;
+        true
+    }
+
+    fn sync_slash_index(&mut self) {
+        if !is_slash_mode(&self.navigation.command_buffer) {
+            self.slash_menu_selected_index = 0;
             return;
         }
 
-        match self.navigation.focused_pane {
-            Pane::Actions => match self.navigation.selected_action_id {
-                ActionItem::Model => {
-                    self.navigation.model_picker_open = true;
-                    self.status_line = "Choose a model with arrows.".to_string();
-                }
-                ActionItem::NewAgent => {
-                    self.overlay = Some(OverlayState::CreateAgent { role_index: 0 });
-                    self.status_line = "Create agent: choose role, Enter confirms.".to_string();
-                }
-                ActionItem::Swarm => {
-                    self.overlay = Some(OverlayState::SwarmLaunch {
-                        goal: String::new(),
-                        strategy_index: 0,
-                    });
-                    self.input_mode = InputMode::SwarmGoal;
-                    self.status_line =
-                        "Swarm launch: type goal, arrows change strategy, Enter confirms."
-                            .to_string();
-                }
-            },
-            Pane::Sessions => {
-                self.status_line = if self.navigation.active_session_id.is_some() {
-                    "Agent selected. Type to enter INPUT, then press Enter to send.".to_string()
-                } else {
-                    "No agent selected yet.".to_string()
-                };
+        let commands = filtered_commands(&self.navigation.command_buffer);
+        if commands.is_empty() {
+            self.slash_menu_selected_index = 0;
+        } else {
+            self.slash_menu_selected_index = self
+                .slash_menu_selected_index
+                .min(commands.len().saturating_sub(1));
+        }
+    }
+
+    fn execute_slash_command(&mut self) {
+        let commands = filtered_commands(&self.navigation.command_buffer);
+        let command = commands
+            .get(
+                self.slash_menu_selected_index
+                    .min(commands.len().saturating_sub(1)),
+            )
+            .copied()
+            .or_else(|| parse_exact_slash_command(&self.navigation.command_buffer));
+
+        self.navigation.command_buffer.clear();
+        self.slash_menu_selected_index = 0;
+
+        let Some(command) = command else {
+            self.status_line = "Unknown command.".to_string();
+            return;
+        };
+
+        match command.id {
+            SlashCommandId::Model => {
+                self.navigation.model_picker_open = true;
+                self.status_line = "Choose a model with arrows.".to_string();
             }
-            Pane::Runs => {
-                self.status_line = if self.navigation.active_run_id.is_some() {
-                    "Run selected. Use arrows to inspect tasks, or type to enter INPUT.".to_string()
-                } else {
-                    "No run selected yet.".to_string()
-                };
+            SlashCommandId::Provider => {
+                self.status_line = format!("Provider {} is active.", self.provider_id);
             }
-            Pane::Tasks => {
-                self.status_line = if self.navigation.selected_task_id.is_some() {
-                    "Task selected. Type to enter INPUT and ask the active agent.".to_string()
-                } else {
-                    "No task selected yet.".to_string()
-                };
+            SlashCommandId::New => {
+                self.overlay = Some(OverlayState::CreateAgent { role_index: 0 });
+                self.status_line = "Create agent: choose role, then Enter.".to_string();
             }
-            Pane::Events => {
-                self.status_line = "Activity is read-only.".to_string();
+            SlashCommandId::Agents => {
+                self.navigation.focused_pane = Pane::Sessions;
+                self.status_line = "Sidebar focused on agents.".to_string();
             }
-            Pane::Input => {
-                self.status_line = "Type a prompt first.".to_string();
+            SlashCommandId::Runs => {
+                self.navigation.focused_pane = Pane::Runs;
+                self.status_line = "Sidebar focused on runs.".to_string();
+            }
+            SlashCommandId::Tasks => {
+                self.navigation.focused_pane = Pane::Tasks;
+                self.status_line = "Sidebar focused on tasks.".to_string();
+            }
+            SlashCommandId::Review => {
+                self.status_line = "Review flow is not wired yet.".to_string();
+            }
+            SlashCommandId::Permissions => {
+                self.status_line = "Permissions: local execution only.".to_string();
+            }
+            SlashCommandId::Share => {
+                let state = self
+                    .snapshot
+                    .share
+                    .as_ref()
+                    .and_then(|share| share.get("state"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("idle");
+                self.status_line = format!("Tunnel state: {state}.");
+            }
+            SlashCommandId::Preflight => {
+                self.navigation.focused_pane = Pane::Runs;
+                self.status_line = "Run preflight with `vorker preflight <repo>`.".to_string();
+            }
+            SlashCommandId::Help => {
+                self.status_line =
+                    "Commands: /model /provider /new /agents /runs /tasks /share /preflight"
+                        .to_string();
             }
         }
     }
@@ -352,8 +468,9 @@ impl App {
     }
 
     fn create_agent(&mut self, role: &str) {
-        self.next_agent_index += 1;
         let agent_id = format!("agent-{}", self.next_agent_index);
+        let agent_name = format!("Agent {}", self.next_agent_index);
+        self.next_agent_index += 1;
         let model = self
             .navigation
             .selected_model_id
@@ -364,17 +481,17 @@ impl App {
             serde_json::json!({
                 "session": {
                     "id": agent_id,
-                    "name": format!("Agent {}", self.next_agent_index),
+                    "name": agent_name,
                     "role": role,
                     "status": "ready",
                     "model": model,
-                    "cwd": "."
+                    "cwd": self.workspace_path
                 }
             }),
         ));
         self.rebuild_snapshot();
         self.navigation.active_session_id = Some(agent_id);
-        self.navigation.focused_pane = crate::navigation::Pane::Sessions;
+        self.navigation.focused_pane = Pane::Input;
         self.status_line = format!(
             "Created {role} on {}.",
             self.navigation
@@ -385,18 +502,18 @@ impl App {
     }
 
     fn launch_swarm(&mut self, goal: String, strategy: &str) {
-        self.next_run_index += 1;
-        self.next_task_index += 2;
         let run_id = format!("run-{}", self.next_run_index);
-        let task_one = format!("task-{}", self.next_task_index - 1);
-        let task_two = format!("task-{}", self.next_task_index);
+        self.next_run_index += 1;
+        let task_one = format!("task-{}", self.next_task_index);
+        let task_two = format!("task-{}", self.next_task_index + 1);
+        self.next_task_index += 2;
 
         self.snapshot.events.push(create_supervisor_event(
             "run.created",
             serde_json::json!({
                 "run": {
                     "id": run_id,
-                    "name": format!("Swarm {}", self.next_run_index),
+                    "name": format!("Swarm {}", self.next_run_index - 1),
                     "goal": goal,
                     "status": "running",
                     "workerAgentIds": [],
@@ -436,7 +553,7 @@ impl App {
         self.rebuild_snapshot();
         self.navigation.active_run_id = Some(run_id);
         self.navigation.selected_task_id = Some(task_one);
-        self.navigation.focused_pane = crate::navigation::Pane::Runs;
+        self.navigation.focused_pane = Pane::Runs;
         self.status_line = format!("Swarm launched with {strategy} strategy.");
     }
 
@@ -474,6 +591,14 @@ impl App {
 
 fn cycle_index(current: usize, len: usize, delta: isize) -> usize {
     ((current as isize + delta).rem_euclid(len as isize)) as usize
+}
+
+fn parse_exact_slash_command(buffer: &str) -> Option<crate::slash::SlashCommand> {
+    let command = buffer.split_whitespace().next().unwrap_or_default().trim();
+    crate::slash::SLASH_COMMANDS
+        .iter()
+        .copied()
+        .find(|entry| entry.name == command)
 }
 
 #[must_use]

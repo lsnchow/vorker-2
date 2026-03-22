@@ -1,62 +1,64 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use vorker_tui::{ActionItem, App, InputMode, Pane};
+use vorker_tui::{App, Pane};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 #[test]
-fn enter_on_new_agent_opens_overlay_then_creates_a_session_on_the_selected_model() {
-    let mut app = App::new(vorker_core::Snapshot::default());
-
-    assert!(app.handle_key(key(KeyCode::Enter)));
-    assert_eq!(app.snapshot.sessions.len(), 0);
-    assert!(app.status_line.contains("Create agent"));
-
-    assert!(app.handle_key(key(KeyCode::Right)));
-    assert!(app.handle_key(key(KeyCode::Enter)));
-
-    assert_eq!(app.snapshot.sessions.len(), 1);
-    assert_eq!(app.snapshot.sessions[0].model.as_deref(), Some("gpt-5.4"));
-    assert_eq!(app.snapshot.sessions[0].role, "planner");
-    assert!(app.status_line.contains("Created planner"));
+fn app_starts_with_the_composer_focused() {
+    let app = App::new(vorker_core::Snapshot::default());
+    assert_eq!(app.navigation.focused_pane, Pane::Input);
 }
 
 #[test]
-fn swarm_goal_flow_uses_an_overlay_then_creates_a_run_and_task_lanes() {
+fn slash_new_opens_the_create_agent_overlay() {
     let mut app = App::new(vorker_core::Snapshot::default());
 
-    app.navigation.selected_action_id = ActionItem::Swarm;
-    assert!(app.handle_key(key(KeyCode::Enter)));
-    assert_eq!(app.snapshot.runs.len(), 0);
-    assert_eq!(app.input_mode, InputMode::SwarmGoal);
-    assert!(app.status_line.contains("Swarm launch"));
-
-    for ch in "ship the runtime".chars() {
+    for ch in "/new".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert_eq!(app.snapshot.runs.len(), 1);
-    assert_eq!(app.snapshot.runs[0].tasks.len(), 2);
-    assert_eq!(app.snapshot.runs[0].goal, "ship the runtime");
-    assert_eq!(app.input_mode, InputMode::Prompt);
-    assert!(app.status_line.contains("Swarm launched"));
+    let output = app.render(120, false);
+    assert!(
+        output.contains("CREATE AGENT"),
+        "missing create-agent overlay:\n{output}"
+    );
 }
 
 #[test]
-fn prompt_flow_appends_transcript_events_for_the_active_agent() {
+fn slash_model_opens_the_model_picker() {
     let mut app = App::new(vorker_core::Snapshot::default());
 
+    for ch in "/model".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(
+        output.contains("MODEL PICKER"),
+        "missing model picker:\n{output}"
+    );
+}
+
+#[test]
+fn typing_a_prompt_and_pressing_enter_appends_transcript_turns() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "/new".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
     assert!(app.handle_key(key(KeyCode::Enter)));
     assert!(app.handle_key(key(KeyCode::Enter)));
+
     for ch in "plan the work".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
     assert_eq!(app.navigation.focused_pane, Pane::Input);
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert_eq!(app.snapshot.sessions.len(), 1);
     let transcript = &app.snapshot.sessions[0].transcript;
     assert_eq!(transcript.len(), 2);
     assert_eq!(transcript[0].role, "user");
@@ -66,18 +68,20 @@ fn prompt_flow_appends_transcript_events_for_the_active_agent() {
 }
 
 #[test]
-fn enter_outside_input_does_not_submit_the_composer_buffer() {
-    let mut app = App::new(vorker_core::Snapshot::default());
+fn slash_runs_moves_focus_to_the_sidebar_runs_section() {
+    let mut app = App::new(vorker_core::Snapshot {
+        runs: vec![vorker_core::RunSnapshot {
+            id: "run-1".to_string(),
+            name: "Bootstrap".to_string(),
+            ..vorker_core::RunSnapshot::default()
+        }],
+        ..vorker_core::Snapshot::default()
+    });
 
-    assert!(app.handle_key(key(KeyCode::Enter)));
-    assert!(app.handle_key(key(KeyCode::Enter)));
-    for ch in "hello".chars() {
+    for ch in "/runs".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
-    app.navigation.focused_pane = Pane::Runs;
-
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert!(app.snapshot.sessions[0].transcript.is_empty());
-    assert_eq!(app.navigation.command_buffer, "hello");
+    assert_eq!(app.navigation.focused_pane, Pane::Runs);
 }

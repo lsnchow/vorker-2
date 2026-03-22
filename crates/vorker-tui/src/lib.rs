@@ -4,6 +4,7 @@ mod app;
 mod boot;
 mod navigation;
 mod render;
+mod slash;
 mod theme;
 
 pub use app::{App, render_once, run_app};
@@ -13,3 +14,4 @@ pub use navigation::{
     reconcile_navigation_state,
 };
 pub use render::{DashboardOptions, InputMode, render_dashboard};
+pub use slash::{SlashCommand, SlashCommandId, filtered_commands, is_slash_mode};

@@ -48,7 +48,7 @@ pub struct NavigationState {
 impl Default for NavigationState {
     fn default() -> Self {
         Self {
-            focused_pane: Pane::Actions,
+            focused_pane: Pane::Input,
             selected_action_id: ActionItem::NewAgent,
             active_session_id: None,
             active_run_id: None,
@@ -97,14 +97,7 @@ impl std::str::FromStr for ActionItem {
     }
 }
 
-const PANE_ORDER: [Pane; 6] = [
-    Pane::Actions,
-    Pane::Sessions,
-    Pane::Runs,
-    Pane::Tasks,
-    Pane::Events,
-    Pane::Input,
-];
+const PANE_ORDER: [Pane; 4] = [Pane::Input, Pane::Sessions, Pane::Runs, Pane::Tasks];
 const FALLBACK_MODELS: [&str; 3] = ["gpt-5.4", "gpt-5", "gpt-4.1"];
 
 #[must_use]
@@ -112,7 +105,7 @@ pub fn reconcile_navigation_state(snapshot: &Snapshot, state: NavigationState) -
     let mut next = state;
 
     if !PANE_ORDER.contains(&next.focused_pane) {
-        next.focused_pane = Pane::Actions;
+        next.focused_pane = Pane::Input;
     }
     if !ACTION_ITEMS.contains(&next.selected_action_id) {
         next.selected_action_id = ActionItem::NewAgent;
@@ -174,29 +167,25 @@ pub fn apply_navigation_key(
 
     match key {
         NavKey::Left => match next.focused_pane {
-            Pane::Actions => {
-                next.selected_action_id = move_wrapped_action(next.selected_action_id, -1)
-            }
-            Pane::Sessions => next.focused_pane = Pane::Actions,
             Pane::Runs => next.focused_pane = Pane::Sessions,
             Pane::Tasks => next.focused_pane = Pane::Runs,
-            Pane::Events => next.focused_pane = Pane::Tasks,
-            Pane::Input => {}
+            _ => {}
         },
         NavKey::Right => match next.focused_pane {
-            Pane::Actions => {
-                next.selected_action_id = move_wrapped_action(next.selected_action_id, 1)
-            }
             Pane::Sessions => next.focused_pane = Pane::Runs,
             Pane::Runs => next.focused_pane = Pane::Tasks,
-            Pane::Tasks => next.focused_pane = Pane::Events,
-            Pane::Events => {}
-            Pane::Input => {}
+            _ => {}
         },
         NavKey::Tab => next.focused_pane = cycle_focus(next.focused_pane, 1),
         NavKey::ShiftTab => next.focused_pane = cycle_focus(next.focused_pane, -1),
         NavKey::Up => match next.focused_pane {
-            Pane::Sessions => next.focused_pane = Pane::Actions,
+            Pane::Sessions => {
+                next.active_session_id = move_selection(
+                    &session_ids(snapshot),
+                    next.active_session_id.as_deref(),
+                    -1,
+                );
+            }
             Pane::Runs => {
                 next.active_run_id =
                     move_selection(&run_ids(snapshot), next.active_run_id.as_deref(), -1);
@@ -209,12 +198,9 @@ pub fn apply_navigation_key(
                     -1,
                 );
             }
-            Pane::Events => next.focused_pane = Pane::Tasks,
-            Pane::Input => next.focused_pane = Pane::Events,
-            Pane::Actions => {}
+            _ => {}
         },
         NavKey::Down => match next.focused_pane {
-            Pane::Actions => next.focused_pane = Pane::Sessions,
             Pane::Sessions => {
                 next.active_session_id =
                     move_selection(&session_ids(snapshot), next.active_session_id.as_deref(), 1);
@@ -231,8 +217,7 @@ pub fn apply_navigation_key(
                     1,
                 );
             }
-            Pane::Events => next.focused_pane = Pane::Input,
-            Pane::Input => {}
+            _ => {}
         },
     }
 
@@ -291,15 +276,6 @@ fn move_wrapped(ids: &[String], current: Option<&str>, delta: isize) -> Option<S
     let len = ids.len() as isize;
     let next_index = (current_index + delta).rem_euclid(len) as usize;
     ids.get(next_index).cloned()
-}
-
-fn move_wrapped_action(current: ActionItem, delta: isize) -> ActionItem {
-    let current_index = ACTION_ITEMS
-        .iter()
-        .position(|entry| *entry == current)
-        .unwrap_or(1) as isize;
-    let next_index = (current_index + delta).rem_euclid(ACTION_ITEMS.len() as isize) as usize;
-    ACTION_ITEMS[next_index]
 }
 
 fn cycle_focus(current: Pane, delta: isize) -> Pane {

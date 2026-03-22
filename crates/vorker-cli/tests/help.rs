@@ -16,13 +16,13 @@ fn cli_help_lists_tui_and_serve_commands() {
 }
 
 #[test]
-fn tui_once_renders_a_real_dashboard_frame() {
+fn tui_once_renders_a_real_chat_shell() {
     let mut cmd = Command::cargo_bin("vorker").expect("binary exists");
 
     cmd.arg("tui").arg("--once").assert().success().stdout(
         contains("[vorker]")
-            .and(contains("ACTIONS"))
-            .and(contains("NAVIGATION"))
-            .and(contains("INPUT")),
+            .and(contains("Navigation"))
+            .and(contains("Conversation"))
+            .and(contains("Composer")),
     );
 }

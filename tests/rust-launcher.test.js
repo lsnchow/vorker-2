@@ -6,13 +6,14 @@ import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
-test("Rust TUI launcher script boots the one-shot dashboard", async () => {
+test("Rust TUI launcher script boots the one-shot chat shell", async () => {
   const scriptPath = path.join(process.cwd(), "scripts", "run-rust-tui.sh");
   const { stdout } = await execFileAsync("sh", [scriptPath, "--once"], {
     cwd: process.cwd(),
   });
 
   assert.match(stdout, /\[vorker\]/);
-  assert.match(stdout, /ACTIONS/);
-  assert.match(stdout, /INPUT/);
+  assert.match(stdout, /Navigation/);
+  assert.match(stdout, /Conversation/);
+  assert.match(stdout, /Composer/);
 });
