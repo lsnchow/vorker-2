@@ -551,7 +551,12 @@ fn render_active_session(
         );
     }
 
-    build_panel("TRANSCRIPT", &lines, width, false)
+    build_panel(
+        "TRANSCRIPT",
+        &lines,
+        width,
+        options.focused_pane == Pane::Sessions,
+    )
 }
 
 fn render_event_feed(
@@ -850,11 +855,11 @@ fn render_footer(
         append_field(&mut lines, "share", url, width, true);
     }
     lines.push(colorize(
-        "arrows move  enter activates  esc cancels picker/prompt  ctrl+c quits",
+        "type enters INPUT  enter sends from INPUT  enter activates elsewhere  esc clears  ctrl+c quits",
         "gray",
         color,
     ));
-    build_panel("INPUT", &lines, width, true)
+    build_panel("INPUT", &lines, width, options.focused_pane == Pane::Input)
 }
 
 fn render_chip(label: &str, selected: bool, tone: &str, color: bool) -> String {

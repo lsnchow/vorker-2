@@ -13,7 +13,7 @@ use vorker_core::{
 };
 
 use crate::navigation::{
-    ActionItem, NavKey, NavigationState, apply_navigation_key, reconcile_navigation_state,
+    ActionItem, NavKey, NavigationState, Pane, apply_navigation_key, reconcile_navigation_state,
 };
 use crate::render::{DashboardOptions, InputMode, render_dashboard};
 
@@ -141,13 +141,22 @@ impl App {
             KeyCode::Esc => {
                 self.navigation.command_buffer.clear();
                 self.input_mode = InputMode::Prompt;
+                if self.navigation.focused_pane == Pane::Input {
+                    self.navigation.focused_pane = if self.snapshot.sessions.is_empty() {
+                        Pane::Actions
+                    } else {
+                        Pane::Sessions
+                    };
+                }
                 self.status_line = "Input cleared.".to_string();
             }
             KeyCode::Enter => self.activate_current_selection(),
             KeyCode::Backspace => {
+                self.navigation.focused_pane = Pane::Input;
                 let _ = self.navigation.command_buffer.pop();
             }
             KeyCode::Char(ch) => {
+                self.navigation.focused_pane = Pane::Input;
                 self.navigation.command_buffer.push(ch);
             }
             _ => {}
@@ -276,29 +285,60 @@ impl App {
     }
 
     fn activate_current_selection(&mut self) {
-        if !self.navigation.command_buffer.is_empty() {
+        if self.navigation.focused_pane == Pane::Input && !self.navigation.command_buffer.is_empty()
+        {
             self.send_prompt(self.navigation.command_buffer.clone());
             self.navigation.command_buffer.clear();
             return;
         }
 
-        match self.navigation.selected_action_id {
-            ActionItem::Model => {
-                self.navigation.model_picker_open = true;
-                self.status_line = "Choose a model with arrows.".to_string();
+        match self.navigation.focused_pane {
+            Pane::Actions => match self.navigation.selected_action_id {
+                ActionItem::Model => {
+                    self.navigation.model_picker_open = true;
+                    self.status_line = "Choose a model with arrows.".to_string();
+                }
+                ActionItem::NewAgent => {
+                    self.overlay = Some(OverlayState::CreateAgent { role_index: 0 });
+                    self.status_line = "Create agent: choose role, Enter confirms.".to_string();
+                }
+                ActionItem::Swarm => {
+                    self.overlay = Some(OverlayState::SwarmLaunch {
+                        goal: String::new(),
+                        strategy_index: 0,
+                    });
+                    self.input_mode = InputMode::SwarmGoal;
+                    self.status_line =
+                        "Swarm launch: type goal, arrows change strategy, Enter confirms."
+                            .to_string();
+                }
+            },
+            Pane::Sessions => {
+                self.status_line = if self.navigation.active_session_id.is_some() {
+                    "Agent selected. Type to enter INPUT, then press Enter to send.".to_string()
+                } else {
+                    "No agent selected yet.".to_string()
+                };
             }
-            ActionItem::NewAgent => {
-                self.overlay = Some(OverlayState::CreateAgent { role_index: 0 });
-                self.status_line = "Create agent: choose role, Enter confirms.".to_string();
+            Pane::Runs => {
+                self.status_line = if self.navigation.active_run_id.is_some() {
+                    "Run selected. Use arrows to inspect tasks, or type to enter INPUT.".to_string()
+                } else {
+                    "No run selected yet.".to_string()
+                };
             }
-            ActionItem::Swarm => {
-                self.overlay = Some(OverlayState::SwarmLaunch {
-                    goal: String::new(),
-                    strategy_index: 0,
-                });
-                self.input_mode = InputMode::SwarmGoal;
-                self.status_line =
-                    "Swarm launch: type goal, arrows change strategy, Enter confirms.".to_string();
+            Pane::Tasks => {
+                self.status_line = if self.navigation.selected_task_id.is_some() {
+                    "Task selected. Type to enter INPUT and ask the active agent.".to_string()
+                } else {
+                    "No task selected yet.".to_string()
+                };
+            }
+            Pane::Events => {
+                self.status_line = "Activity is read-only.".to_string();
+            }
+            Pane::Input => {
+                self.status_line = "Type a prompt first.".to_string();
             }
         }
     }
@@ -422,7 +462,7 @@ impl App {
                 "sessionId": session_id,
                 "message": {
                     "role": "assistant",
-                    "text": format!("Acknowledged: {}", self.navigation.command_buffer)
+                    "text": format!("Acknowledged: {prompt}")
                 }
             }),
         ));

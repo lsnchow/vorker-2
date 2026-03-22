@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use vorker_tui::{ActionItem, App, InputMode};
+use vorker_tui::{ActionItem, App, InputMode, Pane};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -53,6 +53,7 @@ fn prompt_flow_appends_transcript_events_for_the_active_agent() {
     for ch in "plan the work".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
+    assert_eq!(app.navigation.focused_pane, Pane::Input);
     assert!(app.handle_key(key(KeyCode::Enter)));
 
     assert_eq!(app.snapshot.sessions.len(), 1);
@@ -62,4 +63,21 @@ fn prompt_flow_appends_transcript_events_for_the_active_agent() {
     assert_eq!(transcript[0].text, "plan the work");
     assert_eq!(transcript[1].role, "assistant");
     assert!(transcript[1].text.contains("plan the work"));
+}
+
+#[test]
+fn enter_outside_input_does_not_submit_the_composer_buffer() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    app.navigation.focused_pane = Pane::Runs;
+
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert!(app.snapshot.sessions[0].transcript.is_empty());
+    assert_eq!(app.navigation.command_buffer, "hello");
 }

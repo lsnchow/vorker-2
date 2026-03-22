@@ -19,6 +19,7 @@ pub enum Pane {
     Runs,
     Tasks,
     Events,
+    Input,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +79,7 @@ impl fmt::Display for Pane {
             Self::Runs => "runs",
             Self::Tasks => "tasks",
             Self::Events => "events",
+            Self::Input => "input",
         })
     }
 }
@@ -95,12 +97,13 @@ impl std::str::FromStr for ActionItem {
     }
 }
 
-const PANE_ORDER: [Pane; 5] = [
+const PANE_ORDER: [Pane; 6] = [
     Pane::Actions,
     Pane::Sessions,
     Pane::Runs,
     Pane::Tasks,
     Pane::Events,
+    Pane::Input,
 ];
 const FALLBACK_MODELS: [&str; 3] = ["gpt-5.4", "gpt-5", "gpt-4.1"];
 
@@ -178,6 +181,7 @@ pub fn apply_navigation_key(
             Pane::Runs => next.focused_pane = Pane::Sessions,
             Pane::Tasks => next.focused_pane = Pane::Runs,
             Pane::Events => next.focused_pane = Pane::Tasks,
+            Pane::Input => {}
         },
         NavKey::Right => match next.focused_pane {
             Pane::Actions => {
@@ -187,6 +191,7 @@ pub fn apply_navigation_key(
             Pane::Runs => next.focused_pane = Pane::Tasks,
             Pane::Tasks => next.focused_pane = Pane::Events,
             Pane::Events => {}
+            Pane::Input => {}
         },
         NavKey::Tab => next.focused_pane = cycle_focus(next.focused_pane, 1),
         NavKey::ShiftTab => next.focused_pane = cycle_focus(next.focused_pane, -1),
@@ -205,6 +210,7 @@ pub fn apply_navigation_key(
                 );
             }
             Pane::Events => next.focused_pane = Pane::Tasks,
+            Pane::Input => next.focused_pane = Pane::Events,
             Pane::Actions => {}
         },
         NavKey::Down => match next.focused_pane {
@@ -225,7 +231,8 @@ pub fn apply_navigation_key(
                     1,
                 );
             }
-            Pane::Events => {}
+            Pane::Events => next.focused_pane = Pane::Input,
+            Pane::Input => {}
         },
     }
 

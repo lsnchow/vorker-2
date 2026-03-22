@@ -123,3 +123,22 @@ fn apply_navigation_key_cycles_models_while_the_model_picker_is_open() {
     let last = apply_navigation_key(next, &snapshot(), NavKey::Left);
     assert_eq!(last.selected_model_id.as_deref(), Some("gpt-5.4"));
 }
+
+#[test]
+fn apply_navigation_key_can_move_down_into_the_input_pane() {
+    let snapshot = snapshot();
+    let mut state = reconcile_navigation_state(&snapshot, NavigationState::default());
+
+    state = apply_navigation_key(state, &snapshot, NavKey::Down);
+    state = apply_navigation_key(state, &snapshot, NavKey::Right);
+    state = apply_navigation_key(state, &snapshot, NavKey::Right);
+    state = apply_navigation_key(state, &snapshot, NavKey::Right);
+
+    assert_eq!(state.focused_pane.to_string(), "events");
+
+    state = apply_navigation_key(state, &snapshot, NavKey::Down);
+    assert_eq!(state.focused_pane.to_string(), "input");
+
+    state = apply_navigation_key(state, &snapshot, NavKey::Up);
+    assert_eq!(state.focused_pane.to_string(), "events");
+}

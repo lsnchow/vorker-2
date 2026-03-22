@@ -314,6 +314,35 @@ fn render_dashboard_surfaces_preflight_stage_and_risk_for_selected_run() {
 }
 
 #[test]
+fn render_dashboard_only_highlights_input_when_input_pane_is_focused() {
+    let input_focused = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            focused_pane: vorker_tui::Pane::Input,
+            ..DashboardOptions::default()
+        },
+    );
+    let sessions_focused = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            focused_pane: vorker_tui::Pane::Sessions,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        input_focused.contains(">INPUT<"),
+        "input pane should show focus when selected:\n{input_focused}"
+    );
+    assert!(
+        !sessions_focused.contains(">INPUT<"),
+        "input pane should not appear focused when another pane is selected:\n{sessions_focused}"
+    );
+}
+
+#[test]
 fn render_dashboard_avoids_internal_separator_rows_inside_panels() {
     let output = render_dashboard(
         &Snapshot::default(),
