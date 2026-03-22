@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::events::{SupervisorEvent, now_iso};
 use crate::models::{
     PreflightRecord, RunRecord, RunSnapshot, SessionRecord, Snapshot, TaskRecord, TranscriptEntry,
+    TranscriptItem,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -14,6 +15,7 @@ pub struct SupervisorStore {
     runs: HashMap<String, RunRecord>,
     tasks: HashMap<String, TaskRecord>,
     sessions: HashMap<String, SessionRecord>,
+    transcript_items: Vec<TranscriptItem>,
     skills: Vec<Value>,
     share: Option<Value>,
 }
@@ -65,6 +67,7 @@ impl SupervisorStore {
             runs,
             tasks,
             sessions,
+            transcript_items: self.transcript_items.clone(),
             skills: self.skills.clone(),
             share: self.share.clone(),
             events: self.events.clone(),
@@ -77,6 +80,11 @@ impl SupervisorStore {
                 if let Ok(payload) = serde_json::from_value::<RunPayload>(event.payload.clone()) {
                     self.apply_run(payload.run);
                     if let Some(preflight) = payload.preflight {
+                        self.append_preflight_transcript_item(
+                            event.kind.as_str(),
+                            &preflight,
+                            &event.timestamp,
+                        );
                         self.apply_preflight(preflight);
                     }
                 }
@@ -88,24 +96,59 @@ impl SupervisorStore {
                     if let Some(run) = payload.run {
                         self.apply_run(run);
                     }
+                    self.append_preflight_transcript_item(
+                        event.kind.as_str(),
+                        &payload.preflight,
+                        &event.timestamp,
+                    );
                     self.apply_preflight(payload.preflight);
                 }
             }
             "task.created" | "task.updated" => {
                 if let Ok(payload) = serde_json::from_value::<TaskPayload>(event.payload.clone()) {
+                    self.append_task_transcript_item(
+                        event.kind.as_str(),
+                        &payload.task,
+                        &event.timestamp,
+                    );
                     self.apply_task(payload.task);
                 }
             }
             "session.registered" | "session.updated" => {
                 if let Ok(payload) = serde_json::from_value::<SessionPayload>(event.payload.clone())
                 {
-                    self.apply_session(payload.session);
+                    let session = payload.session;
+                    let system_notice = if event.kind == "session.registered" {
+                        Some(TranscriptItem {
+                            kind: "system_notice".into(),
+                            role: None,
+                            text: format!(
+                                "session {} ready",
+                                session
+                                    .name
+                                    .clone()
+                                    .or(session.id.clone())
+                                    .unwrap_or_else(|| "unknown".into())
+                            ),
+                            session_id: session.id.clone(),
+                            run_id: None,
+                            task_id: None,
+                            status: session.status.clone(),
+                            timestamp: event.timestamp.clone(),
+                        })
+                    } else {
+                        None
+                    };
+                    self.apply_session(session);
+                    if event.kind == "session.registered" {
+                        self.append_transcript_item(system_notice.expect("system notice exists"));
+                    }
                 }
             }
             "session.prompt.started" | "session.prompt.finished" => {
                 if let Ok(payload) = serde_json::from_value::<PromptPayload>(event.payload.clone())
                 {
-                    self.append_transcript(payload.session_id, payload.message);
+                    self.append_transcript(payload.session_id, payload.message, &event.timestamp);
                 }
             }
             "skills.updated" => {
@@ -117,6 +160,28 @@ impl SupervisorStore {
             "share.updated" => {
                 if let Ok(payload) = serde_json::from_value::<SharePayload>(event.payload.clone()) {
                     self.share = payload.share;
+                    if let Some(share) = self.share.as_ref() {
+                        let state = share
+                            .get("state")
+                            .and_then(Value::as_str)
+                            .unwrap_or("idle")
+                            .to_string();
+                        let public_url = share
+                            .get("publicUrl")
+                            .and_then(Value::as_str)
+                            .map(|url| format!(" ({url})"))
+                            .unwrap_or_default();
+                        self.append_transcript_item(TranscriptItem {
+                            kind: "system_notice".into(),
+                            role: None,
+                            text: format!("share {state}{public_url}"),
+                            session_id: None,
+                            run_id: None,
+                            task_id: None,
+                            status: Some(state),
+                            timestamp: event.timestamp.clone(),
+                        });
+                    }
                 }
             }
             _ => {}
@@ -314,6 +379,7 @@ impl SupervisorStore {
                 role: "worker".into(),
                 status: "unknown".into(),
                 mode: None,
+                provider: None,
                 model: None,
                 cwd: String::new(),
                 transcript: Vec::new(),
@@ -329,6 +395,10 @@ impl SupervisorStore {
                 role: normalize_option(input.role).unwrap_or(current.role),
                 status: normalize_option(input.status).unwrap_or(current.status),
                 mode: input.mode.and_then(normalize_string).or(current.mode),
+                provider: input
+                    .provider
+                    .and_then(normalize_string)
+                    .or(current.provider),
                 model: input.model.and_then(normalize_string).or(current.model),
                 cwd: normalize_option(input.cwd).unwrap_or(current.cwd),
                 transcript: current.transcript,
@@ -459,7 +529,7 @@ impl SupervisorStore {
         );
     }
 
-    fn append_transcript(&mut self, session_id: String, message: PromptMessage) {
+    fn append_transcript(&mut self, session_id: String, message: PromptMessage, timestamp: &str) {
         if normalize_option(Some(message.text.clone())).is_none() {
             return;
         }
@@ -474,6 +544,7 @@ impl SupervisorStore {
                 role: "worker".into(),
                 status: "unknown".into(),
                 mode: None,
+                provider: None,
                 model: None,
                 cwd: String::new(),
                 transcript: Vec::new(),
@@ -483,8 +554,9 @@ impl SupervisorStore {
 
         let mut transcript = current.transcript;
         transcript.push(TranscriptEntry {
-            role: normalize_option(Some(message.role)).unwrap_or_else(|| "assistant".into()),
-            text: message.text,
+            role: normalize_option(Some(message.role.clone()))
+                .unwrap_or_else(|| "assistant".into()),
+            text: message.text.clone(),
         });
 
         self.sessions.insert(
@@ -495,6 +567,96 @@ impl SupervisorStore {
                 ..current
             },
         );
+
+        let role = normalize_option(Some(message.role)).unwrap_or_else(|| "assistant".into());
+        let kind = if role == "user" {
+            "user_prompt"
+        } else {
+            "assistant_message"
+        };
+        self.append_transcript_item(TranscriptItem {
+            kind: kind.into(),
+            role: Some(role),
+            text: message.text,
+            session_id: Some(session_id),
+            run_id: None,
+            task_id: None,
+            status: None,
+            timestamp: timestamp.to_string(),
+        });
+    }
+
+    fn append_task_transcript_item(&mut self, kind: &str, task: &TaskInput, timestamp: &str) {
+        let status = task
+            .status
+            .clone()
+            .and_then(normalize_string)
+            .unwrap_or_else(|| "updated".into());
+        let item_kind = match kind {
+            "task.created" => "tool_started",
+            _ if matches!(status.as_str(), "completed" | "merged" | "verified") => "tool_finished",
+            _ => "tool_updated",
+        };
+        let title = task
+            .title
+            .clone()
+            .and_then(normalize_string)
+            .or(task.id.clone().and_then(normalize_string))
+            .unwrap_or_else(|| "task".into());
+        self.append_transcript_item(TranscriptItem {
+            kind: item_kind.into(),
+            role: None,
+            text: format!("task {title} -> {status}"),
+            session_id: None,
+            run_id: task.run_id.clone(),
+            task_id: task.id.clone(),
+            status: Some(status),
+            timestamp: timestamp.to_string(),
+        });
+    }
+
+    fn append_preflight_transcript_item(
+        &mut self,
+        kind: &str,
+        preflight: &PreflightInput,
+        timestamp: &str,
+    ) {
+        let stage = preflight
+            .stage
+            .clone()
+            .and_then(normalize_string)
+            .unwrap_or_else(|| "updated".into());
+        let item_kind = if matches!(kind, "preflight.verified" | "preflight.completed") {
+            "tool_finished"
+        } else {
+            "tool_updated"
+        };
+        let risk = preflight
+            .risk_level
+            .clone()
+            .and_then(normalize_string)
+            .map(|risk| format!(" risk {risk}"))
+            .unwrap_or_default();
+        let outcome = preflight
+            .outcome
+            .clone()
+            .and_then(normalize_string)
+            .map(|value| format!(" outcome {value}"))
+            .unwrap_or_default();
+        self.append_transcript_item(TranscriptItem {
+            kind: item_kind.into(),
+            role: None,
+            text: format!("preflight {stage}{risk}{outcome}"),
+            session_id: None,
+            run_id: preflight.run_id.clone(),
+            task_id: None,
+            status: preflight.sandbox_state.clone(),
+            timestamp: timestamp.to_string(),
+        });
+    }
+
+    fn append_transcript_item(&mut self, item: TranscriptItem) {
+        self.transcript_items.push(item);
     }
 }
 
@@ -620,6 +782,7 @@ struct SessionInput {
     role: Option<String>,
     status: Option<String>,
     mode: Option<String>,
+    provider: Option<String>,
     model: Option<String>,
     cwd: Option<String>,
     created_at: Option<String>,

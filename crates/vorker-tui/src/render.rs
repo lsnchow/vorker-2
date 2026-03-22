@@ -16,6 +16,8 @@ pub struct DashboardOptions {
     pub color: bool,
     pub width: usize,
     pub provider_id: String,
+    pub provider_choices: Vec<String>,
+    pub provider_picker_selected_id: Option<String>,
     pub workspace_path: String,
     pub status_line: String,
     pub focused_pane: Pane,
@@ -23,6 +25,7 @@ pub struct DashboardOptions {
     pub selected_model_id: Option<String>,
     pub model_choices: Vec<String>,
     pub model_picker_open: bool,
+    pub provider_picker_open: bool,
     pub active_session_id: Option<String>,
     pub active_run_id: Option<String>,
     pub selected_task_id: Option<String>,
@@ -42,6 +45,8 @@ impl Default for DashboardOptions {
             color: false,
             width: 120,
             provider_id: "copilot".to_string(),
+            provider_choices: vec!["copilot".to_string(), "codex".to_string()],
+            provider_picker_selected_id: None,
             workspace_path: ".".to_string(),
             status_line: "Ready.".to_string(),
             focused_pane: Pane::Input,
@@ -49,6 +54,7 @@ impl Default for DashboardOptions {
             selected_model_id: None,
             model_choices: Vec::new(),
             model_picker_open: false,
+            provider_picker_open: false,
             active_session_id: None,
             active_run_id: None,
             selected_task_id: None,
@@ -268,7 +274,22 @@ fn render_conversation(
 ) -> String {
     let mut lines = Vec::new();
 
-    if let Some(session) = active_session(snapshot, options) {
+    if !snapshot.transcript_items.is_empty() {
+        for item in snapshot.transcript_items.iter().rev().take(12).rev() {
+            let label = match item.kind.as_str() {
+                "user_prompt" => "user",
+                "assistant_chunk" | "assistant_message" => "assistant",
+                "tool_started" | "tool_updated" | "tool_finished" => "tool",
+                "approval_requested" | "approval_resolved" => "approval",
+                _ => "system",
+            };
+            lines.push(format!(
+                "{:<10}{}",
+                label,
+                truncate(&item.text, width.saturating_sub(16))
+            ));
+        }
+    } else if let Some(session) = active_session(snapshot, options) {
         for entry in &session.transcript {
             lines.push(format!(
                 "{:<10}{}",
@@ -276,17 +297,16 @@ fn render_conversation(
                 truncate(&entry.text, width.saturating_sub(16))
             ));
         }
-    }
-
-    for event in snapshot.events.iter().rev().take(4).rev() {
-        lines.push(format!(
-            "{:<10}{}",
-            "tool",
-            truncate(
-                &summarize_event(event.kind.as_str(), &event.payload),
-                width.saturating_sub(16)
-            )
-        ));
+        for event in snapshot.events.iter().rev().take(4).rev() {
+            lines.push(format!(
+                "{:<10}{}",
+                "tool",
+                truncate(
+                    &summarize_event(event.kind.as_str(), &event.payload),
+                    width.saturating_sub(16)
+                )
+            ));
+        }
     }
 
     if lines.is_empty() {
@@ -321,6 +341,29 @@ fn render_overlay(options: &DashboardOptions, width: usize, color: bool) -> Opti
             color,
         ));
         return Some(build_panel("MODEL PICKER", &lines, width, true));
+    }
+
+    if options.provider_picker_open {
+        let mut lines = Vec::new();
+        for provider in &options.provider_choices {
+            let selected = options
+                .provider_picker_selected_id
+                .as_deref()
+                .unwrap_or(options.provider_id.as_str())
+                == provider;
+            let label = if selected {
+                highlight(&format!(" {provider} "), color, "bgGreen", "black")
+            } else {
+                format!("[{provider}]")
+            };
+            lines.push(label);
+        }
+        lines.push(colorize(
+            "arrows move  enter keeps  esc closes",
+            "gray",
+            color,
+        ));
+        return Some(build_panel("PROVIDER PICKER", &lines, width, true));
     }
 
     if options.create_agent_overlay_open {
@@ -605,6 +648,9 @@ fn share_field<'a>(share: Option<&'a Value>, field: &str) -> Option<&'a str> {
 fn current_target(snapshot: &Snapshot, options: &DashboardOptions) -> String {
     if options.model_picker_open {
         return "model picker".to_string();
+    }
+    if options.provider_picker_open {
+        return "provider picker".to_string();
     }
     if options.create_agent_overlay_open {
         return "create agent".to_string();

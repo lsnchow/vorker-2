@@ -77,6 +77,14 @@ fn supervisor_store_rebuilds_run_task_and_session_state_from_events() {
     assert_eq!(session.transcript.len(), 1);
     assert_eq!(session.transcript[0].role, "assistant");
     assert_eq!(session.transcript[0].text, "Supervisor core planned.");
+    assert_eq!(snapshot.transcript_items.len(), 3);
+    assert_eq!(snapshot.transcript_items[0].kind, "system_notice");
+    assert_eq!(snapshot.transcript_items[1].kind, "tool_started");
+    assert_eq!(snapshot.transcript_items[2].kind, "assistant_message");
+    assert_eq!(
+        snapshot.transcript_items[2].text,
+        "Supervisor core planned."
+    );
 }
 
 #[test]
@@ -289,4 +297,51 @@ fn supervisor_store_tracks_preflight_state_from_explicit_preflight_events() {
         preflight.preview_url.as_deref(),
         Some("http://127.0.0.1:4173")
     );
+    assert_eq!(snapshot.transcript_items.len(), 3);
+    assert_eq!(snapshot.transcript_items[0].kind, "tool_updated");
+    assert!(snapshot.transcript_items[0].text.contains("preflight"));
+    assert_eq!(snapshot.transcript_items[2].kind, "tool_finished");
+}
+
+#[test]
+fn supervisor_store_projects_tool_and_prompt_events_into_transcript_items() {
+    let mut store = SupervisorStore::new();
+
+    store.append(create_supervisor_event(
+        "session.prompt.started",
+        json!({
+            "sessionId": "agent-1",
+            "message": {
+                "role": "user",
+                "text": "Inspect the repo"
+            }
+        }),
+    ));
+    store.append(create_supervisor_event(
+        "task.updated",
+        json!({
+            "task": {
+                "id": "task-1",
+                "runId": "run-1",
+                "title": "Inspect the repo",
+                "status": "running",
+                "updatedAt": "2026-03-22T00:03:00.000Z"
+            }
+        }),
+    ));
+    store.append(create_supervisor_event(
+        "share.updated",
+        json!({ "share": { "state": "ready", "publicUrl": "https://example.com" } }),
+    ));
+
+    let snapshot = store.snapshot();
+    let items = &snapshot.transcript_items;
+
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0].kind, "user_prompt");
+    assert_eq!(items[0].text, "Inspect the repo");
+    assert_eq!(items[1].kind, "tool_updated");
+    assert!(items[1].text.contains("Inspect the repo"));
+    assert_eq!(items[2].kind, "system_notice");
+    assert!(items[2].text.contains("ready"));
 }

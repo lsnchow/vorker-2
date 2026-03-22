@@ -10,7 +10,9 @@ fn cli_help_lists_tui_and_serve_commands() {
         contains("tui")
             .and(contains("preflight"))
             .and(contains("serve"))
+            .and(contains("--provider"))
             .and(contains("--copilot-bin"))
+            .and(contains("--codex-bin"))
             .and(contains("--no-alt-screen")),
     );
 }

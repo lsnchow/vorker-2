@@ -44,6 +44,31 @@ fn slash_model_opens_the_model_picker() {
 }
 
 #[test]
+fn slash_provider_opens_the_provider_picker_and_can_switch_to_codex() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "/provider".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(
+        output.contains("PROVIDER PICKER"),
+        "missing provider picker:\n{output}"
+    );
+
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(
+        output.contains("provider codex"),
+        "provider should switch to codex:\n{output}"
+    );
+}
+
+#[test]
 fn typing_a_prompt_and_pressing_enter_appends_transcript_turns() {
     let mut app = App::new(vorker_core::Snapshot::default());
 

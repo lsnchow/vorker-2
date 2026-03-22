@@ -9,5 +9,6 @@ pub use event_log::{EventLog, restore_durable_supervisor_state};
 pub use events::{SupervisorEvent, create_supervisor_event, now_iso};
 pub use models::{
     PreflightRecord, RunRecord, RunSnapshot, SessionRecord, Snapshot, TaskRecord, TranscriptEntry,
+    TranscriptItem,
 };
 pub use store::SupervisorStore;

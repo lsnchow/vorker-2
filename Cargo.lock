@@ -857,12 +857,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vorker-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "vorker-cli"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
  "predicates",
+ "vorker-agent",
  "vorker-core",
  "vorker-preflight",
  "vorker-tui",
@@ -905,6 +913,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "serde_json",
+ "vorker-agent",
  "vorker-core",
 ]
 

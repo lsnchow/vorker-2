@@ -8,6 +8,7 @@ use crossterm::terminal::{
 };
 use std::io::{self, Write};
 
+use vorker_agent::{ProviderId, ProviderManager};
 use vorker_core::{
     EventLog, Snapshot, create_supervisor_event, now_iso, restore_durable_supervisor_state,
 };
@@ -38,7 +39,10 @@ pub struct App {
     pub navigation: NavigationState,
     pub status_line: String,
     pub input_mode: InputMode,
-    provider_id: String,
+    provider_id: ProviderId,
+    provider_choices: Vec<ProviderId>,
+    provider_picker_open: bool,
+    provider_picker_index: usize,
     workspace_path: String,
     overlay: Option<OverlayState>,
     slash_menu_selected_index: usize,
@@ -51,6 +55,13 @@ impl App {
     #[must_use]
     pub fn new(snapshot: Snapshot) -> Self {
         let navigation = reconcile_navigation_state(&snapshot, NavigationState::default());
+        let provider_id = snapshot
+            .sessions
+            .first()
+            .and_then(|session| session.provider.as_deref())
+            .and_then(|provider| provider.parse::<ProviderId>().ok())
+            .unwrap_or_else(ProviderManager::default_provider);
+        let provider_choices = ProviderManager::available_providers().to_vec();
         let workspace_path = std::env::current_dir()
             .ok()
             .map(|path| path.display().to_string())
@@ -68,7 +79,10 @@ impl App {
             navigation,
             status_line: "Ready for prompts.".to_string(),
             input_mode: InputMode::Prompt,
-            provider_id: "copilot".to_string(),
+            provider_id,
+            provider_choices,
+            provider_picker_open: false,
+            provider_picker_index: 0,
             workspace_path,
             overlay: None,
             slash_menu_selected_index: 0,
@@ -84,7 +98,16 @@ impl App {
             DashboardOptions {
                 color,
                 width,
-                provider_id: self.provider_id.clone(),
+                provider_id: self.provider_id.to_string(),
+                provider_choices: self
+                    .provider_choices
+                    .iter()
+                    .map(|provider| provider.to_string())
+                    .collect(),
+                provider_picker_selected_id: self
+                    .provider_choices
+                    .get(self.provider_picker_index)
+                    .map(|provider| provider.to_string()),
                 workspace_path: self.workspace_path.clone(),
                 status_line: self.status_line.clone(),
                 input_mode: self.input_mode.clone(),
@@ -93,6 +116,7 @@ impl App {
                 selected_model_id: self.navigation.selected_model_id.clone(),
                 model_choices: self.navigation.model_choices.clone(),
                 model_picker_open: self.navigation.model_picker_open,
+                provider_picker_open: self.provider_picker_open,
                 active_session_id: self.navigation.active_session_id.clone(),
                 active_run_id: self.navigation.active_run_id.clone(),
                 selected_task_id: self.navigation.selected_task_id.clone(),
@@ -130,6 +154,12 @@ impl App {
 
         if self.navigation.model_picker_open {
             self.handle_model_picker_key(key);
+            self.navigation = reconcile_navigation_state(&self.snapshot, self.navigation.clone());
+            return true;
+        }
+
+        if self.provider_picker_open {
+            self.handle_provider_picker_key(key);
             self.navigation = reconcile_navigation_state(&self.snapshot, self.navigation.clone());
             return true;
         }
@@ -172,6 +202,7 @@ impl App {
             }
             KeyCode::Esc => {
                 self.overlay = None;
+                self.provider_picker_open = false;
                 self.input_mode = InputMode::Prompt;
                 if self.navigation.command_buffer.is_empty() {
                     self.status_line = "Ready for prompts.".to_string();
@@ -243,6 +274,37 @@ impl App {
                         .as_deref()
                         .unwrap_or("unset")
                 );
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_provider_picker_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Left | KeyCode::Up => {
+                self.provider_picker_index =
+                    cycle_index(self.provider_picker_index, self.provider_choices.len(), -1);
+            }
+            KeyCode::Right | KeyCode::Down | KeyCode::Tab => {
+                self.provider_picker_index =
+                    cycle_index(self.provider_picker_index, self.provider_choices.len(), 1);
+            }
+            KeyCode::Esc => {
+                self.provider_picker_open = false;
+                self.status_line = "Provider picker closed.".to_string();
+            }
+            KeyCode::Enter => {
+                self.provider_picker_open = false;
+                if let Some(provider) = self
+                    .provider_choices
+                    .get(self.provider_picker_index)
+                    .copied()
+                {
+                    self.provider_id = provider;
+                    self.navigation.selected_model_id =
+                        Some(ProviderManager::default_model(provider).to_string());
+                    self.status_line = format!("Provider locked to {}.", provider);
+                }
             }
             _ => {}
         }
@@ -413,7 +475,13 @@ impl App {
                 self.status_line = "Choose a model with arrows.".to_string();
             }
             SlashCommandId::Provider => {
-                self.status_line = format!("Provider {} is active.", self.provider_id);
+                self.provider_picker_open = true;
+                self.provider_picker_index = self
+                    .provider_choices
+                    .iter()
+                    .position(|provider| *provider == self.provider_id)
+                    .unwrap_or(0);
+                self.status_line = "Choose a provider with arrows.".to_string();
             }
             SlashCommandId::New => {
                 self.overlay = Some(OverlayState::CreateAgent { role_index: 0 });
@@ -484,6 +552,7 @@ impl App {
                     "name": agent_name,
                     "role": role,
                     "status": "ready",
+                    "provider": self.provider_id.to_string(),
                     "model": model,
                     "cwd": self.workspace_path
                 }

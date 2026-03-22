@@ -1,5 +1,7 @@
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use std::env;
+use std::io::{self, Read};
+use vorker_agent::{PromptRequest, ProviderId, ProviderManager};
 use vorker_core::EventLog;
 use vorker_preflight::{LocalContainerSandbox, PreflightRequest, PreflightRunner};
 use vorker_tui::{render_once, run_app};
@@ -21,8 +23,12 @@ struct Cli {
 struct SharedOptions {
     #[arg(long)]
     cwd: Option<String>,
+    #[arg(long)]
+    provider: Option<String>,
     #[arg(long = "copilot-bin")]
     copilot_bin: Option<String>,
+    #[arg(long = "codex-bin")]
+    codex_bin: Option<String>,
     #[arg(long)]
     mode: Option<String>,
     #[arg(long)]
@@ -105,8 +111,11 @@ fn main() {
         Some(Command::Repl) => {
             println!("Rust REPL bootstrap not wired yet.");
         }
-        Some(Command::Chat { .. }) => {
-            println!("Rust chat bootstrap not wired yet.");
+        Some(Command::Chat { prompt }) => {
+            if let Err(error) = run_chat(prompt, &cli.shared) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
         }
         Some(Command::Serve(_)) => {
             println!("Rust server bootstrap not wired yet.");
@@ -151,4 +160,65 @@ fn run_preflight(
         );
     }
     Ok(())
+}
+
+fn run_chat(
+    prompt: Option<String>,
+    shared: &SharedOptions,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let provider = shared
+        .provider
+        .as_deref()
+        .unwrap_or("copilot")
+        .parse::<ProviderId>()
+        .map_err(io::Error::other)?;
+    let prompt = resolve_prompt(prompt)?;
+    let request = PromptRequest {
+        prompt,
+        cwd: Some(env::current_dir()?),
+        model: shared.model.clone(),
+    };
+    let mut spec = ProviderManager::build_prompt_command(provider, &request);
+    match provider {
+        ProviderId::Copilot => {
+            if let Some(bin) = &shared.copilot_bin {
+                spec.program = bin.clone();
+            }
+        }
+        ProviderId::Codex => {
+            if let Some(bin) = &shared.codex_bin {
+                spec.program = bin.clone();
+            }
+        }
+    }
+
+    let output = spec.command().output()?;
+    if !output.stdout.is_empty() {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+    }
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    if !output.status.success() {
+        return Err(
+            io::Error::other(format!("{} exited with status {}", provider, output.status)).into(),
+        );
+    }
+
+    Ok(())
+}
+
+fn resolve_prompt(
+    prompt: Option<String>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(prompt) = prompt.filter(|value| !value.trim().is_empty()) {
+        return Ok(prompt);
+    }
+
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    if stdin.trim().is_empty() {
+        return Err(io::Error::other("chat requires a prompt").into());
+    }
+    Ok(stdin)
 }

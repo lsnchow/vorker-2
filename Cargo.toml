@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/vorker-agent",
     "crates/vorker-cli",
     "crates/vorker-core",
     "crates/vorker-git",

@@ -40,12 +40,26 @@ pub struct TranscriptEntry {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct TranscriptItem {
+    pub kind: String,
+    pub role: Option<String>,
+    pub text: String,
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub status: Option<String>,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
     pub id: String,
     pub name: String,
     pub role: String,
     pub status: String,
     pub mode: Option<String>,
+    pub provider: Option<String>,
     pub model: Option<String>,
     pub cwd: String,
     pub transcript: Vec<TranscriptEntry>,
@@ -123,6 +137,7 @@ pub struct Snapshot {
     pub runs: Vec<RunSnapshot>,
     pub tasks: Vec<TaskRecord>,
     pub sessions: Vec<SessionRecord>,
+    pub transcript_items: Vec<TranscriptItem>,
     pub skills: Vec<Value>,
     pub share: Option<Value>,
     pub events: Vec<SupervisorEvent>,

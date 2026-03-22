@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.39", features = ["derive"] }
+vorker-agent = { path = "../vorker-agent" }
 vorker-core = { path = "../vorker-core" }
 vorker-preflight = { path = "../vorker-preflight" }
 vorker-tui = { path = "../vorker-tui" }
