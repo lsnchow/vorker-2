@@ -419,6 +419,27 @@ fn typing_a_prompt_queues_a_turn_and_shows_working_state() {
 }
 
 #[test]
+fn up_down_recall_prompt_history_when_not_in_slash_mode() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.set_prompt_history(vec![
+        "first prompt".to_string(),
+        "second prompt".to_string(),
+    ]);
+
+    assert!(app.handle_key(key(KeyCode::Up)));
+    assert_eq!(app.navigation.command_buffer, "second prompt");
+
+    assert!(app.handle_key(key(KeyCode::Up)));
+    assert_eq!(app.navigation.command_buffer, "first prompt");
+
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert_eq!(app.navigation.command_buffer, "second prompt");
+
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert_eq!(app.navigation.command_buffer, "");
+}
+
+#[test]
 fn slash_stop_runs_even_when_work_is_active() {
     let mut app = App::new(vorker_core::Snapshot::default());
 

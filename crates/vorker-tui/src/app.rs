@@ -22,6 +22,7 @@ use crate::mentions::{
 };
 use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
+use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
@@ -144,6 +145,8 @@ pub struct App {
     pending_review_rows: VecDeque<TranscriptRow>,
     last_review_reveal_at: Option<Instant>,
     prompt_queue: VecDeque<(String, String)>,
+    prompt_history: Vec<String>,
+    prompt_history_cursor: Option<usize>,
     shell_theme: String,
     pending_actions: Vec<AppCommand>,
 }
@@ -232,6 +235,8 @@ impl App {
             pending_review_rows: VecDeque::new(),
             last_review_reveal_at: None,
             prompt_queue: VecDeque::new(),
+            prompt_history: Vec::new(),
+            prompt_history_cursor: None,
             shell_theme: current_shell_theme().to_string(),
             pending_actions: Vec::new(),
         }
@@ -304,6 +309,7 @@ impl App {
         self.archived_thread = None;
         self.pending_review_rows.clear();
         self.last_review_reveal_at = None;
+        self.prompt_history_cursor = None;
     }
 
     pub fn list_threads(&mut self, threads: &[StoredThread]) {
@@ -352,6 +358,21 @@ impl App {
     pub fn set_workspace_files(&mut self, workspace_files: Vec<String>) {
         self.workspace_files = workspace_files;
         self.sync_inline_popup();
+    }
+
+    pub fn set_prompt_history(&mut self, prompts: Vec<String>) {
+        self.prompt_history = prompts;
+        self.prompt_history_cursor = None;
+    }
+
+    pub fn record_prompt_history(&mut self, prompt: impl Into<String>) {
+        let prompt = prompt.into().trim().to_string();
+        if prompt.is_empty() {
+            return;
+        }
+        self.prompt_history.retain(|entry| entry != &prompt);
+        self.prompt_history.push(prompt);
+        self.prompt_history_cursor = None;
     }
 
     pub fn take_actions(&mut self) -> Vec<AppCommand> {
@@ -620,6 +641,7 @@ impl App {
             KeyCode::Enter => self.submit_current_input(),
             KeyCode::Backspace => {
                 let _ = self.navigation.command_buffer.pop();
+                self.prompt_history_cursor = None;
                 self.mention_bindings =
                     prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
                 self.sync_inline_popup();
@@ -630,6 +652,7 @@ impl App {
             {
                 self.navigation.focused_pane = Pane::Input;
                 self.navigation.command_buffer.push(ch);
+                self.prompt_history_cursor = None;
                 self.sync_inline_popup();
             }
             _ => {}
@@ -799,6 +822,7 @@ impl App {
 
     fn navigate_slash(&mut self, delta: isize) {
         if !is_slash_mode(&self.navigation.command_buffer) {
+            self.recall_prompt_history(delta);
             return;
         }
 
@@ -808,6 +832,33 @@ impl App {
         }
 
         self.slash_selected_index = cycle_index(self.slash_selected_index, commands.len(), delta);
+    }
+
+    fn recall_prompt_history(&mut self, delta: isize) {
+        if self.prompt_history.is_empty() {
+            return;
+        }
+
+        let next = if delta < 0 {
+            Some(match self.prompt_history_cursor {
+                Some(0) => 0,
+                Some(index) => index.saturating_sub(1),
+                None => self.prompt_history.len().saturating_sub(1),
+            })
+        } else {
+            match self.prompt_history_cursor {
+                Some(index) if index + 1 < self.prompt_history.len() => Some(index + 1),
+                Some(_) => None,
+                None => return,
+            }
+        };
+
+        self.prompt_history_cursor = next;
+        self.navigation.command_buffer = next
+            .and_then(|index| self.prompt_history.get(index).cloned())
+            .unwrap_or_default();
+        self.mention_bindings.clear();
+        self.sync_inline_popup();
     }
 
     fn submit_current_input(&mut self) {
@@ -1696,6 +1747,7 @@ pub fn run_app(
         initial_thread.approval_mode = ApprovalMode::Auto;
     }
     let mut app = App::from_thread(load_bootstrap_snapshot(), initial_thread);
+    app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
     if let Some(report_path) = std::env::var_os("VORKER_START_REPORT") {
         let report_path = PathBuf::from(report_path);
         app.apply_system_notice(format!("Adversarial report: {}", report_path.display()));
@@ -1838,6 +1890,7 @@ pub fn run_app(
                         thread_store = workspace.open_thread_store()?;
                         side_agent_store = workspace.open_side_agent_store()?;
                         prompt_history_store = workspace.open_prompt_history_store()?;
+                        app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
                         app.set_workspace_files(load_workspace_files(&cwd));
                         bridge = runtime.block_on(AcpBridge::start(
                             cwd.clone(),
@@ -1876,6 +1929,7 @@ pub fn run_app(
                     });
                     app.load_thread(thread);
                     app.set_workspace_files(load_workspace_files(&cwd));
+                    app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
                     app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
                     let cwd_label = cwd.display().to_string();
                     let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?
@@ -2116,7 +2170,8 @@ pub fn run_app(
                     display_text,
                     prompt_text,
                 } => {
-                    prompt_history_store.append(display_text)?;
+                    prompt_history_store.append(display_text.clone())?;
+                    app.record_prompt_history(display_text);
                     runtime.block_on(bridge.prompt(prompt_text))?;
                 }
                 AppCommand::CancelPrompt => {
@@ -2158,6 +2213,16 @@ fn persist_dirty_thread(app: &mut App, thread_store: &mut ThreadStore) -> io::Re
         thread_store.upsert(thread)?;
     }
     Ok(())
+}
+
+fn prompt_history_for_app(store: &PromptHistoryStore) -> Vec<String> {
+    let mut prompts = store
+        .recent(50)
+        .into_iter()
+        .map(|entry| entry.text)
+        .collect::<Vec<_>>();
+    prompts.reverse();
+    prompts
 }
 
 fn resolve_directory_change(current: &Path, requested: &str) -> io::Result<PathBuf> {
