@@ -1,22 +1,44 @@
 # Vorker
 
-Vorker is a local-first CLI coding harness. The default user path is now a Rust terminal shell inspired by Codex and Claude Code: one transcript, one composer, slash commands, file mentions, review mode, Codex-backed side agents, and project-scoped state under `~/.vorker`.
+Vorker is a local-first CLI coding harness for running AI-assisted development with stronger review, control, and project memory.
 
-The older web/mobile control plane and JavaScript supervisor still exist, but the main demo path is:
+It started as a Copilot ACP wrapper, but the current demo path is a Rust terminal shell inspired by Codex and Claude Code: a single chat transcript, slash commands, file mentions, adversarial review, project-scoped skills, and Codex-backed side agents.
 
 ```bash
 vorker
 ```
 
-## Install / Link
+## Why It Exists
+
+LLM coding tools can move quickly, but junior developers still need guardrails: clearer workflows, better review loops, and a way to learn from the mistakes an agent makes. Vorker experiments with that harness layer.
+
+Core ideas:
+
+- **Agent shell:** a simple terminal interface for coding prompts, `/` commands, and file context.
+- **Adversarial review:** a second-pass reviewer that can critique, coach, and propose patches.
+- **Skills:** project-scoped `SKILL.md` instructions that steer the underlying agent.
+- **Side agents:** Codex-backed background workers for parallel investigation.
+- **Local-first state:** threads, prompt history, reports, exports, and agent logs live under `~/.vorker`.
+- **Remote demo mode:** optional Tailscale / tunnel support for sharing a local session.
+
+## Status
+
+This is an active prototype, not a polished production agent platform. The core shell path works, but provider behavior still depends on the local Copilot/Codex setup and the repo is changing quickly.
+
+The repository currently used for development is:
+
+```text
+https://github.com/lsnchow/vorker-2
+```
+
+## Quick Start
 
 From this repo:
 
 ```bash
 npm link
+vorker
 ```
-
-That exposes `vorker` on your PATH through the Node wrapper, which forwards shell/review/RALPH commands to the Rust CLI.
 
 If Rust is not already available in your shell:
 
@@ -24,81 +46,76 @@ If Rust is not already available in your shell:
 source "$HOME/.cargo/env"
 ```
 
-## Core Commands
+By default, `vorker` runs inline and preserves terminal scrollback. Use alternate-screen mode only when you explicitly want it:
+
+```bash
+vorker --alt-screen
+```
+
+## CLI Commands
 
 ```bash
 vorker
 vorker tui
 vorker tui --once
-vorker ralph --no-deslop --xhigh "continue implementing the plan"
 vorker adversarial --coach --scope all-files "review this repo"
+vorker ralph --no-deslop --xhigh "continue implementing the plan"
 vorker demo hyperloop
 vorker serve
 vorker tailnet
 vorker share
 ```
 
-By default, `vorker` runs inline and preserves terminal scrollback. Use `--alt-screen` if you explicitly want alternate-screen mode.
-
-```bash
-vorker --alt-screen
-```
-
 ## Shell Commands
 
-Inside `vorker`, type `/` to open the command list. Current high-value commands:
+Inside the shell, type `/` to open the command list.
 
 ```text
 /model                 choose the active model
 /new                   start a fresh thread
-/review                open adversarial review in a review shell
-/coach                 rerun review with coaching guidance
-/apply                 rerun review and ask Codex to apply a safe patch
-/ralph                 launch an OMX RALPH persistence session
+/review                open adversarial review
+/coach                 rerun review with teaching guidance
+/apply                 rerun review and request a safe patch
+/skills                list or toggle project skills
 /agent                 spawn a Codex-backed side agent
-/agents                list stored side-agent jobs
-/agent-result <id>     show side-agent result and compact event summary
-/agent-stop <id>       stop or mark a side-agent job stopped
+/agents                list side-agent jobs
+/agent-result <id>     show side-agent output
+/agent-stop <id>       stop a side-agent job
 /queue <prompt>        queue follow-up work
 /steer <guidance>      send steering guidance
 /stop                  interrupt active work and side agents
-/theme list            list available themes
 /theme <name>          switch theme
-/status                show model/cwd/workspace/thread/agent status
-/export                export current transcript as markdown
+/status                show shell/session status
+/export                export the current transcript
 /permissions           toggle manual vs auto approvals
-/rename <name>         rename current thread
+/rename <name>         rename the current thread
 /list                  list saved threads
 /list <thread-id>      switch to a saved thread
 /history               show recent prompts
-/skills                open the skills action menu
-/skills list           list discovered skills and enabled state
-/skills enable <name>  enable a skill for this project
-/skills disable <name> disable a skill for this project
 /cd <path>             switch project directory
 ```
 
 Aliases:
 
-- `/clean` is an alias for `/stop`
-- `/approvals` is an alias for `/permissions`
-- `/?` is an alias for `/help`
+- `/clean` -> `/stop`
+- `/approvals` -> `/permissions`
+- `/?` -> `/help`
 
 When the composer is not in slash mode, `Up` / `Down` recall recent prompts from project history.
 
 ## File Mentions
 
-Use `@` in the composer to search workspace files:
+Use `@` in the composer to attach workspace files:
 
 ```text
-› Improve docs in @README.md
+› Improve the README in @README.md
 ```
 
-Selected mentions are resolved into attached file context before the prompt is sent. Binary files are rejected inline instead of silently expanded.
+Selected mentions are resolved into file context before the prompt is sent. Binary files are rejected inline instead of silently expanded.
 
 ## Skills
 
-Vorker discovers local and installed Codex-style `SKILL.md` files from:
+Vorker discovers Codex-style `SKILL.md` files from:
 
 ```text
 <project>/.codex/skills/
@@ -109,54 +126,45 @@ Vorker discovers local and installed Codex-style `SKILL.md` files from:
 ~/.agents/skills/
 ```
 
-Run `/skills` to open a Codex-style action menu. Choose `Enable/Disable Skills` to search the discovered skills and toggle them with `Enter` or `Space`, or use `/skills enable <name>` and `/skills disable <name>` directly.
+Use `/skills` to open the Codex-style skills menu, or run:
 
-Enabled skills are stored per project and are prepended to the Copilot ACP prompt alongside the Vorker personality harness, so Copilot is steered to answer as Vorker instead of introducing itself as GitHub Copilot.
-
-## RALPH
-
-RALPH is an OhMyCodex persistence loop for long-running completion with verification.
-
-Use Vorker’s wrapper instead of raw `omx ralph`:
-
-```bash
-vorker ralph --no-deslop --xhigh "finish implementing docs/opencode-ralph-codex-integration-plan.md"
+```text
+/skills list
+/skills enable code-review
+/skills disable code-review
 ```
 
-Why: project-scope OMX stores config in `./.codex`, but auth usually lives in `~/.codex/auth.json`. Vorker resolves this safely:
-
-- use project `.codex/auth.json` if present
-- otherwise use `~/.codex/auth.json`
-- never copy auth secrets into the repo
-- default to `--no-alt-screen` so the transcript remains observable
-
-Dry-run the exact launch:
-
-```bash
-vorker ralph --dry-run --no-deslop --xhigh --model gpt-5.4 "smoke test"
-```
+Enabled skills are stored per project and prepended to the Copilot ACP prompt with Vorker's personality harness, so the underlying agent is steered to behave as Vorker rather than introducing itself as GitHub Copilot.
 
 ## Adversarial Review
 
-Use `/review` in the shell or run:
+From the shell:
+
+```text
+/review --coach --no-popout review the API shape
+/apply
+```
+
+From the CLI:
 
 ```bash
 vorker adversarial --scope all-files --coach "review the API shape"
-vorker adversarial --scope staged --coach --apply "patch the worst issue"
+vorker adversarial --scope staged --coach --apply "patch the highest-risk issue"
 ```
 
-Useful flags:
+Useful scopes:
 
 - `--scope auto`
 - `--scope working-tree`
 - `--scope staged`
 - `--scope all-files`
 - `--scope branch --base <ref>`
-- `--coach`
-- `--apply`
-- `--popout`
 
-Reports are written under the project workspace in `~/.vorker/projects/<project-key>/reports/`.
+Reports are written under:
+
+```text
+~/.vorker/projects/<project-key>/reports/
+```
 
 ## Side Agents
 
@@ -179,46 +187,6 @@ Each side agent gets:
 - `stderr.log`
 - `events.jsonl`
 
-Inspect results:
-
-```text
-/agents
-/agent-result <agent-id>
-/agent-stop <agent-id>
-```
-
-## Transcript Export
-
-Inside the shell:
-
-```text
-/export
-```
-
-Exports go to:
-
-```text
-~/.vorker/projects/<project-key>/exports/
-```
-
-The exporter currently renders the visible thread rows. Future work should render from the normalized event log once that schema lands.
-
-## Prompt History
-
-Vorker records submitted prompts per project:
-
-```text
-~/.vorker/projects/<project-key>/prompt-history.jsonl
-```
-
-Use:
-
-```text
-/history
-```
-
-or press `Up` / `Down` in an empty normal composer to recall recent prompts.
-
 ## Project State
 
 Vorker asks for confirmation the first time it runs in a directory. Project state is scoped by canonical cwd:
@@ -226,8 +194,9 @@ Vorker asks for confirmation the first time it runs in a directory. Project stat
 ```text
 ~/.vorker/projects/<project-key>/meta.json
 ~/.vorker/projects/<project-key>/threads.json
-~/.vorker/projects/<project-key>/side-agents.json
+~/.vorker/projects/<project-key>/prompt-history.jsonl
 ~/.vorker/projects/<project-key>/skills.json
+~/.vorker/projects/<project-key>/side-agents.json
 ~/.vorker/projects/<project-key>/reports/
 ~/.vorker/projects/<project-key>/exports/
 ```
@@ -238,7 +207,23 @@ Override the state root:
 VORKER_HOME=/tmp/vorker-home vorker
 ```
 
-## Web / Share Mode
+## RALPH
+
+Vorker can launch OhMyCodex RALPH sessions for long-running work:
+
+```bash
+vorker ralph --no-deslop --xhigh "finish implementing docs/opencode-ralph-codex-integration-plan.md"
+```
+
+Dry-run the exact launch:
+
+```bash
+vorker ralph --dry-run --no-deslop --xhigh --model gpt-5.4 "smoke test"
+```
+
+Vorker uses project `.codex/auth.json` when present and otherwise falls back to `~/.codex/auth.json`. It does not copy auth secrets into the repo.
+
+## Web / Remote Access
 
 The local web control plane still exists:
 
@@ -248,44 +233,21 @@ VORKER_PASSWORD=your-password vorker tailnet
 VORKER_PASSWORD=your-password vorker share
 ```
 
-`vorker tailnet` uses Tailscale Serve for private tailnet access. It starts Vorker on `127.0.0.1`, configures `tailscale serve --bg --yes http://127.0.0.1:<port>`, and prints the tailnet URL/password. Use this when every client is signed into your tailnet.
-
-Install and start Tailscale:
-
-```bash
-brew install tailscale
-brew services start tailscale
-```
-
-On macOS without root permissions, the Homebrew formula may need userspace networking:
-
-```bash
-mkdir -p "$HOME/.tailscale" "$HOME/.local/share/tailscale"
-tailscaled \
-  --tun=userspace-networking \
-  --socket "$HOME/.tailscale/tailscaled.sock" \
-  --statedir "$HOME/.local/share/tailscale"
-tailscale --socket "$HOME/.tailscale/tailscaled.sock" up --accept-dns=false
-TAILSCALE_SOCKET="$HOME/.tailscale/tailscaled.sock" VORKER_PASSWORD=your-password vorker tailnet
-```
-
-To preview what Vorker will run:
-
-```bash
-vorker tailnet --dry-run --port 4173
-```
-
-Use public Funnel only when you explicitly want internet access:
+`vorker tailnet` uses Tailscale Serve for private tailnet access. Public Funnel is opt-in:
 
 ```bash
 VORKER_PASSWORD=your-password vorker tailnet --funnel
 ```
 
-`vorker share` uses Cloudflare Quick Tunnel and defaults to long-polling for better tunnel compatibility.
+Preview what Vorker will run:
 
-## Verification
+```bash
+vorker tailnet --dry-run --port 4173
+```
 
-Run the focused checks used during development:
+## Development
+
+Focused verification:
 
 ```bash
 source "$HOME/.cargo/env"
@@ -302,35 +264,14 @@ cargo fmt --all
 cargo test --workspace
 ```
 
-OhMyCodex health:
-
-```bash
-omx doctor
-```
-
-## Active Roadmap
-
-The detailed source-backed roadmap lives at:
+The detailed roadmap lives at:
 
 ```text
 docs/opencode-ralph-codex-integration-plan.md
 ```
 
-Next major lanes:
-
-- command registry and richer autocomplete
-- durable prompt history and stash
-- transcript pager and event-backed export
-- plan mode with approval-gated execution
-- permission/question docks
-- LSP/MCP status and tools
-- undo/fork/resume/compact
-- OMX-style HUD/trace
-- team runtime and worker worktrees
-
 ## Safety Notes
 
 - Do not commit `auth.json` or other provider secrets.
-- RALPH uses the authenticated user Codex home when project auth is absent.
-- Vorker side agents are still local processes; use `/stop` and `/agent-stop <id>` if they run too long.
-- The current implementation is intentionally local-first. Expose web/share mode only with a real password and trusted tunnel/TLS setup.
+- Vorker side agents are local processes; use `/stop` or `/agent-stop <id>` if they run too long.
+- The current implementation is intentionally local-first. Use web/share mode only with a real password and a trusted tunnel/TLS setup.
