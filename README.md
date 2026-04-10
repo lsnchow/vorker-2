@@ -1,264 +1,254 @@
-# vorker-2
+# Vorker
 
-A terminal-first control plane for orchestrating GitHub Copilot CLI agents in ACP mode. `vorker-2` keeps the original local-first web/mobile surface, but adds a shared supervisor/event layer and a text UI so the same Copilot runtime can drive desktop terminal workflows, mobile control, and remote tunnel access.
+Vorker is a local-first CLI coding harness. The default user path is now a Rust terminal shell inspired by Codex and Claude Code: one transcript, one composer, slash commands, file mentions, review mode, Codex-backed side agents, and project-scoped state under `~/.vorker`.
 
-**Not a scraper.** `vorker` runs the official Copilot CLI as an ACP server—no VS Code UI automation or private HTTP endpoint crawling. Agents run locally with restricted permissions that can be approved interactively.
-
-**CA certificate handling.** On environments where Copilot CLI needs CA-chain configuration for `*.individual.githubcopilot.com`, `vorker` injects certificates automatically when spawning Copilot sessions.
-
-## What is implemented
-
-- Shared supervisor event model with NDJSON logging and state replay primitives
-- Terminal dashboard command flow via `vorker tui`
-- Git-backed per-task worktrees with task-specific execution agents
-- Durable run/task replay from `.vorker-2/logs/supervisor.ndjson`
-- Parallel auto-dispatch for ready tasks
-- Local CLI chat and REPL
-- Shared ACP session layer for spawning multiple Copilot agents
-- Authenticated Next.js web control plane for phone or desktop access
-- Cookie-authenticated websocket prompt streaming with long-polling fallback
-- Agent profiles with role, notes, per-agent skill attachments, and live mode/model changes
-- Run orchestration: arbitrator selection, worker pools, task planning, task editing, and dispatch
-- In-app Cloudflare Quick Tunnel start/stop controls
-- Tool permission flow over websocket or polling
-- Secure defaults for remote access
-- Automatic Copilot CA-chain workaround for the packaged CLI runtime
-- `vorker share` for Cloudflare Quick Tunnels without paid hosting
-
-## Commands
+The older web/mobile control plane and JavaScript supervisor still exist, but the main demo path is:
 
 ```bash
-npm run tui
-npm run tui:once
-npm start -- repl
-npm start -- chat "summarize this repo"
-npm run serve
-npm start -- share
+vorker
 ```
 
-You can also call the binary directly once linked:
+## Install / Link
+
+From this repo:
 
 ```bash
+npm link
+```
+
+That exposes `vorker` on your PATH through the Node wrapper, which forwards shell/review/RALPH commands to the Rust CLI.
+
+If Rust is not already available in your shell:
+
+```bash
+source "$HOME/.cargo/env"
+```
+
+## Core Commands
+
+```bash
+vorker
 vorker tui
-vorker repl
+vorker tui --once
+vorker ralph --no-deslop --xhigh "continue implementing the plan"
+vorker adversarial --coach --scope all-files "review this repo"
+vorker demo hyperloop
 vorker serve
 vorker share
 ```
 
-## Rust runtime (phase 1)
-
-The Rust rewrite now owns the supervisor core, the terminal renderer, and a native `vorker` CLI entrypoint. The web/mobile control plane and the Copilot/orchestrator runtime are still on the JavaScript side for now.
-
-Run the Rust TUI:
+By default, `vorker` runs inline and preserves terminal scrollback. Use `--alt-screen` if you explicitly want alternate-screen mode.
 
 ```bash
-source "$HOME/.cargo/env"
-cargo run -p vorker-cli -- tui
+vorker --alt-screen
 ```
 
-Render a single frame without entering the interactive loop:
+## Shell Commands
 
-```bash
-source "$HOME/.cargo/env"
-cargo run -p vorker-cli -- tui --once
-```
-
-Verify the Rust workspace:
-
-```bash
-source "$HOME/.cargo/env"
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
-## Terminal Dashboard
-
-Run the terminal-native dashboard:
-
-```bash
-npm run tui
-```
-
-That command uses the Rust launcher script and auto-sources `~/.cargo/env` when it exists, so you do not need a separate `source "$HOME/.cargo/env"` step.
-
-One-shot render for quick checks:
-
-```bash
-npm run tui:once
-```
-
-The old Node TUI is still available if you need it:
-
-```bash
-npm run tui:js
-```
-
-If you prefer a shell script directly:
-
-```bash
-./scripts/run-rust-tui.sh
-```
-
-The TUI is built on top of the same supervisor state that will eventually feed the mobile and web control planes. Current commands:
-
-- `/agent <name>` creates and selects an agent
-- `/use <session-id>` switches the active agent
-- `/run <name> | <goal>` creates and selects a run
-- `/run-use <run-id>` switches the active run
-- `/plan` plans the active run
-- `/dispatch` dispatches ready tasks in the active run
-- `/merge` merges completed task branches for the active run
-- `/merge-task <task-id>` merges one completed task branch
-- `/share start` or `/share stop` controls the Cloudflare tunnel wrapper
-- plain text sends a prompt to the active agent
-
-When a task is dispatched, `vorker-2` now creates or reuses a git worktree under `.vorker-2/worktrees`, spawns a task-specific Copilot agent rooted in that workspace, and records the workspace path, branch name, and execution agent id in the task state.
-If the worker changed files, `vorker-2` also creates a task-branch commit automatically so the task branch is immediately inspectable and ready for later merge/review workflows.
-Completed task branches can now be merged back into the base branch from the TUI or the existing task inspector; merges stay supervisor-owned instead of being left to ad hoc shell work.
-
-## Remote web control plane
-
-Run the local server:
-
-```bash
-VORKER_PASSWORD=your-password npm run serve
-```
-
-Then open:
+Inside `vorker`, type `/` to open the command list. Current high-value commands:
 
 ```text
-http://127.0.0.1:4173
+/model                 choose the active model
+/new                   start a fresh thread
+/review                open adversarial review in a review shell
+/coach                 rerun review with coaching guidance
+/apply                 rerun review and ask Codex to apply a safe patch
+/ralph                 launch an OMX RALPH persistence session
+/agent                 spawn a Codex-backed side agent
+/agents                list stored side-agent jobs
+/agent-result <id>     show side-agent result and compact event summary
+/agent-stop <id>       stop or mark a side-agent job stopped
+/queue <prompt>        queue follow-up work
+/steer <guidance>      send steering guidance
+/stop                  interrupt active work and side agents
+/theme list            list available themes
+/theme <name>          switch theme
+/status                show model/cwd/workspace/thread/agent status
+/export                export current transcript as markdown
+/permissions           toggle manual vs auto approvals
+/rename <name>         rename current thread
+/list                  list saved threads
+/list <thread-id>      switch to a saved thread
+/cd <path>             switch project directory
 ```
 
-If `VORKER_PASSWORD` is not set, the server generates a one-time pairing password and prints it on startup.
+## File Mentions
 
-Once logged in, the UI gives you:
+Use `@` in the composer to search workspace files:
 
-- local access status and pairing password
-- Cloudflare Quick Tunnel controls
-- agent creation and editing
-- optional skill attachment per agent
-- run planning with an arbitrator agent
-- task creation and worker dispatch
-- a live graph of agents, runs, tasks, and share state
-- a per-agent console and transcript
-- recent activity feed
+```text
+› Improve docs in @README.md
+```
 
-## Share Over Cloudflare Quick Tunnel
+Selected mentions are resolved into attached file context before the prompt is sent. Binary files are rejected inline instead of silently expanded.
 
-`vorker share` keeps the app on the user's machine and opens a public HTTPS URL through Cloudflare Quick Tunnel.
+## RALPH
 
-Requirements:
+RALPH is an OhMyCodex persistence loop for long-running completion with verification.
 
-- `cloudflared` installed locally
-- GitHub Copilot CLI installed locally
-
-Example:
+Use Vorker’s wrapper instead of raw `omx ralph`:
 
 ```bash
+vorker ralph --no-deslop --xhigh "finish implementing docs/opencode-ralph-codex-integration-plan.md"
+```
+
+Why: project-scope OMX stores config in `./.codex`, but auth usually lives in `~/.codex/auth.json`. Vorker resolves this safely:
+
+- use project `.codex/auth.json` if present
+- otherwise use `~/.codex/auth.json`
+- never copy auth secrets into the repo
+- default to `--no-alt-screen` so the transcript remains observable
+
+Dry-run the exact launch:
+
+```bash
+vorker ralph --dry-run --no-deslop --xhigh --model gpt-5.4 "smoke test"
+```
+
+## Adversarial Review
+
+Use `/review` in the shell or run:
+
+```bash
+vorker adversarial --scope all-files --coach "review the API shape"
+vorker adversarial --scope staged --coach --apply "patch the worst issue"
+```
+
+Useful flags:
+
+- `--scope auto`
+- `--scope working-tree`
+- `--scope staged`
+- `--scope all-files`
+- `--scope branch --base <ref>`
+- `--coach`
+- `--apply`
+- `--popout`
+
+Reports are written under the project workspace in `~/.vorker/projects/<project-key>/reports/`.
+
+## Side Agents
+
+Spawn a Codex side agent:
+
+```text
+/agent inspect the auth boundary
+```
+
+Vorker stores side-agent metadata and logs under:
+
+```text
+~/.vorker/projects/<project-key>/side-agents.json
+~/.vorker/projects/<project-key>/side-agents/<agent-id>/
+```
+
+Each side agent gets:
+
+- `last-message.md`
+- `stderr.log`
+- `events.jsonl`
+
+Inspect results:
+
+```text
+/agents
+/agent-result <agent-id>
+/agent-stop <agent-id>
+```
+
+## Transcript Export
+
+Inside the shell:
+
+```text
+/export
+```
+
+Exports go to:
+
+```text
+~/.vorker/projects/<project-key>/exports/
+```
+
+The exporter currently renders the visible thread rows. Future work should render from the normalized event log once that schema lands.
+
+## Project State
+
+Vorker asks for confirmation the first time it runs in a directory. Project state is scoped by canonical cwd:
+
+```text
+~/.vorker/projects/<project-key>/meta.json
+~/.vorker/projects/<project-key>/threads.json
+~/.vorker/projects/<project-key>/side-agents.json
+~/.vorker/projects/<project-key>/reports/
+~/.vorker/projects/<project-key>/exports/
+```
+
+Override the state root:
+
+```bash
+VORKER_HOME=/tmp/vorker-home vorker
+```
+
+## Web / Share Mode
+
+The local web control plane still exists:
+
+```bash
+VORKER_PASSWORD=your-password vorker serve
 VORKER_PASSWORD=your-password vorker share
 ```
 
-That command:
+`vorker share` uses Cloudflare Quick Tunnel and defaults to long-polling for better tunnel compatibility.
 
-- starts the local server on `127.0.0.1`
-- trusts forwarded HTTPS metadata from the tunnel
-- launches `cloudflared tunnel --protocol http2 --edge-ip-version auto --url http://127.0.0.1:<port>`
-- prints a public `https://...trycloudflare.com?transport=poll` URL
+## Verification
 
-The shared URL uses long-polling by default so it does not depend on websocket support in the tunnel path.
-`http2` is the default Cloudflare edge protocol for `vorker share` because some networks block or degrade QUIC/UDP.
-`auto` is the default Cloudflare edge IP mode so `cloudflared` can use IPv6 when IPv4 paths to Cloudflare Tunnel are flaky.
-
-To install `cloudflared`, follow Cloudflare's install docs for your platform:
-
-- <https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/>
-
-## Security model
-
-The server is designed to be safe by default:
-
-- It binds to `127.0.0.1` by default.
-- It uses an `HttpOnly` session cookie with `SameSite=Strict`.
-- It binds every authenticated browser session to a per-session CSRF token.
-- Websocket upgrades require a valid authenticated session cookie.
-- Websocket upgrades also require the matching per-session CSRF token.
-- Websocket upgrades also require a same-origin browser request.
-- Long-polling command and event endpoints also require an authenticated session cookie.
-- State-changing HTTP requests require both a same-origin browser request and the matching CSRF token.
-- Login attempts are rate-limited in memory.
-- Auth probes, command posts, event polling, and websocket upgrades are all rate-limited.
-- Anonymous `/api/bootstrap` access is refused.
-- Public plaintext HTTP is refused unless you explicitly pass `--allow-insecure-http`.
-- When running behind a trusted tunnel or reverse proxy, `--trust-proxy` lets `vorker` honor forwarded HTTPS metadata so cookies stay `Secure` and origin checks stay strict.
-
-For phone access on a local network or the internet, use TLS.
-
-## TLS / WSS
-
-Generate a local development certificate:
+Run the focused checks used during development:
 
 ```bash
-npm run cert
+source "$HOME/.cargo/env"
+cargo test -p vorker-tui
+cargo test -p vorker-cli
+node --test tests/rust-launcher.test.js
 ```
 
-That writes:
-
-- `certs/dev-cert.pem`
-- `certs/dev-key.pem`
-
-Then start the server with HTTPS/WSS:
+Full workspace:
 
 ```bash
-VORKER_PASSWORD=your-password npm run serve -- --host 0.0.0.0 --tls-key certs/dev-key.pem --tls-cert certs/dev-cert.pem
+source "$HOME/.cargo/env"
+cargo fmt --all
+cargo test --workspace
 ```
 
-For real internet exposure, put this behind a proper reverse proxy or tunnel that terminates trusted TLS.
-
-If you use a tunnel that terminates TLS before reaching `vorker`, run the server with `--trust-proxy` so `vorker` treats the external request as HTTPS.
-
-## Server options
+OhMyCodex health:
 
 ```bash
-vorker serve \
-  --host 127.0.0.1 \
-  --port 4173 \
-  --tls-key certs/dev-key.pem \
-  --tls-cert certs/dev-cert.pem
+omx doctor
 ```
 
-Options:
+## Active Roadmap
 
-- `--cwd <path>` sets the default workspace for new agents
-- `--copilot-bin <path>` points to a custom Copilot binary
-- `--host <host>` sets the bind address
-- `--port <port>` sets the listen port
-- `--tls-key <path>` enables HTTPS/WSS with the given private key
-- `--tls-cert <path>` enables HTTPS/WSS with the given certificate
-- `--trust-proxy` trusts forwarded HTTPS metadata from a local reverse proxy or tunnel
-- `--allow-insecure-http` allows a public bind without TLS
-- `--cloudflared-bin <path>` points `vorker share` at a custom `cloudflared` binary
-- `--cloudflared-protocol <name>` sets the Cloudflare edge protocol for `vorker share` (`http2` by default)
-- `--cloudflared-edge-ip-version <mode>` sets the Cloudflare edge IP family for `vorker share` (`auto` by default)
+The detailed source-backed roadmap lives at:
 
-## Architecture
+```text
+docs/opencode-ralph-codex-integration-plan.md
+```
 
-- [src/supervisor/events.js](./src/supervisor/events.js), [src/supervisor/store.js](./src/supervisor/store.js), and [src/supervisor/service.js](./src/supervisor/service.js) define the shared event model, reducer, and runtime bridge
-- [src/supervisor/bootstrap.js](./src/supervisor/bootstrap.js) restores durable run/task state from the supervisor NDJSON log
-- [src/tui.js](./src/tui.js) and [src/tui](./src/tui) implement the terminal dashboard and command surface
-- [src/git/task-workspace.js](./src/git/task-workspace.js) manages per-task git worktrees and branch allocation
-- [src/copilot.js](./src/copilot.js) contains the reusable ACP session and agent manager
-- [src/cli.js](./src/cli.js) contains the local REPL and one-shot chat flow
-- [src/server.js](./src/server.js) contains the authenticated HTTP/WebSocket server
-- [src/orchestrator.js](./src/orchestrator.js) contains run/task orchestration on top of Copilot agents
-- [src/skills.js](./src/skills.js) discovers local skills from `.agents/skills`, `.github/skills`, and `$CODEX_HOME/skills`
-- [src/tunnel.js](./src/tunnel.js) manages in-process Cloudflare Quick Tunnel lifecycle
-- [src/share.js](./src/share.js) contains the Cloudflare Quick Tunnel share flow
-- [app/page.jsx](./app/page.jsx), [components/control-plane.jsx](./components/control-plane.jsx), and [components/agent-graph.jsx](./components/agent-graph.jsx) implement the responsive orchestration dashboard and live graph
+Next major lanes:
 
-## Notes
+- command registry and richer autocomplete
+- durable prompt history and stash
+- transcript pager and event-backed export
+- plan mode with approval-gated execution
+- permission/question docks
+- LSP/MCP status and tools
+- undo/fork/resume/compact
+- OMX-style HUD/trace
+- team runtime and worker worktrees
 
-- The wrapper now works end-to-end for local CLI and remote websocket prompts.
-- Polling mode works end-to-end for remote tunneled prompts and approvals.
-- The bare `copilot` binary on this machine still needs extra CA configuration if you run it directly outside `vorker`.
-- `vorker share` requires `cloudflared`; if it is missing, the command fails cleanly without leaving the local server running.
+## Safety Notes
+
+- Do not commit `auth.json` or other provider secrets.
+- RALPH uses the authenticated user Codex home when project auth is absent.
+- Vorker side agents are still local processes; use `/stop` and `/agent-stop <id>` if they run too long.
+- The current implementation is intentionally local-first. Expose web/share mode only with a real password and trusted tunnel/TLS setup.
