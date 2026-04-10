@@ -34,6 +34,7 @@ vorker ralph --no-deslop --xhigh "continue implementing the plan"
 vorker adversarial --coach --scope all-files "review this repo"
 vorker demo hyperloop
 vorker serve
+vorker tailnet
 vorker share
 ```
 
@@ -221,7 +222,41 @@ The local web control plane still exists:
 
 ```bash
 VORKER_PASSWORD=your-password vorker serve
+VORKER_PASSWORD=your-password vorker tailnet
 VORKER_PASSWORD=your-password vorker share
+```
+
+`vorker tailnet` uses Tailscale Serve for private tailnet access. It starts Vorker on `127.0.0.1`, configures `tailscale serve --bg --yes http://127.0.0.1:<port>`, and prints the tailnet URL/password. Use this when every client is signed into your tailnet.
+
+Install and start Tailscale:
+
+```bash
+brew install tailscale
+brew services start tailscale
+```
+
+On macOS without root permissions, the Homebrew formula may need userspace networking:
+
+```bash
+mkdir -p "$HOME/.tailscale" "$HOME/.local/share/tailscale"
+tailscaled \
+  --tun=userspace-networking \
+  --socket "$HOME/.tailscale/tailscaled.sock" \
+  --statedir "$HOME/.local/share/tailscale"
+tailscale --socket "$HOME/.tailscale/tailscaled.sock" up --accept-dns=false
+TAILSCALE_SOCKET="$HOME/.tailscale/tailscaled.sock" VORKER_PASSWORD=your-password vorker tailnet
+```
+
+To preview what Vorker will run:
+
+```bash
+vorker tailnet --dry-run --port 4173
+```
+
+Use public Funnel only when you explicitly want internet access:
+
+```bash
+VORKER_PASSWORD=your-password vorker tailnet --funnel
 ```
 
 `vorker share` uses Cloudflare Quick Tunnel and defaults to long-polling for better tunnel compatibility.

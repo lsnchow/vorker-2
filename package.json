@@ -16,6 +16,7 @@
     "cert": "sh scripts/generate-dev-cert.sh",
     "serve": "node src/index.js serve",
     "start": "node src/index.js",
+    "tailnet": "node src/index.js tailnet",
     "tui": "sh scripts/run-rust-tui.sh",
     "tui:js": "node src/index.js tui",
     "tui:once": "sh scripts/run-rust-tui.sh --once",

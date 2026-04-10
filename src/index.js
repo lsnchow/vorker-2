@@ -8,6 +8,7 @@ import { parseArgs } from "node:util";
 import { runChat, runRepl } from "./cli.js";
 import { startRemoteServer } from "./server.js";
 import { runShare } from "./share.js";
+import { runTailnet } from "./tailscale.js";
 
 function printUsage() {
   console.log(`vorker
@@ -22,6 +23,7 @@ Usage:
   vorker chat [options] "<prompt>"
   vorker serve [options]
   vorker share [options]
+  vorker tailnet [options]
   vorker help
 
 Shared options:
@@ -60,6 +62,11 @@ Share options:
   --cloudflared-protocol <name>  Cloudflared edge protocol for share (default: http2)
   --cloudflared-edge-ip-version <mode>  Cloudflared edge IP mode for share (default: auto)
 
+Tailscale options:
+  --tailscale-bin <path>     Tailscale CLI binary to launch (default: tailscale)
+  --tailscale-socket <path>  tailscaled socket path for userspace daemons
+  --funnel                   Use public Tailscale Funnel instead of tailnet-only Serve
+
 Security:
   Use VORKER_PASSWORD to set the phone/webapp login password.
   If omitted, a random pairing password is generated at startup.
@@ -73,6 +80,7 @@ Examples:
   vorker chat "summarize this repo"
   VORKER_PASSWORD=secret vorker serve --host 127.0.0.1 --port 4173
   VORKER_PASSWORD=secret vorker share
+  VORKER_PASSWORD=secret vorker tailnet
   VORKER_PASSWORD=secret vorker serve --host 0.0.0.0 --tls-key certs/dev-key.pem --tls-cert certs/dev-cert.pem
 `);
 }
@@ -103,9 +111,12 @@ function parseCli(argv) {
       "tls-cert": { type: "string" },
       "trust-proxy": { type: "boolean", default: false },
       "allow-insecure-http": { type: "boolean", default: false },
-  "cloudflared-bin": { type: "string" },
-  "cloudflared-protocol": { type: "string" },
-  "cloudflared-edge-ip-version": { type: "string" },
+      "cloudflared-bin": { type: "string" },
+      "cloudflared-protocol": { type: "string" },
+      "cloudflared-edge-ip-version": { type: "string" },
+      "tailscale-bin": { type: "string" },
+      "tailscale-socket": { type: "string" },
+      funnel: { type: "boolean", default: false },
       "alt-screen": { type: "boolean", default: false },
       "no-deslop": { type: "boolean", default: false },
       xhigh: { type: "boolean", default: false },
@@ -148,6 +159,9 @@ function parseCli(argv) {
     cloudflaredProtocol: values["cloudflared-protocol"] ?? process.env.CLOUDFLARED_PROTOCOL ?? "http2",
     cloudflaredEdgeIpVersion:
       values["cloudflared-edge-ip-version"] ?? process.env.CLOUDFLARED_EDGE_IP_VERSION ?? "auto",
+    tailscaleBin: values["tailscale-bin"] ?? process.env.TAILSCALE_BIN ?? "tailscale",
+    tailscaleSocket: values["tailscale-socket"] ?? process.env.TAILSCALE_SOCKET ?? null,
+    funnel: values.funnel,
     help: values.help,
   };
 }
@@ -336,6 +350,11 @@ async function main() {
 
   if (options.command === "share") {
     await runShare(options);
+    return;
+  }
+
+  if (options.command === "tailnet" || options.command === "tailscale") {
+    await runTailnet(options);
     return;
   }
 

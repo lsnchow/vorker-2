@@ -85,3 +85,29 @@ test("node bin wrapper accepts provider and codex-bin options for Rust commands"
 
   assert.match(stdout, />_ Vorker \(v0\.1\.0\)/);
 });
+
+test("node bin wrapper prints tailscale dry-run command", async () => {
+  const { stdout } = await execFileAsync(
+    "node",
+    [
+      "src/index.js",
+      "tailnet",
+      "--dry-run",
+      "--port",
+      "4555",
+      "--tailscale-bin",
+      "/tmp/tailscale",
+      "--tailscale-socket",
+      "/tmp/tailscaled.sock",
+    ],
+    {
+      cwd: process.cwd(),
+    },
+  );
+
+  assert.match(stdout, /Local URL: http:\/\/127\.0\.0\.1:4555/);
+  assert.match(
+    stdout,
+    /\/tmp\/tailscale --socket \/tmp\/tailscaled\.sock serve --bg --yes http:\/\/127\.0\.0\.1:4555/,
+  );
+});
