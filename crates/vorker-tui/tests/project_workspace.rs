@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
@@ -35,6 +36,24 @@ fn project_workspace_maps_a_directory_to_a_scoped_store_under_vorker_home() {
         !workspace.is_confirmed(),
         "new workspace should require confirmation"
     );
+}
+
+#[test]
+fn project_workspace_rejects_corrupt_meta_instead_of_replacing_it() {
+    let root = unique_temp_dir("corrupt-meta");
+    let cwd = root.join("repos").join("hyperloop-pod");
+    fs::create_dir_all(&cwd).expect("create cwd");
+
+    let workspace = ProjectWorkspace::at_root(root.clone(), &cwd).expect("workspace");
+    fs::create_dir_all(workspace.project_dir()).expect("project dir");
+    fs::write(workspace.meta_path(), "{not-json").expect("corrupt meta");
+
+    let error = match ProjectWorkspace::at_root(root, &cwd) {
+        Ok(_) => panic!("corrupt meta should fail"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 }
 
 #[test]

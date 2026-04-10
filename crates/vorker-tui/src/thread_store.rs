@@ -91,7 +91,7 @@ impl ThreadStore {
             } else {
                 serde_json::from_str::<ThreadStorePayload>(&raw)
                     .map(|payload| payload.threads)
-                    .unwrap_or_default()
+                    .map_err(|error| invalid_data_error(&path, error))?
             }
         } else {
             Vec::new()
@@ -172,6 +172,13 @@ impl ThreadStore {
         let data = serde_json::to_string_pretty(&payload).map_err(io::Error::other)?;
         fs::write(&self.path, data)
     }
+}
+
+fn invalid_data_error(path: &Path, error: serde_json::Error) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("failed to parse {}: {error}", path.display()),
+    )
 }
 
 fn default_store_path() -> PathBuf {

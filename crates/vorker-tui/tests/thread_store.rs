@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{RowKind, ThreadStore, TranscriptRow};
@@ -44,5 +45,21 @@ fn thread_store_persists_threads_and_lists_them_by_recent_update() {
     let loaded = store.thread(&older.id).expect("load older");
     assert_eq!(loaded.rows.len(), 1);
 
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn thread_store_rejects_corrupt_json_instead_of_erasing_it() {
+    let root = unique_temp_dir("corrupt-thread-store");
+    fs::create_dir_all(&root).expect("create temp root");
+    let path = root.join("threads.json");
+    fs::write(&path, "{not-json").expect("write corrupt store");
+
+    let error = match ThreadStore::open_at(path) {
+        Ok(_) => panic!("corrupt store should fail"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     fs::remove_dir_all(root).ok();
 }

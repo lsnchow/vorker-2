@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -79,6 +80,22 @@ fn side_agent_store_can_reload_a_single_job() {
     assert_eq!(loaded.cwd, "/workspace/b");
     assert_eq!(loaded.output_path, "/tmp/agent-c.md");
 
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn side_agent_store_rejects_corrupt_json_instead_of_erasing_it() {
+    let root = unique_temp_dir("corrupt");
+    fs::create_dir_all(&root).expect("create root");
+    let path = root.join("agents.json");
+    fs::write(&path, "{not-json").expect("write corrupt store");
+
+    let error = match SideAgentStore::open_at(path) {
+        Ok(_) => panic!("corrupt store should fail"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     fs::remove_dir_all(root).ok();
 }
 
