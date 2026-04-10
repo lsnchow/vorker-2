@@ -509,6 +509,12 @@ impl App {
                     "{} thread",
                     format_thread_duration(self.thread_duration_seconds())
                 ),
+                queue_label: format!("queue {}", self.prompt_queue.len()),
+                activity_label: if self.working_started_at.is_some() {
+                    "working".to_string()
+                } else {
+                    "idle".to_string()
+                },
                 working_seconds: self
                     .working_started_at
                     .map(|started_at| started_at.elapsed().as_secs()),

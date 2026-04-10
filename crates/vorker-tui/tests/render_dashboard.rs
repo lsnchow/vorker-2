@@ -79,6 +79,26 @@ fn render_dashboard_uses_a_codex_style_shell_layout() {
 }
 
 #[test]
+fn render_dashboard_footer_shows_dense_status_when_space_allows() {
+    let output = render_dashboard(
+        &sample_snapshot(),
+        DashboardOptions {
+            width: 150,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("claude-sonnet-4.5".to_string()),
+            context_left_label: "100% left".to_string(),
+            approval_mode_label: "manual approvals".to_string(),
+            thread_duration_label: "0s thread".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(output.contains("queue 0"), "missing queue status:\n{output}");
+    assert!(output.contains("idle"), "missing activity status:\n{output}");
+    assert!(output.contains("t:default"), "missing theme status:\n{output}");
+}
+
+#[test]
 fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
     let output = render_dashboard(
         &Snapshot::default(),

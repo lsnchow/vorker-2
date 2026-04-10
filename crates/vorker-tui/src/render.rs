@@ -45,6 +45,8 @@ pub struct DashboardOptions {
     pub context_left_label: String,
     pub approval_mode_label: String,
     pub thread_duration_label: String,
+    pub queue_label: String,
+    pub activity_label: String,
     pub working_seconds: Option<u64>,
     pub transcript_rows: Vec<TranscriptRow>,
     pub tip_line: Option<String>,
@@ -71,6 +73,8 @@ impl Default for DashboardOptions {
             context_left_label: "100% left".to_string(),
             approval_mode_label: "manual approvals".to_string(),
             thread_duration_label: "0s thread".to_string(),
+            queue_label: "queue 0".to_string(),
+            activity_label: "idle".to_string(),
             working_seconds: None,
             transcript_rows: Vec::new(),
             tip_line: Some("Tip: Use /model or /new.".to_string()),
@@ -410,9 +414,24 @@ fn render_popup_line(item: &PopupItem, selected: bool, width: usize, color: bool
 
 fn render_footer(options: &DashboardOptions, width: usize) -> String {
     let model = model_label(options);
+    let activity = if options.color {
+        colorize(&options.activity_label, activity_tone(&options.activity_label), true)
+    } else {
+        options.activity_label.clone()
+    };
+    let theme = if options.color {
+        colorize(&format!("t:{}", options.theme_name), "gray", true)
+    } else {
+        format!("t:{}", options.theme_name)
+    };
+    let queue = if options.color {
+        colorize(&options.queue_label, "gray", true)
+    } else {
+        options.queue_label.clone()
+    };
     truncate(
         &format!(
-            "{model} · {} · {} · {} · {}",
+            "{model} · {} · {} · {} · {} · {queue} · {activity} · {theme}",
             options.context_left_label,
             options.workspace_path,
             options.approval_mode_label,
@@ -424,6 +443,16 @@ fn render_footer(options: &DashboardOptions, width: usize) -> String {
 
 fn model_label(options: &DashboardOptions) -> &str {
     options.selected_model_id.as_deref().unwrap_or("detecting...")
+}
+
+fn activity_tone(label: &str) -> &str {
+    if label.contains("review") || label.contains("working") {
+        "yellow"
+    } else if label.contains("failed") {
+        "red"
+    } else {
+        "gray"
+    }
 }
 
 fn is_review_theme(options: &DashboardOptions) -> bool {
