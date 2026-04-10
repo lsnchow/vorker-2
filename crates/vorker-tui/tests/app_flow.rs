@@ -194,6 +194,27 @@ fn slash_agent_queues_codex_side_agent() {
 }
 
 #[test]
+fn exact_slash_command_wins_over_stale_popup_selection() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/ag".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Down)));
+    for ch in "ent inspect auth".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SpawnAgent {
+            prompt_text: "inspect auth".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn slash_agents_queues_agent_listing() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/agents".chars() {
@@ -284,6 +305,17 @@ fn slash_status_queues_status_summary() {
     assert!(app.handle_key(key(KeyCode::Enter)));
 
     assert_eq!(app.take_actions(), vec![AppCommand::ShowStatus]);
+}
+
+#[test]
+fn slash_history_queues_prompt_history_listing() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/history".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ListPromptHistory]);
 }
 
 #[test]

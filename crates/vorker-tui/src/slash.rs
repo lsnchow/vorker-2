@@ -12,6 +12,7 @@ pub enum SlashCommandId {
     Theme,
     Export,
     Status,
+    History,
     Coach,
     Apply,
     ExitReview,
@@ -32,7 +33,7 @@ pub struct SlashCommand {
     pub aliases: &'static [&'static str],
 }
 
-pub const SLASH_COMMANDS: [SlashCommand; 22] = [
+pub const SLASH_COMMANDS: [SlashCommand; 23] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -103,6 +104,12 @@ pub const SLASH_COMMANDS: [SlashCommand; 22] = [
         id: SlashCommandId::Status,
         name: "/status",
         description: "show session, workspace, and agent status",
+        aliases: &[],
+    },
+    SlashCommand {
+        id: SlashCommandId::History,
+        name: "/history",
+        description: "show recent prompt history",
         aliases: &[],
     },
     SlashCommand {

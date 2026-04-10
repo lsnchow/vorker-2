@@ -7,6 +7,7 @@ mod demo;
 mod mentions;
 mod navigation;
 mod project_workspace;
+mod prompt_history;
 mod render;
 mod rich_text;
 mod side_agent_store;
@@ -24,6 +25,7 @@ pub use navigation::{
     reconcile_navigation_state,
 };
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
+pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{DashboardOptions, PopupItem, RowKind, TranscriptRow, render_dashboard};
 pub use side_agent_store::{
     SideAgentStatus, SideAgentStore, StoredSideAgentJob, summarize_side_agent_events,

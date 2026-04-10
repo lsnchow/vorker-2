@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{fit, truncate, visible_length};
-use crate::{SideAgentStore, StoredThread, ThreadStore};
+use crate::{PromptHistoryStore, SideAgentStore, StoredThread, ThreadStore};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ProjectWorkspaceMeta {
@@ -92,6 +92,11 @@ impl ProjectWorkspace {
     }
 
     #[must_use]
+    pub fn prompt_history_path(&self) -> PathBuf {
+        self.project_dir.join("prompt-history.jsonl")
+    }
+
+    #[must_use]
     pub fn side_agents_dir(&self) -> PathBuf {
         self.project_dir.join("side-agents")
     }
@@ -121,6 +126,10 @@ impl ProjectWorkspace {
 
     pub fn open_side_agent_store(&self) -> io::Result<SideAgentStore> {
         SideAgentStore::open_at(self.side_agents_path())
+    }
+
+    pub fn open_prompt_history_store(&self) -> io::Result<PromptHistoryStore> {
+        PromptHistoryStore::open_at(self.prompt_history_path())
     }
 
     pub fn list_all_threads_under(root: PathBuf) -> io::Result<Vec<StoredThread>> {

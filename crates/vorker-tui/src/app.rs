@@ -95,6 +95,7 @@ pub enum AppCommand {
     },
     ExportTranscript,
     ShowStatus,
+    ListPromptHistory,
     SetModel {
         model: String,
     },
@@ -894,10 +895,11 @@ impl App {
     }
 
     fn execute_slash_command(&mut self, buffer: &str) {
-        let command = filtered_commands(buffer, current_review_mode())
-            .get(self.slash_selected_index)
-            .copied()
-            .or_else(|| parse_exact_slash_command(buffer));
+        let command = parse_exact_slash_command(buffer).or_else(|| {
+            filtered_commands(buffer, current_review_mode())
+                .get(self.slash_selected_index)
+                .copied()
+        });
 
         self.navigation.command_buffer.clear();
         self.popup_mode = None;
@@ -1005,6 +1007,9 @@ impl App {
             SlashCommandId::Status => {
                 self.pending_actions.push(AppCommand::ShowStatus);
             }
+            SlashCommandId::History => {
+                self.pending_actions.push(AppCommand::ListPromptHistory);
+            }
             SlashCommandId::Coach => {
                 self.pending_actions.push(AppCommand::RunReview {
                     focus: String::new(),
@@ -1045,7 +1050,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /ralph /export /status /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /ralph /export /status /history /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -1682,6 +1687,7 @@ pub fn run_app(
     let global_root = workspace.root().to_path_buf();
     let mut thread_store = workspace.open_thread_store()?;
     let mut side_agent_store = workspace.open_side_agent_store()?;
+    let mut prompt_history_store = workspace.open_prompt_history_store()?;
     let mut initial_thread = thread_store
         .latest_for_cwd(&cwd)
         .unwrap_or_else(|| thread_store.create_thread(&cwd));
@@ -1732,6 +1738,7 @@ pub fn run_app(
         }
         thread_store = workspace.open_thread_store()?;
         side_agent_store = workspace.open_side_agent_store()?;
+        prompt_history_store = workspace.open_prompt_history_store()?;
         app.apply_system_notice(format!(
             "Project workspace ready: {}",
             format_path_for_humans(&workspace.project_dir())
@@ -1830,6 +1837,7 @@ pub fn run_app(
                         app.load_thread(thread);
                         thread_store = workspace.open_thread_store()?;
                         side_agent_store = workspace.open_side_agent_store()?;
+                        prompt_history_store = workspace.open_prompt_history_store()?;
                         app.set_workspace_files(load_workspace_files(&cwd));
                         bridge = runtime.block_on(AcpBridge::start(
                             cwd.clone(),
@@ -1859,6 +1867,7 @@ pub fn run_app(
                     runtime.block_on(bridge.shutdown())?;
                     thread_store = workspace.open_thread_store()?;
                     side_agent_store = workspace.open_side_agent_store()?;
+                    prompt_history_store = workspace.open_prompt_history_store()?;
                     let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
                         let mut created = thread_store.create_thread(&cwd);
                         created.model = default_model.clone();
@@ -2089,10 +2098,25 @@ pub fn run_app(
                         running_agents,
                     ));
                 }
+                AppCommand::ListPromptHistory => {
+                    let recent = prompt_history_store.recent(10);
+                    if recent.is_empty() {
+                        app.apply_system_notice("No prompt history yet.");
+                    } else {
+                        app.apply_system_notice("Prompt history:");
+                        for entry in recent {
+                            app.apply_system_notice(format!("- {}", entry.text));
+                        }
+                    }
+                }
                 AppCommand::SetModel { model } => {
                     runtime.block_on(bridge.set_model(model))?;
                 }
-                AppCommand::SubmitPrompt { prompt_text, .. } => {
+                AppCommand::SubmitPrompt {
+                    display_text,
+                    prompt_text,
+                } => {
+                    prompt_history_store.append(display_text)?;
                     runtime.block_on(bridge.prompt(prompt_text))?;
                 }
                 AppCommand::CancelPrompt => {
