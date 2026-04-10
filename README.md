@@ -69,8 +69,17 @@ Inside `vorker`, type `/` to open the command list. Current high-value commands:
 /rename <name>         rename current thread
 /list                  list saved threads
 /list <thread-id>      switch to a saved thread
+/history               show recent prompts
 /cd <path>             switch project directory
 ```
+
+Aliases:
+
+- `/clean` is an alias for `/stop`
+- `/approvals` is an alias for `/permissions`
+- `/?` is an alias for `/help`
+
+When the composer is not in slash mode, `Up` / `Down` recall recent prompts from project history.
 
 ## File Mentions
 
@@ -171,6 +180,22 @@ Exports go to:
 ```
 
 The exporter currently renders the visible thread rows. Future work should render from the normalized event log once that schema lands.
+
+## Prompt History
+
+Vorker records submitted prompts per project:
+
+```text
+~/.vorker/projects/<project-key>/prompt-history.jsonl
+```
+
+Use:
+
+```text
+/history
+```
+
+or press `Up` / `Down` in an empty normal composer to recall recent prompts.
 
 ## Project State
 
