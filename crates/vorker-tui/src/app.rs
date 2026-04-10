@@ -51,6 +51,14 @@ pub enum AppCommand {
         scope: Option<String>,
     },
     ExitShell,
+    Stop,
+    SteerPrompt { prompt_text: String },
+    QueuePrompt {
+        display_text: String,
+        prompt_text: String,
+    },
+    SpawnAgent { prompt_text: String },
+    SetTheme { theme: String },
     SetModel { model: String },
     SubmitPrompt {
         display_text: String,
@@ -94,6 +102,8 @@ pub struct App {
     archived_thread: Option<StoredThread>,
     pending_review_rows: VecDeque<TranscriptRow>,
     last_review_reveal_at: Option<Instant>,
+    prompt_queue: VecDeque<(String, String)>,
+    shell_theme: String,
     pending_actions: Vec<AppCommand>,
 }
 
@@ -180,6 +190,8 @@ impl App {
             archived_thread: None,
             pending_review_rows: VecDeque::new(),
             last_review_reveal_at: None,
+            prompt_queue: VecDeque::new(),
+            shell_theme: current_shell_theme().to_string(),
             pending_actions: Vec::new(),
         }
     }
@@ -299,6 +311,11 @@ impl App {
 
     pub fn take_actions(&mut self) -> Vec<AppCommand> {
         std::mem::take(&mut self.pending_actions)
+    }
+
+    pub fn queue_prompt(&mut self, display_text: String, prompt_text: String) {
+        self.prompt_queue.push_back((display_text.clone(), prompt_text));
+        self.apply_system_notice(format!("Queued prompt: {display_text}"));
     }
 
     pub fn apply_assistant_text(&mut self, text: &str) {
@@ -422,6 +439,18 @@ impl App {
                 .saturating_add(started_at.elapsed().as_secs());
             self.dirty = true;
         }
+        if let Some((display_text, prompt_text)) = self.prompt_queue.pop_front() {
+            self.rows.push(TranscriptRow {
+                kind: RowKind::User,
+                text: display_text.clone(),
+                detail: Some("queued follow-up".to_string()),
+            });
+            self.working_started_at = Some(Instant::now());
+            self.pending_actions.push(AppCommand::SubmitPrompt {
+                display_text,
+                prompt_text,
+            });
+        }
     }
 
     pub fn open_permission_prompt(
@@ -441,7 +470,7 @@ impl App {
             DashboardOptions {
                 color,
                 width,
-                theme_name: current_shell_theme().to_string(),
+                theme_name: self.shell_theme.clone(),
                 workspace_path: self.workspace_path.clone(),
                 selected_model_id: self.navigation.selected_model_id.clone(),
                 model_choices: self.navigation.model_choices.clone(),
@@ -655,11 +684,6 @@ impl App {
     }
 
     fn handle_escape(&mut self) {
-        if self.working_started_at.is_some() {
-            self.pending_actions.push(AppCommand::CancelPrompt);
-            return;
-        }
-
         if self.navigation.model_picker_open {
             self.navigation.model_picker_open = false;
             return;
@@ -699,10 +723,7 @@ impl App {
             return;
         }
 
-        let commands = filtered_commands(
-            &self.navigation.command_buffer,
-            current_shell_theme() == "adversarial",
-        );
+        let commands = filtered_commands(&self.navigation.command_buffer, current_review_mode());
         if commands.is_empty() {
             return;
         }
@@ -712,6 +733,17 @@ impl App {
 
     fn submit_current_input(&mut self) {
         if self.working_started_at.is_some() {
+            let display_text = self.navigation.command_buffer.trim().to_string();
+            if !display_text.is_empty() {
+                let prompt_text = self.build_prompt_text(&display_text);
+                self.pending_actions.push(AppCommand::QueuePrompt {
+                    display_text,
+                    prompt_text,
+                });
+                self.navigation.command_buffer.clear();
+                self.mention_bindings.clear();
+                self.sync_inline_popup();
+            }
             return;
         }
 
@@ -805,6 +837,47 @@ impl App {
                     scope,
                 });
             }
+            SlashCommandId::Stop => {
+                self.pending_actions.push(AppCommand::Stop);
+            }
+            SlashCommandId::Steer => {
+                let guidance = command_tail(buffer);
+                if guidance.is_empty() {
+                    self.apply_system_notice("Usage: /steer <guidance>");
+                } else {
+                    self.pending_actions.push(AppCommand::SteerPrompt {
+                        prompt_text: format!("[STEER]\n{guidance}"),
+                    });
+                }
+            }
+            SlashCommandId::Queue => {
+                let display_text = command_tail(buffer);
+                if display_text.is_empty() {
+                    self.apply_system_notice("Usage: /queue <prompt>");
+                } else {
+                    let prompt_text = self.build_prompt_text(&display_text);
+                    self.pending_actions.push(AppCommand::QueuePrompt {
+                        display_text,
+                        prompt_text,
+                    });
+                }
+            }
+            SlashCommandId::Agent => {
+                let prompt_text = command_tail(buffer);
+                if prompt_text.is_empty() {
+                    self.apply_system_notice("Usage: /agent <task>");
+                } else {
+                    self.pending_actions.push(AppCommand::SpawnAgent { prompt_text });
+                }
+            }
+            SlashCommandId::Theme => {
+                let theme = command_tail(buffer);
+                if theme.is_empty() {
+                    self.apply_system_notice("Usage: /theme <default|review|opencode>");
+                } else {
+                    self.pending_actions.push(AppCommand::SetTheme { theme });
+                }
+            }
             SlashCommandId::Coach => {
                 self.pending_actions.push(AppCommand::RunReview {
                     focus: String::new(),
@@ -843,9 +916,9 @@ impl App {
             }
             SlashCommandId::Help => {
                 self.apply_system_notice(if current_review_mode() {
-                    "Commands: /model /coach /apply /exit-review"
+                    "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /stop /steer /queue /agent /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -1090,6 +1163,13 @@ fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, Stri
     }
 
     (coach, apply, popout, scope, focus.join(" "))
+}
+
+fn command_tail(buffer: &str) -> String {
+    buffer
+        .split_once(char::is_whitespace)
+        .map(|(_, tail)| tail.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn current_shell_review_scope() -> Option<String> {
@@ -1535,6 +1615,57 @@ pub fn run_app(
                             app.apply_tool_notice("Review job".to_string(), Some("queued".to_string()));
                         }
                     }
+                }
+                AppCommand::Stop => {
+                    let _ = runtime.block_on(bridge.cancel());
+                    if let Some(job) = review_job.as_mut() {
+                        let _ = job.child.kill();
+                    }
+                    review_job = None;
+                    app.finish_prompt();
+                    app.apply_system_notice("Stopped active work.");
+                }
+                AppCommand::SteerPrompt { prompt_text } => {
+                    runtime.block_on(bridge.prompt(prompt_text))?;
+                    app.apply_system_notice("Sent steering guidance.");
+                }
+                AppCommand::QueuePrompt {
+                    display_text,
+                    prompt_text,
+                } => {
+                    app.queue_prompt(display_text, prompt_text);
+                }
+                AppCommand::SpawnAgent { prompt_text } => {
+                    let mut command = std::process::Command::new("codex");
+                    command
+                        .arg("exec")
+                        .arg("--model")
+                        .arg(current_review_model())
+                        .arg("--full-auto")
+                        .arg("--color")
+                        .arg("never")
+                        .arg("--skip-git-repo-check")
+                        .arg("-C")
+                        .arg(&cwd)
+                        .arg(prompt_text.clone())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    match command.spawn() {
+                        Ok(_) => app.apply_system_notice(format!("Spawned Codex agent: {prompt_text}")),
+                        Err(error) => app.apply_system_notice(format!("Failed to spawn agent: {error}")),
+                    }
+                }
+                AppCommand::SetTheme { theme } => {
+                    let normalized = match theme.trim().to_ascii_lowercase().as_str() {
+                        "default" | "green" => "default",
+                        "review" | "opencode" | "purple" => "review",
+                        other => {
+                            app.apply_system_notice(format!("Unknown theme: {other}"));
+                            continue;
+                        }
+                    };
+                    app.shell_theme = normalized.to_string();
+                    app.apply_system_notice(format!("Theme changed to {normalized}."));
                 }
                 AppCommand::SetModel { model } => {
                     runtime.block_on(bridge.set_model(model))?;

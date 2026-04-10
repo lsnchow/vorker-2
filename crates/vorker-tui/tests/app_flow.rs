@@ -123,6 +123,82 @@ fn tab_autocompletes_the_selected_slash_command() {
 }
 
 #[test]
+fn slash_stop_queues_stop_action() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/stop".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::Stop]);
+}
+
+#[test]
+fn slash_steer_queues_steering_prompt() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/steer focus on safety".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SteerPrompt {
+            prompt_text: "[STEER]\nfocus on safety".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn slash_queue_queues_follow_up_prompt() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/queue add tests next".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::QueuePrompt {
+            display_text: "add tests next".to_string(),
+            prompt_text: "add tests next".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn slash_agent_queues_codex_side_agent() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent inspect auth".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SpawnAgent {
+            prompt_text: "inspect auth".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn slash_theme_queues_theme_change() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/theme review".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SetTheme {
+            theme: "review".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn review_output_is_parsed_into_structured_rows() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_review_output(

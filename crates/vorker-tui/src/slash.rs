@@ -1,6 +1,11 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlashCommandId {
     Review,
+    Stop,
+    Steer,
+    Queue,
+    Agent,
+    Theme,
     Coach,
     Apply,
     ExitReview,
@@ -20,11 +25,36 @@ pub struct SlashCommand {
     pub description: &'static str,
 }
 
-pub const SLASH_COMMANDS: [SlashCommand; 11] = [
+pub const SLASH_COMMANDS: [SlashCommand; 16] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
         description: "run adversarial review; --coach teaches, --apply patches, --staged reviews staged files",
+    },
+    SlashCommand {
+        id: SlashCommandId::Stop,
+        name: "/stop",
+        description: "stop the active prompt or review job",
+    },
+    SlashCommand {
+        id: SlashCommandId::Steer,
+        name: "/steer",
+        description: "send steering guidance to the active agent",
+    },
+    SlashCommand {
+        id: SlashCommandId::Queue,
+        name: "/queue",
+        description: "queue a follow-up prompt after current work finishes",
+    },
+    SlashCommand {
+        id: SlashCommandId::Agent,
+        name: "/agent",
+        description: "spawn a Codex-backed side agent",
+    },
+    SlashCommand {
+        id: SlashCommandId::Theme,
+        name: "/theme",
+        description: "change shell theme",
     },
     SlashCommand {
         id: SlashCommandId::Coach,
@@ -99,9 +129,10 @@ pub fn filtered_commands(buffer: &str, review_mode: bool) -> Vec<SlashCommand> {
     let commands = if review_mode {
         vec![
             SLASH_COMMANDS[1],
-            SLASH_COMMANDS[2],
-            SLASH_COMMANDS[3],
-            SLASH_COMMANDS[4],
+            SLASH_COMMANDS[6],
+            SLASH_COMMANDS[7],
+            SLASH_COMMANDS[8],
+            SLASH_COMMANDS[9],
         ]
     } else {
         SLASH_COMMANDS.to_vec()
