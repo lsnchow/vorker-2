@@ -7,3 +7,8 @@ certs/
 .worktrees/
 target/
 .omx/
+.codex/.personality_migration
+.codex/.tmp/
+.codex/log/
+.codex/tmp/
+.codex/skills/.system/
