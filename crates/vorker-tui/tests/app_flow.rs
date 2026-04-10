@@ -183,6 +183,33 @@ fn slash_agent_queues_codex_side_agent() {
 }
 
 #[test]
+fn slash_agents_queues_agent_listing() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agents".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ListAgents]);
+}
+
+#[test]
+fn slash_agent_result_queues_result_lookup() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent-result agent-1".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowAgentResult {
+            id: "agent-1".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn slash_theme_queues_theme_change() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/theme review".chars() {

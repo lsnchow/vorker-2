@@ -37,6 +37,15 @@ struct ReviewJob {
     streamed_any_rows: bool,
 }
 
+struct SideAgentJob {
+    id: String,
+    prompt: String,
+    child: Child,
+    output_path: PathBuf,
+    started_at: Instant,
+    completed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppCommand {
     NewThread,
@@ -58,6 +67,8 @@ pub enum AppCommand {
         prompt_text: String,
     },
     SpawnAgent { prompt_text: String },
+    ListAgents,
+    ShowAgentResult { id: String },
     SetTheme { theme: String },
     SetModel { model: String },
     SubmitPrompt {
@@ -870,6 +881,17 @@ impl App {
                     self.pending_actions.push(AppCommand::SpawnAgent { prompt_text });
                 }
             }
+            SlashCommandId::Agents => {
+                self.pending_actions.push(AppCommand::ListAgents);
+            }
+            SlashCommandId::AgentResult => {
+                let id = command_tail(buffer);
+                if id.is_empty() {
+                    self.apply_system_notice("Usage: /agent-result <id>");
+                } else {
+                    self.pending_actions.push(AppCommand::ShowAgentResult { id });
+                }
+            }
             SlashCommandId::Theme => {
                 let theme = command_tail(buffer);
                 if theme.is_empty() {
@@ -1307,6 +1329,54 @@ fn poll_review_job(app: &mut App, review_job: &mut Option<ReviewJob>) -> io::Res
     Ok(())
 }
 
+fn spawn_side_agent(cwd: &Path, prompt_text: &str) -> io::Result<SideAgentJob> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let id = format!("agent-{stamp}");
+    let output_path = std::env::temp_dir().join(format!("vorker-{id}.md"));
+    let mut command = std::process::Command::new("codex");
+    command
+        .arg("exec")
+        .arg("--model")
+        .arg(current_review_model())
+        .arg("--full-auto")
+        .arg("--color")
+        .arg("never")
+        .arg("--skip-git-repo-check")
+        .arg("--output-last-message")
+        .arg(&output_path)
+        .arg("-C")
+        .arg(cwd)
+        .arg(prompt_text)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    Ok(SideAgentJob {
+        id,
+        prompt: prompt_text.to_string(),
+        child: command.spawn()?,
+        output_path,
+        started_at: Instant::now(),
+        completed: false,
+    })
+}
+
+fn poll_side_agent_jobs(app: &mut App, jobs: &mut [SideAgentJob]) -> io::Result<()> {
+    for job in jobs.iter_mut().filter(|job| !job.completed) {
+        if let Some(status) = job.child.try_wait()? {
+            job.completed = true;
+            app.apply_system_notice(format!(
+                "Side agent {} finished with {}.",
+                job.id,
+                status
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn open_review_window(
     cwd: &Path,
     model: &str,
@@ -1445,6 +1515,7 @@ pub fn run_app(
     }
 
     let mut review_job = None;
+    let mut side_agent_jobs: Vec<SideAgentJob> = Vec::new();
     if current_review_mode()
         && std::env::var("VORKER_REVIEW_AUTO")
             .ok()
@@ -1467,6 +1538,7 @@ pub fn run_app(
         );
         app.tick();
         poll_review_job(&mut app, &mut review_job)?;
+        poll_side_agent_jobs(&mut app, &mut side_agent_jobs)?;
         persist_dirty_thread(&mut app, &mut thread_store)?;
         let width = size()
             .map(|(columns, _)| usize::from(columns))
@@ -1636,23 +1708,41 @@ pub fn run_app(
                     app.queue_prompt(display_text, prompt_text);
                 }
                 AppCommand::SpawnAgent { prompt_text } => {
-                    let mut command = std::process::Command::new("codex");
-                    command
-                        .arg("exec")
-                        .arg("--model")
-                        .arg(current_review_model())
-                        .arg("--full-auto")
-                        .arg("--color")
-                        .arg("never")
-                        .arg("--skip-git-repo-check")
-                        .arg("-C")
-                        .arg(&cwd)
-                        .arg(prompt_text.clone())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null());
-                    match command.spawn() {
-                        Ok(_) => app.apply_system_notice(format!("Spawned Codex agent: {prompt_text}")),
+                    match spawn_side_agent(&cwd, &prompt_text) {
+                        Ok(job) => {
+                            app.apply_system_notice(format!(
+                                "Spawned Codex agent {}: {}",
+                                job.id, job.prompt
+                            ));
+                            side_agent_jobs.push(job);
+                        }
                         Err(error) => app.apply_system_notice(format!("Failed to spawn agent: {error}")),
+                    }
+                }
+                AppCommand::ListAgents => {
+                    if side_agent_jobs.is_empty() {
+                        app.apply_system_notice("No side agents in this session.");
+                    } else {
+                        app.apply_system_notice("Side agents:");
+                        for job in &side_agent_jobs {
+                            let status = if job.completed { "done" } else { "running" };
+                            app.apply_system_notice(format!(
+                                "{}  {}  {}s  {}",
+                                job.id,
+                                status,
+                                job.started_at.elapsed().as_secs(),
+                                job.prompt
+                            ));
+                        }
+                    }
+                }
+                AppCommand::ShowAgentResult { id } => {
+                    if let Some(job) = side_agent_jobs.iter().find(|job| job.id == id) {
+                        let output = std::fs::read_to_string(&job.output_path)
+                            .unwrap_or_else(|_| "No output captured yet.".to_string());
+                        app.apply_assistant_text(&format!("Agent {id} result:\n{output}"));
+                    } else {
+                        app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }
                 }
                 AppCommand::SetTheme { theme } => {

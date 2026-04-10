@@ -5,6 +5,8 @@ pub enum SlashCommandId {
     Steer,
     Queue,
     Agent,
+    Agents,
+    AgentResult,
     Theme,
     Coach,
     Apply,
@@ -25,7 +27,7 @@ pub struct SlashCommand {
     pub description: &'static str,
 }
 
-pub const SLASH_COMMANDS: [SlashCommand; 16] = [
+pub const SLASH_COMMANDS: [SlashCommand; 18] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -50,6 +52,16 @@ pub const SLASH_COMMANDS: [SlashCommand; 16] = [
         id: SlashCommandId::Agent,
         name: "/agent",
         description: "spawn a Codex-backed side agent",
+    },
+    SlashCommand {
+        id: SlashCommandId::Agents,
+        name: "/agents",
+        description: "list Codex side agents",
+    },
+    SlashCommand {
+        id: SlashCommandId::AgentResult,
+        name: "/agent-result",
+        description: "show side agent result",
     },
     SlashCommand {
         id: SlashCommandId::Theme,
@@ -129,10 +141,10 @@ pub fn filtered_commands(buffer: &str, review_mode: bool) -> Vec<SlashCommand> {
     let commands = if review_mode {
         vec![
             SLASH_COMMANDS[1],
-            SLASH_COMMANDS[6],
-            SLASH_COMMANDS[7],
             SLASH_COMMANDS[8],
             SLASH_COMMANDS[9],
+            SLASH_COMMANDS[10],
+            SLASH_COMMANDS[11],
         ]
     } else {
         SLASH_COMMANDS.to_vec()
