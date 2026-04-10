@@ -1,64 +1,76 @@
-use vorker_tui::{BootStep, render_boot_frame};
+use vorker_tui::{BootStep, boot_minimum_ticks, render_boot_frame};
 
 #[test]
-fn render_boot_frame_shows_the_new_title_and_multi_agent_loading_lanes() {
+fn render_boot_frame_shows_the_vorker_banner_and_loading_step() {
     let output = render_boot_frame(
         96,
-        3,
-        Some("worker-pool"),
+        5,
+        Some("copilot-session"),
         &[
             BootStep::new(
-                "event-log",
-                "event log",
-                "ready",
-                "replayed supervisor journal",
-            ),
-            BootStep::new(
-                "worker-pool",
-                "worker-pool",
+                "copilot-session",
+                "copilot",
                 "loading",
-                "warming 6 execution lanes",
-            ),
-            BootStep::new(
-                "merge-queue",
-                "merge-queue",
-                "pending",
-                "syncing reconciler state",
+                "loading model inventory",
             ),
         ],
         false,
     );
 
     assert!(
-        output.contains("__     ______"),
-        "missing ascii title art:\n{output}"
+        output.contains("██╗   ██╗ ██████╗ ██████╗ ██╗  ██╗███████╗██████╗"),
+        "missing first banner line:\n{output}"
     );
     assert!(
-        output.contains("worker-pool"),
-        "missing worker-pool:\n{output}"
+        output.contains("╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"),
+        "missing last banner line:\n{output}"
     );
     assert!(
-        output.contains("warming 6 execution lanes"),
-        "missing worker detail:\n{output}"
+        output.contains("copilot"),
+        "missing step label:\n{output}"
     );
     assert!(
-        output.contains("VORKER CONTROL PLANE"),
-        "missing control plane title:\n{output}"
+        output.contains("loading model inventory"),
+        "missing step detail:\n{output}"
     );
 }
 
 #[test]
-fn render_boot_frame_uses_ascii_safe_glyphs() {
-    let output = render_boot_frame(
+fn render_boot_frame_reveals_banner_lines_progressively() {
+    let early = render_boot_frame(
         96,
         0,
         None,
-        &[BootStep::new("event-log", "event log", "ready", "replayed")],
+        &[BootStep::new("copilot-session", "copilot", "loading", "loading model inventory")],
+        false,
+    );
+    let late = render_boot_frame(
+        96,
+        5,
+        None,
+        &[BootStep::new("copilot-session", "copilot", "loading", "loading model inventory")],
         false,
     );
 
     assert!(
-        !output.contains('█') && !output.contains('╔') && !output.contains('─'),
-        "boot frame should avoid unicode glyphs that break terminal alignment:\n{output}"
+        early.contains("██╗   ██╗ ██████╗ ██████╗ ██╗  ██╗███████╗██████╗"),
+        "first frame should reveal the first banner line:\n{early}"
+    );
+    assert!(
+        !early.contains("╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"),
+        "first frame should not reveal the full banner yet:\n{early}"
+    );
+    assert!(
+        late.contains("╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"),
+        "later frame should reveal the full banner:\n{late}"
+    );
+}
+
+#[test]
+fn boot_animation_lingers_beyond_the_full_banner_reveal() {
+    assert_eq!(
+        boot_minimum_ticks(),
+        9,
+        "boot animation should linger a bit after the sixth banner line"
     );
 }

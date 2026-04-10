@@ -1,13 +1,5 @@
 #!/bin/sh
 set -eu
 
-if [ -f "$HOME/.cargo/env" ]; then
-  . "$HOME/.cargo/env"
-fi
-
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "cargo not found. Install Rust or source ~/.cargo/env first." >&2
-  exit 1
-fi
-
-exec cargo run --quiet -p vorker-cli -- tui "$@"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+exec sh "$SCRIPT_DIR/run-rust-cli.sh" tui "$@"

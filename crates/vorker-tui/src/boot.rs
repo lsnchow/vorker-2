@@ -21,6 +21,15 @@ impl BootStep {
 }
 
 const SPINNER: [&str; 4] = ["|", "/", "-", "\\"];
+const BOOT_EXTRA_LINGER_TICKS: usize = 4;
+
+#[must_use]
+pub fn boot_minimum_ticks() -> usize {
+    TITLE_ART
+        .len()
+        .saturating_sub(1)
+        .saturating_add(BOOT_EXTRA_LINGER_TICKS)
+}
 
 fn meter(status: &str, tick: usize, color: bool) -> String {
     match status {
@@ -42,20 +51,28 @@ pub fn render_boot_frame(
     color: bool,
 ) -> String {
     let width = width.clamp(72, 120);
+    let revealed_lines = (tick + 1).min(TITLE_ART.len());
     let mut lines = TITLE_ART
         .iter()
-        .map(|line| colorize(line, "brightGreen", color))
+        .enumerate()
+        .map(|(index, line)| {
+            if index < revealed_lines {
+                colorize(line, "brightGreen", color)
+            } else {
+                " ".repeat(line.chars().count())
+            }
+        })
         .collect::<Vec<_>>();
     lines.push(emphasize(
         &colorize(
-            "VORKER CONTROL PLANE // VORKER-2 supervisor mesh",
+            "VORKER SHELL // Copilot ACP startup",
             "green",
             color,
         ),
         color,
     ));
     lines.push(colorize(
-        "Arrow-led operator shell. Booting agent lanes and replaying the supervisor bus.",
+        "Loading workspace context, model inventory, and command surface.",
         "gray",
         color,
     ));

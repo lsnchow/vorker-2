@@ -1,10 +1,15 @@
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use std::env;
 use std::io::{self, Read};
+use vorker_cli::adversarial::{
+    AdversarialRunRequest, DEFAULT_ADVERSARIAL_MODEL, ReviewScope, run_adversarial,
+};
 use vorker_agent::{PromptRequest, ProviderId, ProviderManager};
 use vorker_core::EventLog;
 use vorker_preflight::{LocalContainerSandbox, PreflightRequest, PreflightRunner};
-use vorker_tui::{render_once, run_app};
+use vorker_tui::{render_hyperloop_mock, render_once, run_app};
+
+const DEFAULT_PRIMARY_MODEL: &str = "claude-opus-4.5";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -44,6 +49,8 @@ struct SharedOptions {
 #[derive(Debug, Subcommand)]
 enum Command {
     Tui(TuiOptions),
+    Adversarial(AdversarialOptions),
+    Demo { scenario: String },
     Preflight { repo: String },
     Repl,
     Chat { prompt: Option<String> },
@@ -56,6 +63,28 @@ enum Command {
 struct TuiOptions {
     #[arg(long, default_value_t = false)]
     once: bool,
+}
+
+#[derive(Debug, Args, Default)]
+struct AdversarialOptions {
+    #[arg(long)]
+    base: Option<String>,
+    #[arg(long, default_value = "auto")]
+    scope: String,
+    #[arg(long, default_value_t = false)]
+    coach: bool,
+    #[arg(long, default_value_t = false)]
+    apply: bool,
+    #[arg(long, default_value_t = false)]
+    popout: bool,
+    #[arg(long, hide = true)]
+    output_report: Option<String>,
+    #[arg(long, hide = true)]
+    events_file: Option<String>,
+    #[arg(long, hide = true)]
+    status_file: Option<String>,
+    #[arg(trailing_var_arg = true)]
+    focus: Vec<String>,
 }
 
 #[derive(Debug, Args, Default)]
@@ -95,11 +124,31 @@ fn main() {
 
     match cli.command {
         Some(Command::Tui(tui)) => {
+            let model = default_primary_model(&cli.shared);
             if tui.once {
-                println!("{}", render_once(120));
-            } else if let Err(error) = run_app(cli.shared.no_alt_screen) {
+                println!("{}", render_once(120, Some(model.clone())));
+            } else if let Err(error) =
+                run_app(cli.shared.no_alt_screen, cli.shared.auto_approve, Some(model))
+            {
                 eprintln!("{error}");
                 std::process::exit(1);
+            }
+        }
+        Some(Command::Adversarial(options)) => {
+            if let Err(error) = run_adversarial_command(options, &cli.shared) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        Some(Command::Demo { scenario }) => {
+            match scenario.as_str() {
+                "hyperloop" | "hyperloop-controls" => {
+                    println!("{}", render_hyperloop_mock(120, false));
+                }
+                _ => {
+                    eprintln!("unknown demo scenario: {scenario}");
+                    std::process::exit(1);
+                }
             }
         }
         Some(Command::Preflight { repo }) => {
@@ -123,11 +172,52 @@ fn main() {
         Some(Command::Share(_)) => {
             println!("Rust share bootstrap not wired yet.");
         }
-        Some(Command::Help) | None => {
+        Some(Command::Help) => {
             let _ = Cli::command().print_help();
             println!();
         }
+        None => {
+            let model = default_primary_model(&cli.shared);
+            if let Err(error) =
+                run_app(cli.shared.no_alt_screen, cli.shared.auto_approve, Some(model))
+            {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
     }
+}
+
+fn run_adversarial_command(
+    options: AdversarialOptions,
+    shared: &SharedOptions,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cwd = env::current_dir()?;
+    let model = shared
+        .model
+        .clone()
+        .unwrap_or_else(|| DEFAULT_ADVERSARIAL_MODEL.to_string());
+    let focus = options.focus.join(" ").trim().to_string();
+    let result = run_adversarial(&AdversarialRunRequest {
+        cwd,
+        base: options.base,
+        scope: parse_review_scope(&options.scope)?,
+        focus,
+        coach: options.coach || options.apply,
+        apply: options.apply,
+        popout: options.popout,
+        model,
+        output_report_path: options.output_report.map(Into::into),
+        events_file_path: options.events_file.map(Into::into),
+        status_file_path: options.status_file.map(Into::into),
+    })?;
+
+    println!("{}", result.report_markdown);
+    println!("\nReport saved to {}", result.report_path.display());
+    if let Some(summary) = result.apply_summary {
+        println!("\n## Applied Patch Summary\n{summary}");
+    }
+    Ok(())
 }
 
 fn run_preflight(
@@ -176,7 +266,7 @@ fn run_chat(
     let request = PromptRequest {
         prompt,
         cwd: Some(env::current_dir()?),
-        model: shared.model.clone(),
+        model: Some(default_primary_model(shared)),
     };
     let mut spec = ProviderManager::build_prompt_command(provider, &request);
     match provider {
@@ -206,6 +296,25 @@ fn run_chat(
     }
 
     Ok(())
+}
+
+fn default_primary_model(shared: &SharedOptions) -> String {
+    shared
+        .model
+        .clone()
+        .or_else(|| env::var("VORKER_DEFAULT_MODEL").ok())
+        .unwrap_or_else(|| DEFAULT_PRIMARY_MODEL.to_string())
+}
+
+fn parse_review_scope(value: &str) -> Result<ReviewScope, Box<dyn std::error::Error + Send + Sync>> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "auto" => Ok(ReviewScope::Auto),
+        "working-tree" | "working_tree" => Ok(ReviewScope::WorkingTree),
+        "staged" => Ok(ReviewScope::Staged),
+        "all-files" | "all_files" => Ok(ReviewScope::AllFiles),
+        "branch" => Ok(ReviewScope::Branch),
+        other => Err(io::Error::other(format!("unknown review scope: {other}")).into()),
+    }
 }
 
 fn resolve_prompt(

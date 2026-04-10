@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { runChat, runRepl } from "./cli.js";
 import { startRemoteServer } from "./server.js";
 import { runShare } from "./share.js";
-import { runTui } from "./tui.js";
 
 function printUsage() {
   console.log(`vorker
 
 Usage:
+  vorker
   vorker tui [options]
+  vorker adversarial [options] [focus...]
+  vorker demo <scenario>
   vorker repl [options]
   vorker chat [options] "<prompt>"
   vorker serve [options]
@@ -24,6 +28,12 @@ Shared options:
   --copilot-bin <path>   Copilot CLI binary to launch (default: copilot)
   --mode <id>            Set an ACP session mode after startup
   --model <id>           Set an ACP model after startup
+  --base <ref>           Compare the current branch to a base ref for adversarial review
+  --scope <name>         Review scope: auto, working-tree, staged, all-files, or branch
+  --coach                Add teaching guidance to adversarial review output
+  --apply                After adversarial review, ask Codex to apply the smallest safe patch
+  --popout               Open a separate adversarial-themed Vorker shell
+  --once                 Render a one-shot frame instead of opening the interactive shell
   --auto-approve         Auto-select the most permissive tool approval option
   --debug                Print extra ACP status updates
   --no-alt-screen        Keep the TUI inline instead of switching to the terminal alt screen
@@ -46,7 +56,10 @@ Security:
   If omitted, a random pairing password is generated at startup.
 
 Examples:
+  vorker
   vorker tui
+  vorker adversarial --coach --apply question the retry logic and patch the worst issue
+  vorker demo hyperloop
   vorker repl
   vorker chat "summarize this repo"
   VORKER_PASSWORD=secret vorker serve --host 127.0.0.1 --port 4173
@@ -64,6 +77,12 @@ function parseCli(argv) {
       "copilot-bin": { type: "string" },
       mode: { type: "string" },
       model: { type: "string" },
+      base: { type: "string" },
+      scope: { type: "string" },
+      coach: { type: "boolean", default: false },
+      apply: { type: "boolean", default: false },
+      popout: { type: "boolean", default: false },
+      once: { type: "boolean", default: false },
       "auto-approve": { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
       "no-alt-screen": { type: "boolean", default: false },
@@ -80,15 +99,22 @@ function parseCli(argv) {
     },
   });
 
-  const [command = "repl", ...promptParts] = positionals;
+  const [command = "tui", ...promptParts] = positionals;
 
   return {
     command,
     promptParts,
     cwd: path.resolve(values.cwd ?? process.cwd()),
+    provider: values.provider ?? null,
     copilotBin: values["copilot-bin"] ?? process.env.COPILOT_BIN ?? "copilot",
     mode: values.mode ?? null,
-    model: values.model ?? null,
+    model: values.model ?? process.env.VORKER_DEFAULT_MODEL ?? "claude-opus-4.5",
+    base: values.base ?? null,
+    scope: values.scope ?? null,
+    coach: values.coach,
+    apply: values.apply,
+    popout: values.popout,
+    once: values.once,
     autoApprove: values["auto-approve"],
     debug: values.debug,
     noAltScreen: values["no-alt-screen"],
@@ -121,10 +147,119 @@ function formatError(error) {
   return String(error);
 }
 
+function buildRustArgs(options) {
+  const args = [];
+
+  if (options.cwd) {
+    args.push("--cwd", options.cwd);
+  }
+  if (options.provider) {
+    args.push("--provider", options.provider);
+  }
+  if (options.copilotBin) {
+    args.push("--copilot-bin", options.copilotBin);
+  }
+  if (options.mode) {
+    args.push("--mode", options.mode);
+  }
+  if (options.model) {
+    args.push("--model", options.model);
+  }
+  if (options.autoApprove) {
+    args.push("--auto-approve");
+  }
+  if (options.debug) {
+    args.push("--debug");
+  }
+  if (options.noAltScreen) {
+    args.push("--no-alt-screen");
+  }
+
+  if (options.command === "tui") {
+    args.push("tui");
+    if (options.once) {
+      args.push("--once");
+    }
+    if (options.help) {
+      args.push("--help");
+    }
+  } else if (options.command === "adversarial") {
+    args.push("adversarial");
+    if (options.base) {
+      args.push("--base", options.base);
+    }
+    if (options.scope) {
+      args.push("--scope", options.scope);
+    }
+    if (options.coach) {
+      args.push("--coach");
+    }
+    if (options.apply) {
+      args.push("--apply");
+    }
+    if (options.popout) {
+      args.push("--popout");
+    }
+    args.push(...options.promptParts);
+    if (options.help) {
+      args.push("--help");
+    }
+  } else if (options.command === "demo") {
+    args.push("demo", ...options.promptParts);
+    if (options.help) {
+      args.push("--help");
+    }
+  }
+
+  return args;
+}
+
+async function runRustCli(options) {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const scriptPath = path.join(repoRoot, "scripts", "run-rust-cli.sh");
+  const args = buildRustArgs(options);
+  const captureOutput =
+    options.command === "demo" || options.command === "adversarial" || options.once;
+
+  await new Promise((resolve, reject) => {
+    const child = spawn("sh", [scriptPath, ...args], {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: captureOutput ? ["inherit", "pipe", "pipe"] : "inherit",
+    });
+
+    if (captureOutput) {
+      child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
+      child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    }
+
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`Rust CLI exited with signal ${signal}`));
+        return;
+      }
+      if (code && code !== 0) {
+        reject(new Error(`Rust CLI exited with status ${code}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 async function main() {
   const options = parseCli(process.argv.slice(2));
 
   if (options.help || options.command === "help") {
+    if (
+      options.command === "tui" ||
+      options.command === "demo" ||
+      options.command === "adversarial"
+    ) {
+      await runRustCli(options);
+      return;
+    }
     printUsage();
     return;
   }
@@ -134,8 +269,12 @@ async function main() {
     return;
   }
 
-  if (options.command === "tui") {
-    await runTui(options);
+  if (
+    options.command === "tui" ||
+    options.command === "demo" ||
+    options.command === "adversarial"
+  ) {
+    await runRustCli(options);
     return;
   }
 

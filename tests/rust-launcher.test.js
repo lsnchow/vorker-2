@@ -12,8 +12,40 @@ test("Rust TUI launcher script boots the one-shot chat shell", async () => {
     cwd: process.cwd(),
   });
 
-  assert.match(stdout, /\[vorker\]/);
-  assert.match(stdout, /Navigation/);
-  assert.match(stdout, /Conversation/);
-  assert.match(stdout, /Composer/);
+  assert.match(stdout, />_ Vorker \(v0\.1\.0\)/);
+  assert.match(stdout, /model:\s+claude-opus-4\.5\s+\/model to change/);
+  assert.match(stdout, /directory:/);
+  assert.match(stdout, /› Improve documentation in @filename/);
+  assert.doesNotMatch(stdout, /Navigation|Conversation|Composer|Runs|Tasks/);
+});
+
+test("node bin wrapper routes bare vorker to the Rust shell", async () => {
+  const { stdout } = await execFileAsync("node", ["src/index.js", "--once"], {
+    cwd: process.cwd(),
+  });
+
+  assert.match(stdout, />_ Vorker \(v0\.1\.0\)/);
+  assert.match(stdout, /claude-opus-4\.5/);
+  assert.match(stdout, /› Improve documentation in @filename/);
+});
+
+test("node bin wrapper can render the hyperloop demo screen", async () => {
+  const { stdout } = await execFileAsync("node", ["src/index.js", "demo", "hyperloop"], {
+    cwd: process.cwd(),
+  });
+
+  assert.match(stdout, /Hyperloop Pod Controls/);
+  assert.match(stdout, /Subagents/);
+  assert.match(stdout, /Safety envelope verified/);
+});
+
+test("node bin wrapper forwards adversarial help to the Rust CLI", async () => {
+  const { stdout } = await execFileAsync("node", ["src/index.js", "adversarial", "--help"], {
+    cwd: process.cwd(),
+  });
+
+  assert.match(stdout, /Usage: vorker adversarial \[OPTIONS\] \[FOCUS\]\.\.\./);
+  assert.match(stdout, /--coach/);
+  assert.match(stdout, /--apply/);
+  assert.match(stdout, /--popout/);
 });

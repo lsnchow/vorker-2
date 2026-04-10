@@ -1,16 +1,16 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlashCommandId {
-    Model,
-    Provider,
-    New,
-    Agents,
-    Runs,
-    Tasks,
     Review,
-    Permissions,
-    Share,
-    Preflight,
+    Coach,
+    Apply,
+    ExitReview,
+    Model,
+    New,
     Help,
+    Permissions,
+    Rename,
+    List,
+    Cd,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,59 +22,59 @@ pub struct SlashCommand {
 
 pub const SLASH_COMMANDS: [SlashCommand; 11] = [
     SlashCommand {
-        id: SlashCommandId::Model,
-        name: "/model",
-        description: "Switch the active model",
+        id: SlashCommandId::Review,
+        name: "/review",
+        description: "run adversarial review; --coach teaches, --apply patches, --staged reviews staged files",
     },
     SlashCommand {
-        id: SlashCommandId::Provider,
-        name: "/provider",
-        description: "Switch the active provider",
+        id: SlashCommandId::Coach,
+        name: "/coach",
+        description: "rerun review with teaching guidance",
+    },
+    SlashCommand {
+        id: SlashCommandId::Apply,
+        name: "/apply",
+        description: "rerun review and apply the smallest safe patch",
+    },
+    SlashCommand {
+        id: SlashCommandId::ExitReview,
+        name: "/exit-review",
+        description: "leave the review window",
+    },
+    SlashCommand {
+        id: SlashCommandId::Model,
+        name: "/model",
+        description: "choose what model to use",
     },
     SlashCommand {
         id: SlashCommandId::New,
         name: "/new",
-        description: "Create a new agent",
-    },
-    SlashCommand {
-        id: SlashCommandId::Agents,
-        name: "/agents",
-        description: "Open the agents sidebar",
-    },
-    SlashCommand {
-        id: SlashCommandId::Runs,
-        name: "/runs",
-        description: "Open the runs sidebar",
-    },
-    SlashCommand {
-        id: SlashCommandId::Tasks,
-        name: "/tasks",
-        description: "Open the tasks sidebar",
-    },
-    SlashCommand {
-        id: SlashCommandId::Review,
-        name: "/review",
-        description: "Show the review flow",
-    },
-    SlashCommand {
-        id: SlashCommandId::Permissions,
-        name: "/permissions",
-        description: "Inspect approval mode",
-    },
-    SlashCommand {
-        id: SlashCommandId::Share,
-        name: "/share",
-        description: "Inspect tunnel/share state",
-    },
-    SlashCommand {
-        id: SlashCommandId::Preflight,
-        name: "/preflight",
-        description: "Inspect preflight guidance",
+        description: "start a fresh chat",
     },
     SlashCommand {
         id: SlashCommandId::Help,
         name: "/help",
-        description: "Show slash command help",
+        description: "show the available shell commands",
+    },
+    SlashCommand {
+        id: SlashCommandId::Permissions,
+        name: "/permissions",
+        description: "toggle manual vs auto approvals",
+    },
+    SlashCommand {
+        id: SlashCommandId::Rename,
+        name: "/rename",
+        description: "rename the current thread",
+    },
+    SlashCommand {
+        id: SlashCommandId::List,
+        name: "/list",
+        description: "list or reopen saved threads",
+    },
+    SlashCommand {
+        id: SlashCommandId::Cd,
+        name: "/cd",
+        description: "change the project directory",
     },
 ];
 
@@ -84,17 +84,34 @@ pub fn is_slash_mode(buffer: &str) -> bool {
 }
 
 #[must_use]
-pub fn filtered_commands(buffer: &str) -> Vec<SlashCommand> {
+pub fn filtered_commands(buffer: &str, review_mode: bool) -> Vec<SlashCommand> {
     if !is_slash_mode(buffer) {
         return Vec::new();
     }
 
-    let query = buffer.trim_start_matches('/').trim().to_ascii_lowercase();
+    let query = buffer
+        .trim_start_matches('/')
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    let commands = if review_mode {
+        vec![
+            SLASH_COMMANDS[1],
+            SLASH_COMMANDS[2],
+            SLASH_COMMANDS[3],
+            SLASH_COMMANDS[4],
+        ]
+    } else {
+        SLASH_COMMANDS.to_vec()
+    };
+
     if query.is_empty() {
-        return SLASH_COMMANDS.to_vec();
+        return commands;
     }
 
-    SLASH_COMMANDS
+    commands
         .iter()
         .copied()
         .filter(|command| {

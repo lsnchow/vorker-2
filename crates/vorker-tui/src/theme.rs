@@ -1,9 +1,10 @@
-pub const TITLE_ART: [&str; 5] = [
-    "__     ______  ____  _  ________ ____",
-    "\\ \\   / / __ \\/ __ \\/ |/ / ____/ __ \\",
-    " \\ \\ / / / / / /_/ /    / __/ / /_/ /",
-    "  \\ V / /_/ / _, _/ /|  / /___/ _, _/",
-    "   \\_/\\____/_/ |_/_/ |_/_____/_/ |_|",
+pub const TITLE_ART: [&str; 6] = [
+    "██╗   ██╗ ██████╗ ██████╗ ██╗  ██╗███████╗██████╗",
+    "██║   ██║██╔═══██╗██╔══██╗██║ ██╔╝██╔════╝██╔══██╗",
+    "██║   ██║██║   ██║██████╔╝█████╔╝ █████╗  ██████╔╝",
+    "╚██╗ ██╔╝██║   ██║██╔══██╗██╔═██╗ ██╔══╝  ██╔══██╗",
+    " ╚████╔╝ ╚██████╔╝██║  ██║██║  ██╗███████╗██║  ██║",
+    "  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝",
 ];
 
 pub fn colorize(text: &str, tone: &str, enabled: bool) -> String {
@@ -12,12 +13,18 @@ pub fn colorize(text: &str, tone: &str, enabled: bool) -> String {
     }
 
     let code = match tone {
+        "red" => "31",
         "green" => "32",
+        "yellow" => "33",
         "brightGreen" => "92",
+        "brightRed" => "91",
         "gray" => "90",
+        "brightBlack" => "90",
         "magenta" => "35",
         "brightMagenta" => "95",
+        "white" => "97",
         "black" => "30",
+        "bgRed" => "41",
         "bgGreen" => "42",
         "bgMagenta" => "45",
         "bgGray" => "100",
@@ -40,15 +47,19 @@ pub fn highlight(text: &str, enabled: bool, background: &str, foreground: &str) 
     }
 
     let background_code = match background {
+        "bgRed" => "41",
         "bgGreen" => "42",
         "bgMagenta" => "45",
         "bgGray" => "100",
         _ => "49",
     };
     let foreground_code = match foreground {
+        "brightRed" => "91",
+        "yellow" => "33",
         "black" => "30",
         "brightGreen" => "92",
         "green" => "32",
+        "gray" => "90",
         "white" => "97",
         _ => "39",
     };
