@@ -254,6 +254,25 @@ fn slash_theme_list_shows_available_themes() {
 }
 
 #[test]
+fn slash_ralph_queues_a_ralph_run_with_flags() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/ralph --no-deslop --xhigh --model gpt-5.4 ship everything".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::RunRalph {
+            task: "ship everything".to_string(),
+            model: Some("gpt-5.4".to_string()),
+            no_deslop: true,
+            xhigh: true,
+        }]
+    );
+}
+
+#[test]
 fn review_output_is_parsed_into_structured_rows() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_review_output(

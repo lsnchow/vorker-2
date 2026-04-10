@@ -63,6 +63,12 @@ pub enum AppCommand {
         popout: bool,
         scope: Option<String>,
     },
+    RunRalph {
+        task: String,
+        model: Option<String>,
+        no_deslop: bool,
+        xhigh: bool,
+    },
     ExitShell,
     Stop,
     SteerPrompt {
@@ -910,6 +916,21 @@ impl App {
                     scope,
                 });
             }
+            SlashCommandId::Ralph => {
+                let (no_deslop, xhigh, model, task) = parse_ralph_command(buffer);
+                if task.is_empty() {
+                    self.apply_system_notice(
+                        "Usage: /ralph [--no-deslop] [--xhigh] [--model <model>] <task>",
+                    );
+                } else {
+                    self.pending_actions.push(AppCommand::RunRalph {
+                        task,
+                        model,
+                        no_deslop,
+                        xhigh,
+                    });
+                }
+            }
             SlashCommandId::Stop => {
                 self.pending_actions.push(AppCommand::Stop);
             }
@@ -1014,7 +1035,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /ralph /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -1262,6 +1283,29 @@ fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, Stri
     (coach, apply, popout, scope, focus.join(" "))
 }
 
+fn parse_ralph_command(buffer: &str) -> (bool, bool, Option<String>, String) {
+    let mut no_deslop = false;
+    let mut xhigh = false;
+    let mut model = None;
+    let mut task = Vec::new();
+    let mut tokens = buffer.split_whitespace().skip(1);
+
+    while let Some(token) = tokens.next() {
+        match token {
+            "--no-deslop" => no_deslop = true,
+            "--xhigh" => xhigh = true,
+            "--model" => {
+                if let Some(value) = tokens.next() {
+                    model = Some(value.to_string());
+                }
+            }
+            value => task.push(value.to_string()),
+        }
+    }
+
+    (no_deslop, xhigh, model, task.join(" "))
+}
+
 fn command_tail(buffer: &str) -> String {
     buffer
         .split_once(char::is_whitespace)
@@ -1485,6 +1529,52 @@ fn open_review_window(
     #[allow(unreachable_code)]
     Err(io::Error::other(
         "review popout is currently supported on macOS only",
+    ))
+}
+
+fn open_ralph_window(
+    cwd: &Path,
+    task: &str,
+    model: Option<&str>,
+    no_deslop: bool,
+    xhigh: bool,
+) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut args = vec!["ralph".to_string()];
+        if no_deslop {
+            args.push("--no-deslop".to_string());
+        }
+        if xhigh {
+            args.push("--xhigh".to_string());
+        }
+        if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
+            args.push("--model".to_string());
+            args.push(shell_escape_arg(model));
+        }
+        args.push(shell_escape_arg(task));
+        let command = format!(
+            "cd '{}' && vorker {}",
+            escape_single_quotes(&cwd.display().to_string()),
+            args.join(" ")
+        );
+        let script = format!(
+            "tell application \"Terminal\" to do script \"{}\"",
+            command.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let status = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(io::Error::other("failed to open RALPH window"));
+    }
+
+    #[allow(unreachable_code)]
+    Err(io::Error::other(
+        "RALPH popout is currently supported on macOS only",
     ))
 }
 
@@ -1778,6 +1868,16 @@ pub fn run_app(
                             );
                         }
                     }
+                }
+                AppCommand::RunRalph {
+                    task,
+                    model,
+                    no_deslop,
+                    xhigh,
+                } => {
+                    let selected_model = model.or_else(|| app.navigation.selected_model_id.clone());
+                    open_ralph_window(&cwd, &task, selected_model.as_deref(), no_deslop, xhigh)?;
+                    app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
                 }
                 AppCommand::Stop => {
                     let _ = runtime.block_on(bridge.cancel());

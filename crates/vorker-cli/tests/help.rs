@@ -10,6 +10,7 @@ fn cli_help_lists_tui_and_serve_commands() {
         contains("tui")
             .and(contains("preflight"))
             .and(contains("adversarial"))
+            .and(contains("ralph"))
             .and(contains("demo"))
             .and(contains("serve"))
             .and(contains("--provider"))

@@ -1360,6 +1360,7 @@ dependencies = [
  "predicates",
  "serde",
  "serde_json",
+ "tempfile",
  "vorker-agent",
  "vorker-core",
  "vorker-preflight",

@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlashCommandId {
     Review,
+    Ralph,
     Stop,
     Steer,
     Queue,
@@ -28,11 +29,16 @@ pub struct SlashCommand {
     pub description: &'static str,
 }
 
-pub const SLASH_COMMANDS: [SlashCommand; 19] = [
+pub const SLASH_COMMANDS: [SlashCommand; 20] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
         description: "run adversarial review; --coach teaches, --apply patches, --staged reviews staged files",
+    },
+    SlashCommand {
+        id: SlashCommandId::Ralph,
+        name: "/ralph",
+        description: "launch a RALPH persistence session",
     },
     SlashCommand {
         id: SlashCommandId::Stop,
@@ -145,13 +151,19 @@ pub fn filtered_commands(buffer: &str, review_mode: bool) -> Vec<SlashCommand> {
         .to_ascii_lowercase();
 
     let commands = if review_mode {
-        vec![
-            SLASH_COMMANDS[1],
-            SLASH_COMMANDS[9],
-            SLASH_COMMANDS[10],
-            SLASH_COMMANDS[11],
-            SLASH_COMMANDS[12],
-        ]
+        SLASH_COMMANDS
+            .into_iter()
+            .filter(|command| {
+                matches!(
+                    command.id,
+                    SlashCommandId::Stop
+                        | SlashCommandId::Coach
+                        | SlashCommandId::Apply
+                        | SlashCommandId::ExitReview
+                        | SlashCommandId::Model
+                )
+            })
+            .collect()
     } else {
         SLASH_COMMANDS.to_vec()
     };

@@ -5,6 +5,7 @@ use vorker_agent::{PromptRequest, ProviderId, ProviderManager};
 use vorker_cli::adversarial::{
     AdversarialRunRequest, DEFAULT_ADVERSARIAL_MODEL, ReviewScope, run_adversarial,
 };
+use vorker_cli::ralph::{RalphLaunchRequest, build_ralph_launch, run_ralph_launch};
 use vorker_core::EventLog;
 use vorker_preflight::{LocalContainerSandbox, PreflightRequest, PreflightRunner};
 use vorker_tui::{render_hyperloop_mock, render_once, run_app};
@@ -50,6 +51,7 @@ struct SharedOptions {
 enum Command {
     Tui(TuiOptions),
     Adversarial(AdversarialOptions),
+    Ralph(RalphOptions),
     Demo { scenario: String },
     Preflight { repo: String },
     Repl,
@@ -85,6 +87,22 @@ struct AdversarialOptions {
     status_file: Option<String>,
     #[arg(trailing_var_arg = true)]
     focus: Vec<String>,
+}
+
+#[derive(Debug, Args, Default)]
+struct RalphOptions {
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long = "no-deslop", default_value_t = false)]
+    no_deslop: bool,
+    #[arg(long, default_value_t = false)]
+    xhigh: bool,
+    #[arg(long = "alt-screen", default_value_t = false)]
+    alt_screen: bool,
+    #[arg(long = "dry-run", default_value_t = false)]
+    dry_run: bool,
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    task: Vec<String>,
 }
 
 #[derive(Debug, Args, Default)]
@@ -142,6 +160,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Command::Ralph(options)) => {
+            if let Err(error) = run_ralph_command(options, &cli.shared) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
         Some(Command::Demo { scenario }) => match scenario.as_str() {
             "hyperloop" | "hyperloop-controls" => {
                 println!("{}", render_hyperloop_mock(120, false));
@@ -188,6 +212,40 @@ fn main() {
             }
         }
     }
+}
+
+fn run_ralph_command(
+    options: RalphOptions,
+    shared: &SharedOptions,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let task = resolve_prompt(Some(options.task.join(" ")))?;
+    let home = env::var_os("HOME")
+        .map(Into::into)
+        .ok_or_else(|| io::Error::other("HOME is not set; cannot locate Codex auth"))?;
+    let launch = build_ralph_launch(RalphLaunchRequest {
+        cwd: env::current_dir()?,
+        user_home: home,
+        task,
+        model: options.model.or_else(|| shared.model.clone()),
+        no_deslop: options.no_deslop,
+        no_alt_screen: !options.alt_screen,
+        xhigh: options.xhigh,
+        extra_args: Vec::new(),
+    })?;
+
+    if options.dry_run {
+        for (key, value) in &launch.env {
+            println!("{key}={value}");
+        }
+        println!("{} {}", launch.program, launch.args.join(" "));
+        return Ok(());
+    }
+
+    let status = run_ralph_launch(&launch)?;
+    if !status.success() {
+        return Err(io::Error::other(format!("ralph exited with status {status}")).into());
+    }
+    Ok(())
 }
 
 fn run_adversarial_command(
