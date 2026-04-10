@@ -1459,6 +1459,8 @@ fn spawn_side_agent(
     let record = store.create_job_in_dir(cwd, prompt_text, &model, agents_dir)?;
     let output_path = PathBuf::from(&record.output_path);
     let stderr_path = PathBuf::from(&record.stderr_path);
+    let events_path = PathBuf::from(&record.events_path);
+    let events = std::fs::File::create(&events_path)?;
     let stderr = std::fs::File::create(&stderr_path)?;
     let mut command = std::process::Command::new("codex");
     command
@@ -1468,13 +1470,14 @@ fn spawn_side_agent(
         .arg("--full-auto")
         .arg("--color")
         .arg("never")
+        .arg("--json")
         .arg("--skip-git-repo-check")
         .arg("--output-last-message")
         .arg(&output_path)
         .arg("-C")
         .arg(cwd)
         .arg(prompt_text)
-        .stdout(Stdio::null())
+        .stdout(Stdio::from(events))
         .stderr(Stdio::from(stderr));
 
     match command.spawn() {
@@ -1969,8 +1972,11 @@ pub fn run_app(
                         app.apply_system_notice("Side agents:");
                         for job in jobs {
                             app.apply_system_notice(format!(
-                                "{}  {:?}  {}  {}",
-                                job.id, job.status, job.model, job.prompt
+                                "{}  {}  {}  {}",
+                                job.id,
+                                job.status.label(),
+                                job.model,
+                                job.prompt
                             ));
                         }
                     }

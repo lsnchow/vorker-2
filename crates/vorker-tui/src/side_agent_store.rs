@@ -14,6 +14,18 @@ pub enum SideAgentStatus {
     Failed,
 }
 
+impl SideAgentStatus {
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredSideAgentJob {
     pub id: String,
@@ -23,6 +35,8 @@ pub struct StoredSideAgentJob {
     pub status: SideAgentStatus,
     pub output_path: String,
     pub stderr_path: String,
+    #[serde(default)]
+    pub events_path: String,
     pub created_at_epoch_seconds: u64,
     pub finished_at_epoch_seconds: Option<u64>,
 }
@@ -72,6 +86,7 @@ impl SideAgentStore {
             status: SideAgentStatus::Running,
             output_path: output_path.as_ref().display().to_string(),
             stderr_path: stderr_path.as_ref().display().to_string(),
+            events_path: String::new(),
             created_at_epoch_seconds: now,
             finished_at_epoch_seconds: None,
         };
@@ -98,6 +113,7 @@ impl SideAgentStore {
             status: SideAgentStatus::Running,
             output_path: job_dir.join("last-message.md").display().to_string(),
             stderr_path: job_dir.join("stderr.log").display().to_string(),
+            events_path: job_dir.join("events.jsonl").display().to_string(),
             created_at_epoch_seconds: now_epoch_seconds(),
             finished_at_epoch_seconds: None,
         })

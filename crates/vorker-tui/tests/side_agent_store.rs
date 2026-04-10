@@ -100,6 +100,7 @@ fn side_agent_store_can_allocate_project_local_output_paths() {
     assert!(job.output_path.contains("/side-agents/"));
     assert!(job.output_path.ends_with("/last-message.md"));
     assert!(job.stderr_path.ends_with("/stderr.log"));
+    assert!(job.events_path.ends_with("/events.jsonl"));
     assert!(
         std::path::Path::new(&job.output_path)
             .parent()
@@ -108,4 +109,12 @@ fn side_agent_store_can_allocate_project_local_output_paths() {
     );
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn side_agent_status_has_stable_display_labels() {
+    assert_eq!(SideAgentStatus::Running.label(), "running");
+    assert_eq!(SideAgentStatus::Completed.label(), "completed");
+    assert_eq!(SideAgentStatus::Stopped.label(), "stopped");
+    assert_eq!(SideAgentStatus::Failed.label(), "failed");
 }
