@@ -13,6 +13,7 @@ mod side_agent_store;
 mod slash;
 mod theme;
 mod thread_store;
+mod transcript_export;
 
 pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
@@ -29,3 +30,4 @@ pub use side_agent_store::{
 };
 pub use slash::{SlashCommand, SlashCommandId, filtered_commands, is_slash_mode};
 pub use thread_store::{ApprovalMode, StoredThread, ThreadStore};
+pub use transcript_export::{render_transcript_markdown, write_transcript_export};

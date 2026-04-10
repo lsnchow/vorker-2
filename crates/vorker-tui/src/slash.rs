@@ -10,6 +10,7 @@ pub enum SlashCommandId {
     AgentStop,
     AgentResult,
     Theme,
+    Export,
     Coach,
     Apply,
     ExitReview,
@@ -29,7 +30,7 @@ pub struct SlashCommand {
     pub description: &'static str,
 }
 
-pub const SLASH_COMMANDS: [SlashCommand; 20] = [
+pub const SLASH_COMMANDS: [SlashCommand; 21] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -79,6 +80,11 @@ pub const SLASH_COMMANDS: [SlashCommand; 20] = [
         id: SlashCommandId::Theme,
         name: "/theme",
         description: "change shell theme",
+    },
+    SlashCommand {
+        id: SlashCommandId::Export,
+        name: "/export",
+        description: "export the current transcript to markdown",
     },
     SlashCommand {
         id: SlashCommandId::Coach,

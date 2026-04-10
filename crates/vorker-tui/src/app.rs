@@ -26,6 +26,7 @@ use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
+use crate::transcript_export::write_transcript_export;
 
 struct ReviewJob {
     child: Child,
@@ -92,6 +93,7 @@ pub enum AppCommand {
     SetTheme {
         theme: String,
     },
+    ExportTranscript,
     SetModel {
         model: String,
     },
@@ -996,6 +998,9 @@ impl App {
                     self.pending_actions.push(AppCommand::SetTheme { theme });
                 }
             }
+            SlashCommandId::Export => {
+                self.pending_actions.push(AppCommand::ExportTranscript);
+            }
             SlashCommandId::Coach => {
                 self.pending_actions.push(AppCommand::RunReview {
                     focus: String::new(),
@@ -1036,7 +1041,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /ralph /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /ralph /export /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -2051,6 +2056,13 @@ pub fn run_app(
                     };
                     app.shell_theme = normalized.to_string();
                     app.apply_system_notice(format!("Theme changed to {normalized}."));
+                }
+                AppCommand::ExportTranscript => {
+                    let path = write_transcript_export(
+                        &workspace.project_dir().join("exports"),
+                        &app.thread_record(),
+                    )?;
+                    app.apply_system_notice(format!("Transcript exported to {}", path.display()));
                 }
                 AppCommand::SetModel { model } => {
                     runtime.block_on(bridge.set_model(model))?;

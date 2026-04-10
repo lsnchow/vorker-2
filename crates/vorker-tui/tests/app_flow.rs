@@ -254,6 +254,17 @@ fn slash_theme_list_shows_available_themes() {
 }
 
 #[test]
+fn slash_export_queues_transcript_export() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/export".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ExportTranscript]);
+}
+
+#[test]
 fn slash_ralph_queues_a_ralph_run_with_flags() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/ralph --no-deslop --xhigh --model gpt-5.4 ship everything".chars() {
