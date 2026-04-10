@@ -73,3 +73,15 @@ test("node bin wrapper forwards ralph dry-run to the Rust CLI", async () => {
   assert.match(stdout, /TERM=xterm-256color/);
   assert.match(stdout, /omx ralph --no-deslop --no-alt-screen --xhigh --model gpt-5\.4 ship it/);
 });
+
+test("node bin wrapper accepts provider and codex-bin options for Rust commands", async () => {
+  const { stdout } = await execFileAsync(
+    "node",
+    ["src/index.js", "tui", "--once", "--provider", "codex", "--codex-bin", "/tmp/codex"],
+    {
+      cwd: process.cwd(),
+    },
+  );
+
+  assert.match(stdout, />_ Vorker \(v0\.1\.0\)/);
+});

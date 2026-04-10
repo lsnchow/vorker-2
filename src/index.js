@@ -26,7 +26,9 @@ Usage:
 
 Shared options:
   --cwd <path>           Working directory for Copilot sessions
+  --provider <id>        Provider id for Rust command paths
   --copilot-bin <path>   Copilot CLI binary to launch (default: copilot)
+  --codex-bin <path>     Codex CLI binary to launch (default: codex)
   --mode <id>            Set an ACP session mode after startup
   --model <id>           Set an ACP model after startup
   --base <ref>           Compare the current branch to a base ref for adversarial review
@@ -81,7 +83,9 @@ function parseCli(argv) {
     allowPositionals: true,
     options: {
       cwd: { type: "string" },
+      provider: { type: "string" },
       "copilot-bin": { type: "string" },
+      "codex-bin": { type: "string" },
       mode: { type: "string" },
       model: { type: "string" },
       base: { type: "string" },
@@ -118,6 +122,7 @@ function parseCli(argv) {
     cwd: path.resolve(values.cwd ?? process.cwd()),
     provider: values.provider ?? null,
     copilotBin: values["copilot-bin"] ?? process.env.COPILOT_BIN ?? "copilot",
+    codexBin: values["codex-bin"] ?? process.env.CODEX_BIN ?? "codex",
     mode: values.mode ?? null,
     model: values.model ?? process.env.VORKER_DEFAULT_MODEL ?? "claude-opus-4.5",
     base: values.base ?? null,
@@ -173,6 +178,9 @@ function buildRustArgs(options) {
   }
   if (options.copilotBin) {
     args.push("--copilot-bin", options.copilotBin);
+  }
+  if (options.codexBin) {
+    args.push("--codex-bin", options.codexBin);
   }
   if (options.mode) {
     args.push("--mode", options.mode);
