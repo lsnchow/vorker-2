@@ -49,3 +49,27 @@ test("node bin wrapper forwards adversarial help to the Rust CLI", async () => {
   assert.match(stdout, /--apply/);
   assert.match(stdout, /--popout/);
 });
+
+test("node bin wrapper forwards ralph dry-run to the Rust CLI", async () => {
+  const { stdout } = await execFileAsync(
+    "node",
+    [
+      "src/index.js",
+      "ralph",
+      "--dry-run",
+      "--no-deslop",
+      "--xhigh",
+      "--model",
+      "gpt-5.4",
+      "ship",
+      "it",
+    ],
+    {
+      cwd: process.cwd(),
+    },
+  );
+
+  assert.match(stdout, /CODEX_HOME=/);
+  assert.match(stdout, /TERM=xterm-256color/);
+  assert.match(stdout, /omx ralph --no-deslop --no-alt-screen --xhigh --model gpt-5\.4 ship it/);
+});

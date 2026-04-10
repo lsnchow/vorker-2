@@ -16,6 +16,7 @@ Usage:
   vorker
   vorker tui [options]
   vorker adversarial [options] [focus...]
+  vorker ralph [options] <task...>
   vorker demo <scenario>
   vorker repl [options]
   vorker chat [options] "<prompt>"
@@ -37,6 +38,12 @@ Shared options:
   --auto-approve         Auto-select the most permissive tool approval option
   --debug                Print extra ACP status updates
   --no-alt-screen        Keep the TUI inline instead of switching to the terminal alt screen
+  --alt-screen           Opt into terminal alt screen mode for Rust TUI commands
+
+RALPH options:
+  --no-deslop            Skip RALPH final ai-slop-cleaner pass
+  --xhigh                Launch RALPH with extra-high reasoning
+  --dry-run              Print the RALPH launch command without executing it
 
 Server options:
   --host <host>          Bind address for the web server (default: 127.0.0.1)
@@ -92,9 +99,13 @@ function parseCli(argv) {
       "tls-cert": { type: "string" },
       "trust-proxy": { type: "boolean", default: false },
       "allow-insecure-http": { type: "boolean", default: false },
-      "cloudflared-bin": { type: "string" },
-      "cloudflared-protocol": { type: "string" },
-      "cloudflared-edge-ip-version": { type: "string" },
+  "cloudflared-bin": { type: "string" },
+  "cloudflared-protocol": { type: "string" },
+  "cloudflared-edge-ip-version": { type: "string" },
+      "alt-screen": { type: "boolean", default: false },
+      "no-deslop": { type: "boolean", default: false },
+      xhigh: { type: "boolean", default: false },
+      "dry-run": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -118,6 +129,10 @@ function parseCli(argv) {
     autoApprove: values["auto-approve"],
     debug: values.debug,
     noAltScreen: values["no-alt-screen"],
+    altScreen: values["alt-screen"],
+    noDeslop: values["no-deslop"],
+    xhigh: values.xhigh,
+    dryRun: values["dry-run"],
     host: values.host ?? "127.0.0.1",
     port: values.port ?? "4173",
     tlsKey: values["tls-key"] ?? null,
@@ -174,6 +189,9 @@ function buildRustArgs(options) {
   if (options.noAltScreen) {
     args.push("--no-alt-screen");
   }
+  if (options.altScreen) {
+    args.push("--alt-screen");
+  }
 
   if (options.command === "tui") {
     args.push("tui");
@@ -199,6 +217,24 @@ function buildRustArgs(options) {
     }
     if (options.popout) {
       args.push("--popout");
+    }
+    args.push(...options.promptParts);
+    if (options.help) {
+      args.push("--help");
+    }
+  } else if (options.command === "ralph") {
+    args.push("ralph");
+    if (options.dryRun) {
+      args.push("--dry-run");
+    }
+    if (options.noDeslop) {
+      args.push("--no-deslop");
+    }
+    if (options.xhigh) {
+      args.push("--xhigh");
+    }
+    if (options.model) {
+      args.push("--model", options.model);
     }
     args.push(...options.promptParts);
     if (options.help) {
@@ -255,7 +291,8 @@ async function main() {
     if (
       options.command === "tui" ||
       options.command === "demo" ||
-      options.command === "adversarial"
+      options.command === "adversarial" ||
+      options.command === "ralph"
     ) {
       await runRustCli(options);
       return;
@@ -272,7 +309,8 @@ async function main() {
   if (
     options.command === "tui" ||
     options.command === "demo" ||
-    options.command === "adversarial"
+    options.command === "adversarial" ||
+    options.command === "ralph"
   ) {
     await runRustCli(options);
     return;
