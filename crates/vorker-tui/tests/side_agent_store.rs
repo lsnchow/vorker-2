@@ -118,6 +118,9 @@ fn side_agent_store_can_allocate_project_local_output_paths() {
     assert!(job.output_path.ends_with("/last-message.md"));
     assert!(job.stderr_path.ends_with("/stderr.log"));
     assert!(job.events_path.ends_with("/events.jsonl"));
+    assert!(std::path::Path::new(&job.output_path).exists());
+    assert!(std::path::Path::new(&job.stderr_path).exists());
+    assert!(std::path::Path::new(&job.events_path).exists());
     assert!(
         std::path::Path::new(&job.output_path)
             .parent()

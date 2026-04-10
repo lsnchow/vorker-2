@@ -106,15 +106,21 @@ impl SideAgentStore {
         let id = generate_agent_id();
         let job_dir = agents_dir.as_ref().join(&id);
         fs::create_dir_all(&job_dir)?;
+        let output_path = job_dir.join("last-message.md");
+        let stderr_path = job_dir.join("stderr.log");
+        let events_path = job_dir.join("events.jsonl");
+        fs::File::create(&output_path)?;
+        fs::File::create(&stderr_path)?;
+        fs::File::create(&events_path)?;
         self.insert_job(StoredSideAgentJob {
             id,
             prompt: prompt.into(),
             cwd: cwd.as_ref().display().to_string(),
             model: model.into(),
             status: SideAgentStatus::Running,
-            output_path: job_dir.join("last-message.md").display().to_string(),
-            stderr_path: job_dir.join("stderr.log").display().to_string(),
-            events_path: job_dir.join("events.jsonl").display().to_string(),
+            output_path: output_path.display().to_string(),
+            stderr_path: stderr_path.display().to_string(),
+            events_path: events_path.display().to_string(),
             created_at_epoch_seconds: now_epoch_seconds(),
             finished_at_epoch_seconds: None,
         })

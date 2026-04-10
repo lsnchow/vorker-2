@@ -2264,10 +2264,8 @@ fn drain_bridge_events(
             BridgeEvent::TextChunk { text } => app.apply_assistant_chunk(&text),
             BridgeEvent::ToolCall { title } => app.apply_tool_notice(title, None),
             BridgeEvent::ToolUpdate { title, detail } => {
-                if let Some(title) = title {
-                    app.apply_tool_update(title);
-                } else if let Some(detail) = detail {
-                    app.apply_tool_update(detail);
+                if let Some(update) = tool_update_text(title, detail) {
+                    app.apply_tool_update(update);
                 }
             }
             BridgeEvent::PermissionRequest {
@@ -2318,6 +2316,12 @@ fn drain_bridge_events(
             }
         }
     }
+}
+
+fn tool_update_text(title: Option<String>, detail: Option<String>) -> Option<String> {
+    detail
+        .filter(|detail| !detail.trim().is_empty())
+        .or_else(|| title.filter(|title| !title.trim().is_empty()))
 }
 
 fn choose_auto_permission(
@@ -2418,7 +2422,7 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_for_raw_terminal;
+    use super::{normalize_for_raw_terminal, tool_update_text};
 
     #[test]
     fn normalize_for_raw_terminal_converts_lf_to_crlf() {
@@ -2433,6 +2437,21 @@ mod tests {
         assert_eq!(
             normalize_for_raw_terminal("one\r\ntwo\nthree\r\n"),
             "one\r\ntwo\r\nthree\r\n"
+        );
+    }
+
+    #[test]
+    fn tool_update_text_prefers_detail_over_title() {
+        assert_eq!(
+            tool_update_text(
+                Some("Read".to_string()),
+                Some("Read src/app.rs".to_string())
+            ),
+            Some("Read src/app.rs".to_string())
+        );
+        assert_eq!(
+            tool_update_text(Some("Read".to_string()), Some("   ".to_string())),
+            Some("Read".to_string())
         );
     }
 }
