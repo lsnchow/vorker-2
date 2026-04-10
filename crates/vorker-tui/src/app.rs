@@ -6,7 +6,7 @@ use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
     enable_raw_mode, size,
 };
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -25,6 +25,7 @@ use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
+use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
 use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
@@ -97,6 +98,11 @@ pub enum AppCommand {
     ExportTranscript,
     ShowStatus,
     ListPromptHistory,
+    ListSkills,
+    SetSkillEnabled {
+        name: String,
+        enabled: bool,
+    },
     SetModel {
         model: String,
     },
@@ -120,6 +126,8 @@ pub struct PermissionOptionView {
 enum PopupMode {
     Mention,
     Permission,
+    SkillAction,
+    SkillToggle,
 }
 
 pub struct App {
@@ -147,6 +155,10 @@ pub struct App {
     prompt_queue: VecDeque<(String, String)>,
     prompt_history: Vec<String>,
     prompt_history_cursor: Option<usize>,
+    skills: Vec<SkillInfo>,
+    enabled_skills: BTreeSet<String>,
+    skill_context: String,
+    skill_toggle_query: String,
     shell_theme: String,
     pending_actions: Vec<AppCommand>,
 }
@@ -237,6 +249,10 @@ impl App {
             prompt_queue: VecDeque::new(),
             prompt_history: Vec::new(),
             prompt_history_cursor: None,
+            skills: Vec::new(),
+            enabled_skills: BTreeSet::new(),
+            skill_context: String::new(),
+            skill_toggle_query: String::new(),
             shell_theme: current_shell_theme().to_string(),
             pending_actions: Vec::new(),
         }
@@ -310,6 +326,7 @@ impl App {
         self.pending_review_rows.clear();
         self.last_review_reveal_at = None;
         self.prompt_history_cursor = None;
+        self.skill_toggle_query.clear();
     }
 
     pub fn list_threads(&mut self, threads: &[StoredThread]) {
@@ -363,6 +380,16 @@ impl App {
     pub fn set_prompt_history(&mut self, prompts: Vec<String>) {
         self.prompt_history = prompts;
         self.prompt_history_cursor = None;
+    }
+
+    pub fn set_skills(&mut self, skills: Vec<SkillInfo>, enabled: BTreeSet<String>) {
+        self.skills = skills;
+        self.enabled_skills = enabled;
+        self.sync_skill_toggle_items();
+    }
+
+    pub fn set_skill_context(&mut self, context: impl Into<String>) {
+        self.skill_context = context.into();
     }
 
     pub fn record_prompt_history(&mut self, prompt: impl Into<String>) {
@@ -555,7 +582,51 @@ impl App {
         self.popup_mode = Some(PopupMode::Permission);
     }
 
+    fn render_popup_state(&self) -> (Option<String>, Vec<crate::render::PopupItem>, usize) {
+        match self.popup_mode {
+            Some(PopupMode::Permission) => (
+                self.permission_title.clone(),
+                self.permission_items
+                    .iter()
+                    .map(|item| crate::render::PopupItem {
+                        label: item.name.clone(),
+                        description: None,
+                    })
+                    .collect(),
+                self.permission_selected_index,
+            ),
+            Some(PopupMode::SkillAction) => (
+                Some("Skills - choose an action".to_string()),
+                vec![
+                    crate::render::PopupItem {
+                        label: "1. List skills".to_string(),
+                        description: Some("show installed skills and state".to_string()),
+                    },
+                    crate::render::PopupItem {
+                        label: "2. Enable/Disable Skills".to_string(),
+                        description: Some("Enable or disable skills.".to_string()),
+                    },
+                ],
+                self.permission_selected_index,
+            ),
+            Some(PopupMode::SkillToggle) => (
+                Some(if self.skill_toggle_query.is_empty() {
+                    "Enable/Disable Skills - Type to search skills".to_string()
+                } else {
+                    format!(
+                        "Enable/Disable Skills - search: {}",
+                        self.skill_toggle_query
+                    )
+                }),
+                self.filtered_skill_items(),
+                self.permission_selected_index,
+            ),
+            _ => (None, Vec::new(), 0),
+        }
+    }
+
     pub fn render(&self, width: usize, color: bool) -> String {
+        let popup = self.render_popup_state();
         render_dashboard(
             &self.snapshot,
             DashboardOptions {
@@ -573,16 +644,9 @@ impl App {
                     .then(|| self.mention_items.clone())
                     .unwrap_or_default(),
                 mention_selected_index: self.mention_selected_index,
-                permission_title: self.permission_title.clone(),
-                permission_items: self
-                    .permission_items
-                    .iter()
-                    .map(|item| crate::render::PopupItem {
-                        label: item.name.clone(),
-                        description: None,
-                    })
-                    .collect(),
-                permission_selected_index: self.permission_selected_index,
+                permission_title: popup.0,
+                permission_items: popup.1,
+                permission_selected_index: popup.2,
                 context_left_label: "100% left".to_string(),
                 approval_mode_label: self.current_thread.approval_mode.label().to_string(),
                 thread_duration_label: format!(
@@ -620,6 +684,16 @@ impl App {
 
         if self.popup_mode == Some(PopupMode::Permission) {
             self.handle_permission_key(key);
+            return true;
+        }
+
+        if self.popup_mode == Some(PopupMode::SkillAction) {
+            self.handle_skill_action_key(key);
+            return true;
+        }
+
+        if self.popup_mode == Some(PopupMode::SkillToggle) {
+            self.handle_skill_toggle_key(key);
             return true;
         }
 
@@ -704,6 +778,117 @@ impl App {
         self.permission_items.clear();
         self.permission_selected_index = 0;
         self.popup_mode = None;
+    }
+
+    fn handle_skill_action_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up => {
+                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, -1);
+            }
+            KeyCode::Down => {
+                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, 1);
+            }
+            KeyCode::Enter => {
+                if self.permission_selected_index == 0 {
+                    self.pending_actions.push(AppCommand::ListSkills);
+                    self.close_skill_popup();
+                } else {
+                    self.popup_mode = Some(PopupMode::SkillToggle);
+                    self.skill_toggle_query.clear();
+                    self.permission_selected_index = 0;
+                    self.sync_skill_toggle_items();
+                }
+            }
+            KeyCode::Esc => self.close_skill_popup(),
+            _ => {}
+        }
+    }
+
+    fn handle_skill_toggle_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up => {
+                let len = self.filtered_skill_names().len();
+                self.permission_selected_index =
+                    cycle_index(self.permission_selected_index, len, -1);
+            }
+            KeyCode::Down => {
+                let len = self.filtered_skill_names().len();
+                self.permission_selected_index =
+                    cycle_index(self.permission_selected_index, len, 1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(name) = self
+                    .filtered_skill_names()
+                    .get(self.permission_selected_index)
+                    .cloned()
+                {
+                    let enabled = !self.enabled_skills.contains(&name);
+                    self.pending_actions
+                        .push(AppCommand::SetSkillEnabled { name, enabled });
+                }
+            }
+            KeyCode::Backspace => {
+                self.skill_toggle_query.pop();
+                self.sync_skill_toggle_items();
+            }
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.skill_toggle_query.push(ch);
+                self.permission_selected_index = 0;
+                self.sync_skill_toggle_items();
+            }
+            KeyCode::Esc => self.close_skill_popup(),
+            _ => {}
+        }
+    }
+
+    fn close_skill_popup(&mut self) {
+        self.popup_mode = None;
+        self.skill_toggle_query.clear();
+        self.permission_selected_index = 0;
+    }
+
+    fn filtered_skill_items(&self) -> Vec<crate::render::PopupItem> {
+        let query = self.skill_toggle_query.trim().to_ascii_lowercase();
+        self.skills
+            .iter()
+            .filter(|skill| {
+                query.is_empty()
+                    || skill.name.to_ascii_lowercase().contains(&query)
+                    || skill.description.to_ascii_lowercase().contains(&query)
+            })
+            .map(|skill| {
+                let marker = if self.enabled_skills.contains(&skill.name) {
+                    "[x]"
+                } else {
+                    "[ ]"
+                };
+                crate::render::PopupItem {
+                    label: format!("{marker} {}", skill.name),
+                    description: Some(skill.description.clone()),
+                }
+            })
+            .collect()
+    }
+
+    fn filtered_skill_names(&self) -> Vec<String> {
+        let query = self.skill_toggle_query.trim().to_ascii_lowercase();
+        self.skills
+            .iter()
+            .filter(|skill| {
+                query.is_empty()
+                    || skill.name.to_ascii_lowercase().contains(&query)
+                    || skill.description.to_ascii_lowercase().contains(&query)
+            })
+            .map(|skill| skill.name.clone())
+            .collect()
+    }
+
+    fn sync_skill_toggle_items(&mut self) {
+        let len = self.filtered_skill_names().len();
+        self.permission_selected_index = self.permission_selected_index.min(len.saturating_sub(1));
     }
 
     fn handle_model_picker_key(&mut self, key: KeyEvent) {
@@ -918,6 +1103,10 @@ impl App {
 
     fn build_prompt_text(&mut self, display_text: &str) -> String {
         let mut sections = Vec::new();
+        sections.push(vorker_harness_instructions().to_string());
+        if !self.skill_context.trim().is_empty() {
+            sections.push(self.skill_context.trim().to_string());
+        }
         if self.needs_replay_context && !self.rows.is_empty() {
             sections.push(format!(
                 "Previous thread transcript:\n{}",
@@ -933,10 +1122,6 @@ impl App {
             self.apply_system_notice(error.clone());
         }
         sections.extend(context.sections);
-
-        if sections.is_empty() {
-            return display_text.to_string();
-        }
 
         format!(
             "{}\n\nUser request:\n{}",
@@ -1061,6 +1246,63 @@ impl App {
             SlashCommandId::History => {
                 self.pending_actions.push(AppCommand::ListPromptHistory);
             }
+            SlashCommandId::Skills => {
+                let mut tokens = buffer.split_whitespace().skip(1);
+                match tokens.next() {
+                    None => {
+                        self.popup_mode = Some(PopupMode::SkillAction);
+                        self.permission_selected_index = 0;
+                        self.skill_toggle_query.clear();
+                    }
+                    Some("list") => self.pending_actions.push(AppCommand::ListSkills),
+                    Some("enable") => {
+                        let name = tokens.collect::<Vec<_>>().join(" ");
+                        if name.is_empty() {
+                            self.apply_system_notice("Usage: /skills enable <skill-name>");
+                        } else {
+                            self.pending_actions.push(AppCommand::SetSkillEnabled {
+                                name,
+                                enabled: true,
+                            });
+                        }
+                    }
+                    Some("disable") => {
+                        let name = tokens.collect::<Vec<_>>().join(" ");
+                        if name.is_empty() {
+                            self.apply_system_notice("Usage: /skills disable <skill-name>");
+                        } else {
+                            self.pending_actions.push(AppCommand::SetSkillEnabled {
+                                name,
+                                enabled: false,
+                            });
+                        }
+                    }
+                    Some("toggle") => {
+                        let name = tokens.collect::<Vec<_>>().join(" ");
+                        if name.is_empty() {
+                            self.apply_system_notice("Usage: /skills toggle <skill-name>");
+                        } else {
+                            let resolved = resolve_skill_name(&self.skills, &name).unwrap_or(name);
+                            let enabled = !self.enabled_skills.contains(&resolved);
+                            self.pending_actions.push(AppCommand::SetSkillEnabled {
+                                name: resolved,
+                                enabled,
+                            });
+                        }
+                    }
+                    Some("search") => {
+                        self.skill_toggle_query = tokens.collect::<Vec<_>>().join(" ");
+                        self.popup_mode = Some(PopupMode::SkillToggle);
+                        self.permission_selected_index = 0;
+                        self.sync_skill_toggle_items();
+                    }
+                    Some(_) => {
+                        self.apply_system_notice(
+                            "Usage: /skills [list|enable <name>|disable <name>|toggle <name>|search <query>]",
+                        );
+                    }
+                }
+            }
             SlashCommandId::Coach => {
                 self.pending_actions.push(AppCommand::RunReview {
                     focus: String::new(),
@@ -1101,7 +1343,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /ralph /export /status /history /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /ralph /export /status /history /skills /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -1325,6 +1567,10 @@ fn parse_exact_slash_command(buffer: &str) -> Option<crate::slash::SlashCommand>
         .iter()
         .copied()
         .find(|entry| entry.matches_exact(command))
+}
+
+fn vorker_harness_instructions() -> &'static str {
+    "Vorker harness instructions:\n- You are Vorker, a concise local CLI coding agent, not GitHub Copilot.\n- Do not introduce yourself as Copilot and do not use emojis or generic onboarding.\n- Be direct, pragmatic, and focus on the user's repository and requested change.\n- Use enabled skills when relevant; follow their instructions unless they conflict with higher-priority user, developer, or system instructions."
 }
 
 fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, String) {
@@ -1739,6 +1985,7 @@ pub fn run_app(
     let mut thread_store = workspace.open_thread_store()?;
     let mut side_agent_store = workspace.open_side_agent_store()?;
     let mut prompt_history_store = workspace.open_prompt_history_store()?;
+    let mut skill_store = workspace.open_skill_store()?;
     let mut initial_thread = thread_store
         .latest_for_cwd(&cwd)
         .unwrap_or_else(|| thread_store.create_thread(&cwd));
@@ -1748,6 +1995,7 @@ pub fn run_app(
     }
     let mut app = App::from_thread(load_bootstrap_snapshot(), initial_thread);
     app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
+    refresh_skill_state(&mut app, &cwd, &skill_store)?;
     if let Some(report_path) = std::env::var_os("VORKER_START_REPORT") {
         let report_path = PathBuf::from(report_path);
         app.apply_system_notice(format!("Adversarial report: {}", report_path.display()));
@@ -1791,6 +2039,8 @@ pub fn run_app(
         thread_store = workspace.open_thread_store()?;
         side_agent_store = workspace.open_side_agent_store()?;
         prompt_history_store = workspace.open_prompt_history_store()?;
+        skill_store = workspace.open_skill_store()?;
+        refresh_skill_state(&mut app, &cwd, &skill_store)?;
         app.apply_system_notice(format!(
             "Project workspace ready: {}",
             format_path_for_humans(&workspace.project_dir())
@@ -1890,8 +2140,10 @@ pub fn run_app(
                         thread_store = workspace.open_thread_store()?;
                         side_agent_store = workspace.open_side_agent_store()?;
                         prompt_history_store = workspace.open_prompt_history_store()?;
+                        skill_store = workspace.open_skill_store()?;
                         app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
                         app.set_workspace_files(load_workspace_files(&cwd));
+                        refresh_skill_state(&mut app, &cwd, &skill_store)?;
                         bridge = runtime.block_on(AcpBridge::start(
                             cwd.clone(),
                             None,
@@ -1921,6 +2173,7 @@ pub fn run_app(
                     thread_store = workspace.open_thread_store()?;
                     side_agent_store = workspace.open_side_agent_store()?;
                     prompt_history_store = workspace.open_prompt_history_store()?;
+                    skill_store = workspace.open_skill_store()?;
                     let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
                         let mut created = thread_store.create_thread(&cwd);
                         created.model = default_model.clone();
@@ -1930,6 +2183,7 @@ pub fn run_app(
                     app.load_thread(thread);
                     app.set_workspace_files(load_workspace_files(&cwd));
                     app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
+                    refresh_skill_state(&mut app, &cwd, &skill_store)?;
                     app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
                     let cwd_label = cwd.display().to_string();
                     let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?
@@ -2163,6 +2417,22 @@ pub fn run_app(
                         }
                     }
                 }
+                AppCommand::ListSkills => {
+                    apply_skill_listing(&mut app);
+                }
+                AppCommand::SetSkillEnabled { name, enabled } => {
+                    let Some(skill_name) = resolve_skill_name(&app.skills, &name) else {
+                        app.apply_system_notice(format!("Unknown skill: {name}"));
+                        continue;
+                    };
+                    skill_store.set_enabled(&skill_name, enabled)?;
+                    refresh_skill_state(&mut app, &cwd, &skill_store)?;
+                    app.apply_system_notice(format!(
+                        "{} skill {}.",
+                        if enabled { "Enabled" } else { "Disabled" },
+                        skill_name
+                    ));
+                }
                 AppCommand::SetModel { model } => {
                     runtime.block_on(bridge.set_model(model))?;
                 }
@@ -2223,6 +2493,86 @@ fn prompt_history_for_app(store: &PromptHistoryStore) -> Vec<String> {
         .collect::<Vec<_>>();
     prompts.reverse();
     prompts
+}
+
+fn refresh_skill_state(app: &mut App, cwd: &Path, store: &crate::SkillStore) -> io::Result<()> {
+    let skills = discover_skills(&skill_roots_for(cwd))?;
+    let enabled = store.enabled();
+    let context = build_skill_context(&skills, &enabled)?;
+    app.set_skills(skills, enabled);
+    app.set_skill_context(context);
+    Ok(())
+}
+
+fn apply_skill_listing(app: &mut App) {
+    if app.skills.is_empty() {
+        app.apply_system_notice("No skills found.");
+        return;
+    }
+
+    app.apply_system_notice("Skills:");
+    for skill in app.skills.clone() {
+        let marker = if app.enabled_skills.contains(&skill.name) {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        app.apply_system_notice(format!(
+            "{marker} {}  [Skill] {}",
+            skill.name, skill.description
+        ));
+    }
+    app.apply_system_notice(
+        "Use /skills enable <name>, /skills disable <name>, or /skills toggle <name>.",
+    );
+}
+
+fn resolve_skill_name(skills: &[SkillInfo], requested: &str) -> Option<String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return None;
+    }
+
+    skills
+        .iter()
+        .find(|skill| skill.name == requested)
+        .or_else(|| {
+            let lower = requested.to_ascii_lowercase();
+            skills
+                .iter()
+                .find(|skill| skill.name.to_ascii_lowercase() == lower)
+        })
+        .or_else(|| {
+            let lower = requested.to_ascii_lowercase();
+            let mut matches = skills
+                .iter()
+                .filter(|skill| skill.name.to_ascii_lowercase().contains(&lower));
+            let first = matches.next()?;
+            matches.next().is_none().then_some(first)
+        })
+        .map(|skill| skill.name.clone())
+}
+
+fn skill_roots_for(cwd: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![
+        cwd.join(".codex").join("skills"),
+        cwd.join(".agents").join("skills"),
+        cwd.join(".github").join("skills"),
+    ];
+
+    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
+        roots.push(PathBuf::from(codex_home).join("skills"));
+    } else if let Some(home) = home_dir() {
+        roots.push(home.join(".codex").join("skills"));
+        roots.push(home.join(".codex").join("superpowers").join("skills"));
+        roots.push(home.join(".agents").join("skills"));
+    }
+
+    roots
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
 }
 
 fn resolve_directory_change(current: &Path, requested: &str) -> io::Result<PathBuf> {

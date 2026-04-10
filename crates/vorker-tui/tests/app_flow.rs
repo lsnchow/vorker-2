@@ -1,8 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use vorker_tui::{App, AppCommand, Pane};
+use vorker_tui::{App, AppCommand, Pane, SkillInfo};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn wrapped_prompt(text: &str) -> String {
+    format!(
+        "Vorker harness instructions:\n- You are Vorker, a concise local CLI coding agent, not GitHub Copilot.\n- Do not introduce yourself as Copilot and do not use emojis or generic onboarding.\n- Be direct, pragmatic, and focus on the user's repository and requested change.\n- Use enabled skills when relevant; follow their instructions unless they conflict with higher-priority user, developer, or system instructions.\n\nUser request:\n{text}"
+    )
 }
 
 #[test]
@@ -172,7 +178,7 @@ fn slash_queue_queues_follow_up_prompt() {
         app.take_actions(),
         vec![AppCommand::QueuePrompt {
             display_text: "add tests next".to_string(),
-            prompt_text: "add tests next".to_string(),
+            prompt_text: wrapped_prompt("add tests next"),
         }]
     );
 }
@@ -319,6 +325,91 @@ fn slash_history_queues_prompt_history_listing() {
 }
 
 #[test]
+fn slash_skills_opens_a_codex_style_action_menu() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "/skills".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(output.contains("Skills - choose an action"), "{output}");
+    assert!(output.contains("1. List skills"), "{output}");
+    assert!(output.contains("2. Enable/Disable Skills"), "{output}");
+
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(output.contains("Enable/Disable Skills"), "{output}");
+    assert!(output.contains("Type to search skills"), "{output}");
+}
+
+#[test]
+fn slash_skills_enable_queues_skill_toggle() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "/skills enable code-review".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SetSkillEnabled {
+            name: "code-review".to_string(),
+            enabled: true,
+        }]
+    );
+}
+
+#[test]
+fn slash_skills_toggle_resolves_unique_partial_names() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.set_skills(
+        vec![SkillInfo {
+            name: "code-review".to_string(),
+            description: "Review code carefully".to_string(),
+            path: std::path::PathBuf::from("SKILL.md"),
+        }],
+        ["code-review".to_string()].into_iter().collect(),
+    );
+
+    for ch in "/skills toggle code".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SetSkillEnabled {
+            name: "code-review".to_string(),
+            enabled: false,
+        }]
+    );
+}
+
+#[test]
+fn prompts_are_wrapped_with_vorker_personality_and_enabled_skills() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.set_skill_context("Enabled Vorker skills:\n- code-review: Review code carefully");
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SubmitPrompt {
+            display_text: "hello".to_string(),
+            prompt_text: "Vorker harness instructions:\n- You are Vorker, a concise local CLI coding agent, not GitHub Copilot.\n- Do not introduce yourself as Copilot and do not use emojis or generic onboarding.\n- Be direct, pragmatic, and focus on the user's repository and requested change.\n- Use enabled skills when relevant; follow their instructions unless they conflict with higher-priority user, developer, or system instructions.\n\nEnabled Vorker skills:\n- code-review: Review code carefully\n\nUser request:\nhello".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn slash_ralph_queues_a_ralph_run_with_flags() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/ralph --no-deslop --xhigh --model gpt-5.4 ship everything".chars() {
@@ -406,7 +497,7 @@ fn typing_a_prompt_queues_a_turn_and_shows_working_state() {
         app.take_actions(),
         vec![AppCommand::SubmitPrompt {
             display_text: "hello".to_string(),
-            prompt_text: "hello".to_string(),
+            prompt_text: wrapped_prompt("hello"),
         }]
     );
 

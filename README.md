@@ -71,6 +71,10 @@ Inside `vorker`, type `/` to open the command list. Current high-value commands:
 /list                  list saved threads
 /list <thread-id>      switch to a saved thread
 /history               show recent prompts
+/skills                open the skills action menu
+/skills list           list discovered skills and enabled state
+/skills enable <name>  enable a skill for this project
+/skills disable <name> disable a skill for this project
 /cd <path>             switch project directory
 ```
 
@@ -91,6 +95,23 @@ Use `@` in the composer to search workspace files:
 ```
 
 Selected mentions are resolved into attached file context before the prompt is sent. Binary files are rejected inline instead of silently expanded.
+
+## Skills
+
+Vorker discovers local and installed Codex-style `SKILL.md` files from:
+
+```text
+<project>/.codex/skills/
+<project>/.agents/skills/
+<project>/.github/skills/
+~/.codex/skills/
+~/.codex/superpowers/skills/
+~/.agents/skills/
+```
+
+Run `/skills` to open a Codex-style action menu. Choose `Enable/Disable Skills` to search the discovered skills and toggle them with `Enter` or `Space`, or use `/skills enable <name>` and `/skills disable <name>` directly.
+
+Enabled skills are stored per project and are prepended to the Copilot ACP prompt alongside the Vorker personality harness, so Copilot is steered to answer as Vorker instead of introducing itself as GitHub Copilot.
 
 ## RALPH
 
@@ -206,6 +227,7 @@ Vorker asks for confirmation the first time it runs in a directory. Project stat
 ~/.vorker/projects/<project-key>/meta.json
 ~/.vorker/projects/<project-key>/threads.json
 ~/.vorker/projects/<project-key>/side-agents.json
+~/.vorker/projects/<project-key>/skills.json
 ~/.vorker/projects/<project-key>/reports/
 ~/.vorker/projects/<project-key>/exports/
 ```
