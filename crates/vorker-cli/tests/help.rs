@@ -16,7 +16,8 @@ fn cli_help_lists_tui_and_serve_commands() {
             .and(contains("--provider"))
             .and(contains("--copilot-bin"))
             .and(contains("--codex-bin"))
-            .and(contains("--no-alt-screen")),
+            .and(contains("--no-alt-screen"))
+            .and(contains("--alt-screen")),
     );
 }
 

@@ -45,6 +45,8 @@ struct SharedOptions {
     debug: bool,
     #[arg(long = "no-alt-screen", default_value_t = false)]
     no_alt_screen: bool,
+    #[arg(long = "alt-screen", default_value_t = false)]
+    alt_screen: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -146,7 +148,7 @@ fn main() {
             if tui.once {
                 println!("{}", render_once(120, Some(model.clone())));
             } else if let Err(error) = run_app(
-                cli.shared.no_alt_screen,
+                cli.shared.inline_terminal(),
                 cli.shared.auto_approve,
                 Some(model),
             ) {
@@ -203,7 +205,7 @@ fn main() {
         None => {
             let model = default_primary_model(&cli.shared);
             if let Err(error) = run_app(
-                cli.shared.no_alt_screen,
+                cli.shared.inline_terminal(),
                 cli.shared.auto_approve,
                 Some(model),
             ) {
@@ -211,6 +213,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+}
+
+impl SharedOptions {
+    fn inline_terminal(&self) -> bool {
+        self.no_alt_screen || !self.alt_screen
     }
 }
 
