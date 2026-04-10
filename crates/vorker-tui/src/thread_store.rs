@@ -103,7 +103,12 @@ impl ThreadStore {
     #[must_use]
     pub fn create_thread(&self, cwd: impl AsRef<Path>) -> StoredThread {
         let cwd = cwd.as_ref().display().to_string();
-        let count = self.threads.iter().filter(|thread| thread.cwd == cwd).count() + 1;
+        let count = self
+            .threads
+            .iter()
+            .filter(|thread| thread.cwd == cwd)
+            .count()
+            + 1;
         let now = now_epoch_seconds();
         StoredThread {
             id: generate_thread_id(),
@@ -130,7 +135,10 @@ impl ThreadStore {
 
     #[must_use]
     pub fn thread(&self, thread_id: &str) -> Option<StoredThread> {
-        self.threads.iter().find(|entry| entry.id == thread_id).cloned()
+        self.threads
+            .iter()
+            .find(|entry| entry.id == thread_id)
+            .cloned()
     }
 
     #[must_use]
@@ -148,7 +156,9 @@ impl ThreadStore {
     #[must_use]
     pub fn latest_for_cwd(&self, cwd: impl AsRef<Path>) -> Option<StoredThread> {
         let cwd = cwd.as_ref().display().to_string();
-        self.list_threads().into_iter().find(|thread| thread.cwd == cwd)
+        self.list_threads()
+            .into_iter()
+            .find(|thread| thread.cwd == cwd)
     }
 
     fn persist(&self) -> io::Result<()> {

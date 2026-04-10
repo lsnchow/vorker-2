@@ -6,14 +6,12 @@ fn render_boot_frame_shows_the_vorker_banner_and_loading_step() {
         96,
         5,
         Some("copilot-session"),
-        &[
-            BootStep::new(
-                "copilot-session",
-                "copilot",
-                "loading",
-                "loading model inventory",
-            ),
-        ],
+        &[BootStep::new(
+            "copilot-session",
+            "copilot",
+            "loading",
+            "loading model inventory",
+        )],
         false,
     );
 
@@ -25,10 +23,7 @@ fn render_boot_frame_shows_the_vorker_banner_and_loading_step() {
         output.contains("╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"),
         "missing last banner line:\n{output}"
     );
-    assert!(
-        output.contains("copilot"),
-        "missing step label:\n{output}"
-    );
+    assert!(output.contains("copilot"), "missing step label:\n{output}");
     assert!(
         output.contains("loading model inventory"),
         "missing step detail:\n{output}"
@@ -41,14 +36,24 @@ fn render_boot_frame_reveals_banner_lines_progressively() {
         96,
         0,
         None,
-        &[BootStep::new("copilot-session", "copilot", "loading", "loading model inventory")],
+        &[BootStep::new(
+            "copilot-session",
+            "copilot",
+            "loading",
+            "loading model inventory",
+        )],
         false,
     );
     let late = render_boot_frame(
         96,
         5,
         None,
-        &[BootStep::new("copilot-session", "copilot", "loading", "loading model inventory")],
+        &[BootStep::new(
+            "copilot-session",
+            "copilot",
+            "loading",
+            "loading model inventory",
+        )],
         false,
     );
 

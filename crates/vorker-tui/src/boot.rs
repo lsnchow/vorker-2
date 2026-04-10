@@ -64,11 +64,7 @@ pub fn render_boot_frame(
         })
         .collect::<Vec<_>>();
     lines.push(emphasize(
-        &colorize(
-            "VORKER SHELL // Copilot ACP startup",
-            "green",
-            color,
-        ),
+        &colorize("VORKER SHELL // Copilot ACP startup", "green", color),
         color,
     ));
     lines.push(colorize(

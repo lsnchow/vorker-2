@@ -39,14 +39,15 @@ impl ProjectWorkspace {
         let meta_path = project_dir.join("meta.json");
         let meta = if meta_path.exists() {
             let raw = fs::read_to_string(&meta_path)?;
-            serde_json::from_str::<ProjectWorkspaceMeta>(&raw)
-                .unwrap_or_else(|_| ProjectWorkspaceMeta {
+            serde_json::from_str::<ProjectWorkspaceMeta>(&raw).unwrap_or_else(|_| {
+                ProjectWorkspaceMeta {
                     cwd: cwd_label.clone(),
                     project_key: project_key.clone(),
                     confirmed: false,
                     created_at_epoch_seconds: now_epoch_seconds(),
                     last_opened_at_epoch_seconds: now_epoch_seconds(),
-                })
+                }
+            })
         } else {
             ProjectWorkspaceMeta {
                 cwd: cwd_label.clone(),

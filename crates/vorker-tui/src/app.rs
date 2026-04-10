@@ -50,8 +50,12 @@ struct SideAgentJob {
 pub enum AppCommand {
     NewThread,
     ListThreads,
-    SwitchThread { thread_id: String },
-    ChangeDirectory { path: String },
+    SwitchThread {
+        thread_id: String,
+    },
+    ChangeDirectory {
+        path: String,
+    },
     RunReview {
         focus: String,
         coach: bool,
@@ -61,22 +65,37 @@ pub enum AppCommand {
     },
     ExitShell,
     Stop,
-    SteerPrompt { prompt_text: String },
+    SteerPrompt {
+        prompt_text: String,
+    },
     QueuePrompt {
         display_text: String,
         prompt_text: String,
     },
-    SpawnAgent { prompt_text: String },
+    SpawnAgent {
+        prompt_text: String,
+    },
     ListAgents,
-    ShowAgentResult { id: String },
-    SetTheme { theme: String },
-    SetModel { model: String },
+    StopAgent {
+        id: String,
+    },
+    ShowAgentResult {
+        id: String,
+    },
+    SetTheme {
+        theme: String,
+    },
+    SetModel {
+        model: String,
+    },
     SubmitPrompt {
         display_text: String,
         prompt_text: String,
     },
     CancelPrompt,
-    ResolvePermission { option_id: Option<String> },
+    ResolvePermission {
+        option_id: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -224,13 +243,11 @@ impl App {
 
     #[must_use]
     pub fn thread_duration_seconds(&self) -> u64 {
-        self.current_thread
-            .total_active_seconds
-            .saturating_add(
-                self.working_started_at
-                    .map(|started_at| started_at.elapsed().as_secs())
-                    .unwrap_or(0),
-            )
+        self.current_thread.total_active_seconds.saturating_add(
+            self.working_started_at
+                .map(|started_at| started_at.elapsed().as_secs())
+                .unwrap_or(0),
+        )
     }
 
     #[must_use]
@@ -308,7 +325,13 @@ impl App {
             .navigation
             .selected_model_id
             .as_deref()
-            .is_none_or(|selected| !self.navigation.model_choices.iter().any(|item| item == selected))
+            .is_none_or(|selected| {
+                !self
+                    .navigation
+                    .model_choices
+                    .iter()
+                    .any(|item| item == selected)
+            })
             && let Some(first) = self.navigation.model_choices.first()
         {
             self.navigation.selected_model_id = Some(first.clone());
@@ -325,7 +348,8 @@ impl App {
     }
 
     pub fn queue_prompt(&mut self, display_text: String, prompt_text: String) {
-        self.prompt_queue.push_back((display_text.clone(), prompt_text));
+        self.prompt_queue
+            .push_back((display_text.clone(), prompt_text));
         self.apply_system_notice(format!("Queued prompt: {display_text}"));
     }
 
@@ -411,7 +435,12 @@ impl App {
 
     pub fn apply_model_changed(&mut self, model: impl Into<String>) {
         let model = model.into();
-        if !self.navigation.model_choices.iter().any(|item| item == &model) {
+        if !self
+            .navigation
+            .model_choices
+            .iter()
+            .any(|item| item == &model)
+        {
             self.navigation.model_choices.push(model.clone());
         }
         self.navigation.selected_model_id = Some(model.clone());
@@ -430,7 +459,12 @@ impl App {
     pub fn apply_tool_update(&mut self, detail: impl Into<String>) {
         let detail = detail.into();
         self.dirty = true;
-        if let Some(last) = self.rows.iter_mut().rev().find(|row| row.kind == RowKind::Tool) {
+        if let Some(last) = self
+            .rows
+            .iter_mut()
+            .rev()
+            .find(|row| row.kind == RowKind::Tool)
+        {
             last.detail = Some(detail);
             return;
         }
@@ -462,6 +496,20 @@ impl App {
                 prompt_text,
             });
         }
+    }
+
+    pub fn stop_working_timer(&mut self) {
+        if let Some(started_at) = self.working_started_at.take() {
+            self.current_thread.total_active_seconds = self
+                .current_thread
+                .total_active_seconds
+                .saturating_add(started_at.elapsed().as_secs());
+            self.dirty = true;
+        }
+    }
+
+    pub fn queued_prompt_count(&self) -> usize {
+        self.prompt_queue.len()
     }
 
     pub fn open_permission_prompt(
@@ -561,10 +609,8 @@ impl App {
             KeyCode::Enter => self.submit_current_input(),
             KeyCode::Backspace => {
                 let _ = self.navigation.command_buffer.pop();
-                self.mention_bindings = prune_mention_bindings(
-                    &self.navigation.command_buffer,
-                    &self.mention_bindings,
-                );
+                self.mention_bindings =
+                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
                 self.sync_inline_popup();
             }
             KeyCode::Char(ch)
@@ -588,12 +634,18 @@ impl App {
     fn handle_permission_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.permission_selected_index =
-                    cycle_index(self.permission_selected_index, self.permission_items.len(), -1);
+                self.permission_selected_index = cycle_index(
+                    self.permission_selected_index,
+                    self.permission_items.len(),
+                    -1,
+                );
             }
             KeyCode::Down => {
-                self.permission_selected_index =
-                    cycle_index(self.permission_selected_index, self.permission_items.len(), 1);
+                self.permission_selected_index = cycle_index(
+                    self.permission_selected_index,
+                    self.permission_items.len(),
+                    1,
+                );
             }
             KeyCode::Enter => {
                 let option_id = self
@@ -635,7 +687,8 @@ impl App {
                     })
                     .unwrap_or(0);
                 let index = cycle_index(current, self.navigation.model_choices.len(), -1);
-                self.navigation.selected_model_id = self.navigation.model_choices.get(index).cloned();
+                self.navigation.selected_model_id =
+                    self.navigation.model_choices.get(index).cloned();
             }
             KeyCode::Down => {
                 let current = self
@@ -650,7 +703,8 @@ impl App {
                     })
                     .unwrap_or(0);
                 let index = cycle_index(current, self.navigation.model_choices.len(), 1);
-                self.navigation.selected_model_id = self.navigation.model_choices.get(index).cloned();
+                self.navigation.selected_model_id =
+                    self.navigation.model_choices.get(index).cloned();
             }
             KeyCode::Enter => {
                 if let Some(model) = self.navigation.selected_model_id.clone() {
@@ -676,10 +730,7 @@ impl App {
                     cycle_index(self.mention_selected_index, self.mention_items.len(), 1);
             }
             KeyCode::Enter => {
-                if let Some(selected) = self
-                    .mention_items
-                    .get(self.mention_selected_index)
-                    .cloned()
+                if let Some(selected) = self.mention_items.get(self.mention_selected_index).cloned()
                     && let Some((text, binding)) =
                         insert_selected_mention(&self.navigation.command_buffer, &selected)
                 {
@@ -751,6 +802,11 @@ impl App {
     fn submit_current_input(&mut self) {
         if self.working_started_at.is_some() {
             let display_text = self.navigation.command_buffer.trim().to_string();
+            if is_slash_mode(&display_text) {
+                self.execute_slash_command(&display_text);
+                return;
+            }
+
             if !display_text.is_empty() {
                 let prompt_text = self.build_prompt_text(&display_text);
                 self.pending_actions.push(AppCommand::QueuePrompt {
@@ -884,18 +940,28 @@ impl App {
                 if prompt_text.is_empty() {
                     self.apply_system_notice("Usage: /agent <task>");
                 } else {
-                    self.pending_actions.push(AppCommand::SpawnAgent { prompt_text });
+                    self.pending_actions
+                        .push(AppCommand::SpawnAgent { prompt_text });
                 }
             }
             SlashCommandId::Agents => {
                 self.pending_actions.push(AppCommand::ListAgents);
+            }
+            SlashCommandId::AgentStop => {
+                let id = command_tail(buffer);
+                if id.is_empty() {
+                    self.apply_system_notice("Usage: /agent-stop <id>");
+                } else {
+                    self.pending_actions.push(AppCommand::StopAgent { id });
+                }
             }
             SlashCommandId::AgentResult => {
                 let id = command_tail(buffer);
                 if id.is_empty() {
                     self.apply_system_notice("Usage: /agent-result <id>");
                 } else {
-                    self.pending_actions.push(AppCommand::ShowAgentResult { id });
+                    self.pending_actions
+                        .push(AppCommand::ShowAgentResult { id });
                 }
             }
             SlashCommandId::Theme => {
@@ -948,7 +1014,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /stop /steer /queue /agent /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -1149,7 +1215,8 @@ fn parse_review_markdown(markdown: &str) -> Vec<TranscriptRow> {
         }
     }
 
-    if in_code_block && !code_lines.is_empty()
+    if in_code_block
+        && !code_lines.is_empty()
         && let Some(row) = current.as_mut()
     {
         row.detail = Some(code_lines.join("\n"));
@@ -1375,11 +1442,7 @@ fn poll_side_agent_jobs(app: &mut App, jobs: &mut [SideAgentJob]) -> io::Result<
     for job in jobs.iter_mut().filter(|job| !job.completed) {
         if let Some(status) = job.child.try_wait()? {
             job.completed = true;
-            app.apply_system_notice(format!(
-                "Side agent {} finished with {}.",
-                job.id,
-                status
-            ));
+            app.apply_system_notice(format!("Side agent {} finished with {}.", job.id, status));
         }
     }
     Ok(())
@@ -1420,7 +1483,9 @@ fn open_review_window(
     }
 
     #[allow(unreachable_code)]
-    Err(io::Error::other("review popout is currently supported on macOS only"))
+    Err(io::Error::other(
+        "review popout is currently supported on macOS only",
+    ))
 }
 
 fn escape_single_quotes(input: &str) -> String {
@@ -1495,7 +1560,8 @@ pub fn run_app(
         .enable_all()
         .build()
         .map_err(io::Error::other)?;
-    let mut bridge = runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+    let mut bridge =
+        runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
     let mut pending_permission_reply = None;
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -1504,7 +1570,12 @@ pub fn run_app(
         execute!(stdout, EnterAlternateScreen, Hide)?;
     }
 
-    run_boot_sequence(&mut stdout, &mut app, &mut bridge, &mut pending_permission_reply)?;
+    run_boot_sequence(
+        &mut stdout,
+        &mut app,
+        &mut bridge,
+        &mut pending_permission_reply,
+    )?;
     if !workspace.is_confirmed() {
         let confirmed = confirm_project_workspace(&mut stdout, &workspace)?;
         if !confirmed {
@@ -1539,11 +1610,7 @@ pub fn run_app(
     }
 
     loop {
-        drain_bridge_events(
-            &mut app,
-            &mut bridge,
-            &mut pending_permission_reply,
-        );
+        drain_bridge_events(&mut app, &mut bridge, &mut pending_permission_reply);
         app.tick();
         poll_review_job(&mut app, &mut review_job)?;
         poll_side_agent_jobs(&mut app, &mut side_agent_jobs)?;
@@ -1581,7 +1648,11 @@ pub fn run_app(
                     app.load_thread(thread);
                     app.set_workspace_files(load_workspace_files(&cwd));
                     thread_store = workspace.open_thread_store()?;
-                    bridge = runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+                    bridge = runtime.block_on(AcpBridge::start(
+                        cwd.clone(),
+                        None,
+                        default_model.clone(),
+                    ))?;
                 }
                 AppCommand::ListThreads => {
                     let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?;
@@ -1614,15 +1685,18 @@ pub fn run_app(
                         app.load_thread(thread);
                         thread_store = workspace.open_thread_store()?;
                         app.set_workspace_files(load_workspace_files(&cwd));
-                        bridge = runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+                        bridge = runtime.block_on(AcpBridge::start(
+                            cwd.clone(),
+                            None,
+                            default_model.clone(),
+                        ))?;
                     } else {
                         app.apply_system_notice(format!("Unknown thread id: {thread_id}"));
                     }
                 }
                 AppCommand::ChangeDirectory { path } => {
                     let next_cwd = resolve_directory_change(&cwd, &path)?;
-                    let next_workspace =
-                        ProjectWorkspace::at_root(global_root.clone(), &next_cwd)?;
+                    let next_workspace = ProjectWorkspace::at_root(global_root.clone(), &next_cwd)?;
                     if !next_workspace.is_confirmed()
                         && !confirm_project_workspace(&mut stdout, &next_workspace)?
                     {
@@ -1638,27 +1712,26 @@ pub fn run_app(
                     }
                     runtime.block_on(bridge.shutdown())?;
                     thread_store = workspace.open_thread_store()?;
-                    let thread = thread_store
-                        .latest_for_cwd(&cwd)
-                        .unwrap_or_else(|| {
-                            let mut created = thread_store.create_thread(&cwd);
-                            created.model = default_model.clone();
-                            created.approval_mode = app.approval_mode();
-                            created
-                        });
+                    let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
+                        let mut created = thread_store.create_thread(&cwd);
+                        created.model = default_model.clone();
+                        created.approval_mode = app.approval_mode();
+                        created
+                    });
                     app.load_thread(thread);
                     app.set_workspace_files(load_workspace_files(&cwd));
-                    app.apply_system_notice(format!(
-                        "Project directory set to {}.",
-                        cwd.display()
-                    ));
+                    app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
                     let cwd_label = cwd.display().to_string();
                     let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?
                         .into_iter()
                         .filter(|thread| thread.cwd == cwd_label)
                         .collect::<Vec<_>>();
                     app.list_threads(&threads);
-                    bridge = runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+                    bridge = runtime.block_on(AcpBridge::start(
+                        cwd.clone(),
+                        None,
+                        default_model.clone(),
+                    ))?;
                 }
                 AppCommand::RunReview {
                     focus,
@@ -1669,7 +1742,14 @@ pub fn run_app(
                 } => {
                     if popout {
                         let review_model = current_review_model();
-                        open_review_window(&cwd, &review_model, scope.clone(), coach, apply, &focus)?;
+                        open_review_window(
+                            &cwd,
+                            &review_model,
+                            scope.clone(),
+                            coach,
+                            apply,
+                            &focus,
+                        )?;
                         app.apply_system_notice(
                             "Adversarial review started in the review window. Use Esc there to exit review mode."
                                 .to_string(),
@@ -1692,7 +1772,10 @@ pub fn run_app(
                                 &focus,
                             )?);
                             app.working_started_at = Some(Instant::now());
-                            app.apply_tool_notice("Review job".to_string(), Some("queued".to_string()));
+                            app.apply_tool_notice(
+                                "Review job".to_string(),
+                                Some("queued".to_string()),
+                            );
                         }
                     }
                 }
@@ -1701,9 +1784,18 @@ pub fn run_app(
                     if let Some(job) = review_job.as_mut() {
                         let _ = job.child.kill();
                     }
+                    let mut stopped_agents = 0usize;
+                    for job in side_agent_jobs.iter_mut().filter(|job| !job.completed) {
+                        let _ = job.child.kill();
+                        job.completed = true;
+                        stopped_agents += 1;
+                    }
                     review_job = None;
-                    app.finish_prompt();
-                    app.apply_system_notice("Stopped active work.");
+                    app.stop_working_timer();
+                    let queued = app.queued_prompt_count();
+                    app.apply_system_notice(format!(
+                        "Stopped active work. {stopped_agents} side agent(s) stopped; {queued} queued prompt(s) remain."
+                    ));
                 }
                 AppCommand::SteerPrompt { prompt_text } => {
                     runtime.block_on(bridge.prompt(prompt_text))?;
@@ -1724,7 +1816,9 @@ pub fn run_app(
                             ));
                             side_agent_jobs.push(job);
                         }
-                        Err(error) => app.apply_system_notice(format!("Failed to spawn agent: {error}")),
+                        Err(error) => {
+                            app.apply_system_notice(format!("Failed to spawn agent: {error}"))
+                        }
                     }
                 }
                 AppCommand::ListAgents => {
@@ -1742,6 +1836,21 @@ pub fn run_app(
                                 job.prompt
                             ));
                         }
+                    }
+                }
+                AppCommand::StopAgent { id } => {
+                    if let Some(job) = side_agent_jobs.iter_mut().find(|job| job.id == id) {
+                        if job.completed {
+                            app.apply_system_notice(format!(
+                                "Side agent {id} is already finished."
+                            ));
+                        } else {
+                            let _ = job.child.kill();
+                            job.completed = true;
+                            app.apply_system_notice(format!("Stopped side agent {id}."));
+                        }
+                    } else {
+                        app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }
                 }
                 AppCommand::ShowAgentResult { id } => {
@@ -1923,7 +2032,11 @@ fn drain_bridge_events(
                     app.apply_tool_update(detail);
                 }
             }
-            BridgeEvent::PermissionRequest { title, options, reply } => {
+            BridgeEvent::PermissionRequest {
+                title,
+                options,
+                reply,
+            } => {
                 if app.approval_mode() == ApprovalMode::Auto {
                     if let Some(option) = choose_auto_permission(&options) {
                         let _ = reply.send(Some(option.option_id.clone()));
@@ -1969,7 +2082,9 @@ fn drain_bridge_events(
     }
 }
 
-fn choose_auto_permission(options: &[crate::bridge::PermissionOption]) -> Option<crate::bridge::PermissionOption> {
+fn choose_auto_permission(
+    options: &[crate::bridge::PermissionOption],
+) -> Option<crate::bridge::PermissionOption> {
     let mut ranked = options.to_vec();
     ranked.sort_by_key(|option| match option.kind.as_str() {
         "allow_always" => 0,
@@ -2043,9 +2158,12 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
             }
 
             if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                let skip = relative
-                    .iter()
-                    .any(|segment| matches!(segment.to_string_lossy().as_ref(), ".git" | "node_modules" | "target" | ".next" | "dist"));
+                let skip = relative.iter().any(|segment| {
+                    matches!(
+                        segment.to_string_lossy().as_ref(),
+                        ".git" | "node_modules" | "target" | ".next" | "dist"
+                    )
+                });
                 if !skip {
                     stack.push(entry_path);
                 }

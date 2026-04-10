@@ -34,13 +34,9 @@ fn tui_once_renders_a_real_chat_shell() {
 fn demo_command_renders_the_hyperloop_mock_screen() {
     let mut cmd = Command::cargo_bin("vorker").expect("binary exists");
 
-    cmd.arg("demo")
-        .arg("hyperloop")
-        .assert()
-        .success()
-        .stdout(
-            contains("Hyperloop Pod Controls")
-                .and(contains("Subagents"))
-                .and(contains("Safety envelope verified")),
-        );
+    cmd.arg("demo").arg("hyperloop").assert().success().stdout(
+        contains("Hyperloop Pod Controls")
+            .and(contains("Subagents"))
+            .and(contains("Safety envelope verified")),
+    );
 }

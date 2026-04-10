@@ -53,7 +53,11 @@ pub fn filter_mention_items(query: &str, paths: &[String]) -> Vec<String> {
         .collect();
 
     scored.sort_by(|left, right| left.cmp(right));
-    scored.into_iter().map(|(_, _, path)| path).take(8).collect()
+    scored
+        .into_iter()
+        .map(|(_, _, path)| path)
+        .take(8)
+        .collect()
 }
 
 #[must_use]
@@ -88,10 +92,7 @@ pub fn prune_mention_bindings(
 }
 
 #[must_use]
-pub fn resolve_mention_context(
-    cwd: &Path,
-    bindings: &[ComposerMentionBinding],
-) -> MentionContext {
+pub fn resolve_mention_context(cwd: &Path, bindings: &[ComposerMentionBinding]) -> MentionContext {
     let mut sections = Vec::new();
     let mut errors = Vec::new();
 
@@ -100,16 +101,26 @@ pub fn resolve_mention_context(
         match fs::read(&path) {
             Ok(bytes) => {
                 if bytes.contains(&0) {
-                    errors.push(format!("{} looks like a binary file and was skipped.", binding.path));
+                    errors.push(format!(
+                        "{} looks like a binary file and was skipped.",
+                        binding.path
+                    ));
                     continue;
                 }
 
                 match String::from_utf8(bytes) {
                     Ok(text) => {
-                        sections.push(format!("Attached file: {}\n```text\n{}\n```", binding.path, text.trim_end()));
+                        sections.push(format!(
+                            "Attached file: {}\n```text\n{}\n```",
+                            binding.path,
+                            text.trim_end()
+                        ));
                     }
                     Err(_) => {
-                        errors.push(format!("{} could not be decoded as UTF-8 and was skipped.", binding.path));
+                        errors.push(format!(
+                            "{} could not be decoded as UTF-8 and was skipped.",
+                            binding.path
+                        ));
                     }
                 }
             }

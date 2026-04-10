@@ -34,16 +34,18 @@ Turn Vorker from a Copilot ACP wrapper into a serious local CLI agent harness:
 - rich review highlighting for severity, inline code, file refs, code quotes, and diffs
 - `--json` Codex event bridge for review rows
 - `/stop`, `/steer`, `/queue`, `/agent`, `/theme`
+- `/agent-stop`
+- slash commands still execute while a prompt is active, so `/stop` is not accidentally queued as plain text
 
 ## Next Feature Backlog
 
 ### 1. Codex Agent Jobs
 
-- Track `/agent` jobs instead of fire-and-forget spawning.
-- Store job id, prompt, cwd, model, status, started/finished times, stdout events, final output, and report path.
-- Add `/agents` to list active/recent jobs.
-- Add `/agent-result <id>` to show final output.
-- Add `/agent-stop <id>` to kill a specific job.
+- Track `/agent` jobs instead of fire-and-forget spawning. Shipped in-memory tracking; persistence remains.
+- Store job id, prompt, cwd, model, status, started/finished times, stdout events, final output, and report path. Shipped id/prompt/status/output path in-memory; stdout event capture remains.
+- Add `/agents` to list active/recent jobs. Shipped for current shell session.
+- Add `/agent-result <id>` to show final output. Shipped for current shell session.
+- Add `/agent-stop <id>` to kill a specific job. Shipped for current shell session.
 - Use Codex `exec --json` events.
 
 ### 2. Queue / Steer UX
@@ -51,7 +53,7 @@ Turn Vorker from a Copilot ACP wrapper into a serious local CLI agent harness:
 - If user presses Enter while work is active, show a small “queue or steer?” prompt instead of silently queueing forever.
 - `/steer` should be visible and should annotate the transcript.
 - `/queue` should show queue length and next item.
-- `/stop` should cancel both Copilot ACP and Vorker-managed subprocess jobs.
+- `/stop` should cancel both Copilot ACP and Vorker-managed subprocess jobs. Shipped for ACP, review jobs, and active side-agent jobs.
 
 ### 3. Theme System
 

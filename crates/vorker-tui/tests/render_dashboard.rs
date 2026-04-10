@@ -93,9 +93,18 @@ fn render_dashboard_footer_shows_dense_status_when_space_allows() {
         },
     );
 
-    assert!(output.contains("queue 0"), "missing queue status:\n{output}");
-    assert!(output.contains("idle"), "missing activity status:\n{output}");
-    assert!(output.contains("t:default"), "missing theme status:\n{output}");
+    assert!(
+        output.contains("queue 0"),
+        "missing queue status:\n{output}"
+    );
+    assert!(
+        output.contains("idle"),
+        "missing activity status:\n{output}"
+    );
+    assert!(
+        output.contains("t:default"),
+        "missing theme status:\n{output}"
+    );
 }
 
 #[test]
@@ -223,9 +232,24 @@ fn review_theme_highlights_findings_paths_and_code_quotes() {
         },
     );
 
-    assert!(output.contains("\u{1b}[1;48;5;130;97m[HIGH]\u{1b}[0m"), "missing severity badge:\n{output:?}");
-    assert!(output.contains("\u{1b}[48;5;238m") && output.contains("`pod_api.py`\u{1b}[0m"), "missing highlighted path:\n{output:?}");
-    assert!(output.contains("\u{1b}[90m  34 |\u{1b}[0m"), "missing dimmed code line number:\n{output:?}");
-    assert!(output.contains("\u{1b}[32m+ return {\"ok\": false}\u{1b}[0m"), "missing addition highlighting:\n{output:?}");
-    assert!(output.contains("\u{1b}[31m- return {\"ok\": true}\u{1b}[0m"), "missing removal highlighting:\n{output:?}");
+    assert!(
+        output.contains("\u{1b}[1;48;5;130;97m[HIGH]\u{1b}[0m"),
+        "missing severity badge:\n{output:?}"
+    );
+    assert!(
+        output.contains("\u{1b}[48;5;238m") && output.contains("`pod_api.py`\u{1b}[0m"),
+        "missing highlighted path:\n{output:?}"
+    );
+    assert!(
+        output.contains("\u{1b}[90m  34 |\u{1b}[0m"),
+        "missing dimmed code line number:\n{output:?}"
+    );
+    assert!(
+        output.contains("\u{1b}[32m+ return {\"ok\": false}\u{1b}[0m"),
+        "missing addition highlighting:\n{output:?}"
+    );
+    assert!(
+        output.contains("\u{1b}[31m- return {\"ok\": true}\u{1b}[0m"),
+        "missing removal highlighting:\n{output:?}"
+    );
 }

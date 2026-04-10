@@ -44,7 +44,7 @@ fn markdown_report_renders_findings_with_code_blocks_and_coaching() {
 }
 
 #[test]
-fn popout_command_targets_red_gpt_review_shell() {
+fn popout_command_targets_review_shell() {
     let command = build_popout_command(
         "/Users/lucas/Downloads",
         "gpt-5.3-codex",

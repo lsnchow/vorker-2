@@ -1,7 +1,9 @@
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use vorker_tui::{ProjectWorkspace, RowKind, ThreadStore, TranscriptRow, render_project_confirmation};
+use vorker_tui::{
+    ProjectWorkspace, RowKind, ThreadStore, TranscriptRow, render_project_confirmation,
+};
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
     let suffix = SystemTime::now()
@@ -29,7 +31,10 @@ fn project_workspace_maps_a_directory_to_a_scoped_store_under_vorker_home() {
         "missing threads.json path: {}",
         workspace.threads_path().display()
     );
-    assert!(!workspace.is_confirmed(), "new workspace should require confirmation");
+    assert!(
+        !workspace.is_confirmed(),
+        "new workspace should require confirmation"
+    );
 }
 
 #[test]
@@ -62,8 +67,17 @@ fn list_all_threads_reads_threads_across_multiple_project_workspaces() {
 
     let threads = ProjectWorkspace::list_all_threads_under(root.clone()).expect("aggregate list");
     assert_eq!(threads.len(), 2);
-    assert!(threads.iter().any(|thread| thread.name == "Alpha thread" && thread.cwd == repo_a.display().to_string()));
-    assert!(threads.iter().any(|thread| thread.name == "Beta thread" && thread.cwd == repo_b.display().to_string()));
+    assert!(
+        threads
+            .iter()
+            .any(|thread| thread.name == "Alpha thread"
+                && thread.cwd == repo_a.display().to_string())
+    );
+    assert!(
+        threads.iter().any(
+            |thread| thread.name == "Beta thread" && thread.cwd == repo_b.display().to_string()
+        )
+    );
 }
 
 #[test]
@@ -75,8 +89,20 @@ fn confirmation_screen_mentions_directory_and_workspace() {
         false,
     );
 
-    assert!(output.contains("Use Vorker in this directory?"), "missing confirmation title:\n{output}");
-    assert!(output.contains("/Users/lucas/Downloads"), "missing cwd:\n{output}");
-    assert!(output.contains("~/.vorker/projects/downloads-1234"), "missing workspace path:\n{output}");
-    assert!(output.contains("Enter to continue"), "missing key hint:\n{output}");
+    assert!(
+        output.contains("Use Vorker in this directory?"),
+        "missing confirmation title:\n{output}"
+    );
+    assert!(
+        output.contains("/Users/lucas/Downloads"),
+        "missing cwd:\n{output}"
+    );
+    assert!(
+        output.contains("~/.vorker/projects/downloads-1234"),
+        "missing workspace path:\n{output}"
+    );
+    assert!(
+        output.contains("Enter to continue"),
+        "missing key hint:\n{output}"
+    );
 }

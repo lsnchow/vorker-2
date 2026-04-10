@@ -24,7 +24,10 @@ fn app_can_start_with_a_configured_default_model() {
         Some("claude-opus-4.5".to_string()),
     );
 
-    assert_eq!(app.navigation.selected_model_id.as_deref(), Some("claude-opus-4.5"));
+    assert_eq!(
+        app.navigation.selected_model_id.as_deref(),
+        Some("claude-opus-4.5")
+    );
     let output = app.render(100, false);
     assert!(
         output.contains("model:     claude-opus-4.5   /model to change"),
@@ -46,10 +49,7 @@ fn session_ready_updates_the_visible_model_and_choices() {
     );
     assert_eq!(
         app.navigation.model_choices,
-        vec![
-            "claude-sonnet-4.5".to_string(),
-            "gpt-5.3-codex".to_string()
-        ]
+        vec!["claude-sonnet-4.5".to_string(), "gpt-5.3-codex".to_string()]
     );
 }
 
@@ -210,6 +210,22 @@ fn slash_agent_result_queues_result_lookup() {
 }
 
 #[test]
+fn slash_agent_stop_queues_side_agent_stop() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent-stop agent-1".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::StopAgent {
+            id: "agent-1".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn slash_theme_queues_theme_change() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/theme review".chars() {
@@ -249,7 +265,10 @@ fn review_output_is_parsed_into_structured_rows() {
     let output = app.render(120, false);
     assert!(output.contains("Adversarial Review"));
     assert!(!output.contains("[HIGH] Failure path lies"));
-    assert!(queued_before > 0, "review rows should queue for progressive reveal");
+    assert!(
+        queued_before > 0,
+        "review rows should queue for progressive reveal"
+    );
 
     app.advance_review_presentation();
     let summary_output = app.render(120, false);
@@ -313,6 +332,27 @@ fn typing_a_prompt_queues_a_turn_and_shows_working_state() {
         output.contains("Working (0s • esc to interrupt)"),
         "missing working row:\n{output}"
     );
+}
+
+#[test]
+fn slash_stop_runs_even_when_work_is_active() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    assert!(matches!(
+        app.take_actions().as_slice(),
+        [AppCommand::SubmitPrompt { .. }]
+    ));
+
+    for ch in "/stop".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::Stop]);
 }
 
 #[test]

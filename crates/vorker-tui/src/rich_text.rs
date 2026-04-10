@@ -123,11 +123,7 @@ fn style_inline_code(line: &str, color: bool) -> String {
     if in_code {
         output.push_str("`\u{1b}[0m");
     }
-    if color {
-        output
-    } else {
-        line.to_string()
-    }
+    if color { output } else { line.to_string() }
 }
 
 fn style_code_tokens(code: &str, color: bool) -> String {

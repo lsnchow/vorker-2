@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use vorker_core::{Snapshot, TranscriptEntry};
 
+use crate::rich_text::{RichContext, style_line};
 use crate::slash::filtered_commands;
 use crate::theme::{colorize, fit, hard_wrap, highlight, truncate, visible_length};
-use crate::rich_text::{style_line, RichContext};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RowKind {
@@ -199,7 +199,13 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
         } else {
             RichContext::Normal
         };
-        lines.extend(wrap_prefixed(&row.text, &prefix, width, options.color, context));
+        lines.extend(wrap_prefixed(
+            &row.text,
+            &prefix,
+            width,
+            options.color,
+            context,
+        ));
         if let Some(detail) = row.detail {
             let detail_prefix = if options.color {
                 colorize(
@@ -305,9 +311,7 @@ fn render_composer(options: &DashboardOptions, width: usize) -> String {
         ("\u{1b}[48;5;238m", "\u{1b}[38;5;117m")
     };
 
-    format!(
-        "{background}{accent}›\u{1b}[39m{text_foreground}{rest}\u{1b}[0m"
-    )
+    format!("{background}{accent}›\u{1b}[39m{text_foreground}{rest}\u{1b}[0m")
 }
 
 fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
@@ -415,7 +419,11 @@ fn render_popup_line(item: &PopupItem, selected: bool, width: usize, color: bool
 fn render_footer(options: &DashboardOptions, width: usize) -> String {
     let model = model_label(options);
     let activity = if options.color {
-        colorize(&options.activity_label, activity_tone(&options.activity_label), true)
+        colorize(
+            &options.activity_label,
+            activity_tone(&options.activity_label),
+            true,
+        )
     } else {
         options.activity_label.clone()
     };
@@ -442,7 +450,10 @@ fn render_footer(options: &DashboardOptions, width: usize) -> String {
 }
 
 fn model_label(options: &DashboardOptions) -> &str {
-    options.selected_model_id.as_deref().unwrap_or("detecting...")
+    options
+        .selected_model_id
+        .as_deref()
+        .unwrap_or("detecting...")
 }
 
 fn activity_tone(label: &str) -> &str {

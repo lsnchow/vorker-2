@@ -1,10 +1,10 @@
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use std::env;
 use std::io::{self, Read};
+use vorker_agent::{PromptRequest, ProviderId, ProviderManager};
 use vorker_cli::adversarial::{
     AdversarialRunRequest, DEFAULT_ADVERSARIAL_MODEL, ReviewScope, run_adversarial,
 };
-use vorker_agent::{PromptRequest, ProviderId, ProviderManager};
 use vorker_core::EventLog;
 use vorker_preflight::{LocalContainerSandbox, PreflightRequest, PreflightRunner};
 use vorker_tui::{render_hyperloop_mock, render_once, run_app};
@@ -127,9 +127,11 @@ fn main() {
             let model = default_primary_model(&cli.shared);
             if tui.once {
                 println!("{}", render_once(120, Some(model.clone())));
-            } else if let Err(error) =
-                run_app(cli.shared.no_alt_screen, cli.shared.auto_approve, Some(model))
-            {
+            } else if let Err(error) = run_app(
+                cli.shared.no_alt_screen,
+                cli.shared.auto_approve,
+                Some(model),
+            ) {
                 eprintln!("{error}");
                 std::process::exit(1);
             }
@@ -140,17 +142,15 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Command::Demo { scenario }) => {
-            match scenario.as_str() {
-                "hyperloop" | "hyperloop-controls" => {
-                    println!("{}", render_hyperloop_mock(120, false));
-                }
-                _ => {
-                    eprintln!("unknown demo scenario: {scenario}");
-                    std::process::exit(1);
-                }
+        Some(Command::Demo { scenario }) => match scenario.as_str() {
+            "hyperloop" | "hyperloop-controls" => {
+                println!("{}", render_hyperloop_mock(120, false));
             }
-        }
+            _ => {
+                eprintln!("unknown demo scenario: {scenario}");
+                std::process::exit(1);
+            }
+        },
         Some(Command::Preflight { repo }) => {
             if let Err(error) = run_preflight(repo, cli.shared.auto_approve) {
                 eprintln!("{error}");
@@ -178,9 +178,11 @@ fn main() {
         }
         None => {
             let model = default_primary_model(&cli.shared);
-            if let Err(error) =
-                run_app(cli.shared.no_alt_screen, cli.shared.auto_approve, Some(model))
-            {
+            if let Err(error) = run_app(
+                cli.shared.no_alt_screen,
+                cli.shared.auto_approve,
+                Some(model),
+            ) {
                 eprintln!("{error}");
                 std::process::exit(1);
             }
@@ -306,7 +308,9 @@ fn default_primary_model(shared: &SharedOptions) -> String {
         .unwrap_or_else(|| DEFAULT_PRIMARY_MODEL.to_string())
 }
 
-fn parse_review_scope(value: &str) -> Result<ReviewScope, Box<dyn std::error::Error + Send + Sync>> {
+fn parse_review_scope(
+    value: &str,
+) -> Result<ReviewScope, Box<dyn std::error::Error + Send + Sync>> {
     match value.trim().to_ascii_lowercase().as_str() {
         "auto" => Ok(ReviewScope::Auto),
         "working-tree" | "working_tree" => Ok(ReviewScope::WorkingTree),

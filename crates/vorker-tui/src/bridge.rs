@@ -31,9 +31,16 @@ pub struct PermissionOption {
 
 #[derive(Debug)]
 pub enum BridgeEvent {
-    TextChunk { text: String },
-    ToolCall { title: String },
-    ToolUpdate { title: Option<String>, detail: Option<String> },
+    TextChunk {
+        text: String,
+    },
+    ToolCall {
+        title: String,
+    },
+    ToolUpdate {
+        title: Option<String>,
+        detail: Option<String>,
+    },
     PermissionRequest {
         title: String,
         options: Vec<PermissionOption>,
@@ -47,7 +54,9 @@ pub enum BridgeEvent {
     ModelChanged {
         model: String,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 pub struct AcpBridge {
@@ -165,14 +174,15 @@ async fn bridge_main(
         acp::InitializeRequest::new(acp::ProtocolVersion::V1)
             .client_capabilities(
                 acp::ClientCapabilities::new()
-                    .fs(
-                        acp::FileSystemCapabilities::new()
-                            .read_text_file(true)
-                            .write_text_file(true),
-                    )
+                    .fs(acp::FileSystemCapabilities::new()
+                        .read_text_file(true)
+                        .write_text_file(true))
                     .terminal(true),
             )
-            .client_info(acp::Implementation::new("vorker", env!("CARGO_PKG_VERSION"))),
+            .client_info(acp::Implementation::new(
+                "vorker",
+                env!("CARGO_PKG_VERSION"),
+            )),
     )
     .await
     .map_err(|error| io::Error::other(format!("acp initialize failed: {error}")))?;
@@ -202,9 +212,12 @@ async fn bridge_main(
         && current_model.as_deref() != Some(model.as_str())
         && available_models.iter().any(|available| available == &model)
     {
-        conn.set_session_model(acp::SetSessionModelRequest::new(session_id.clone(), model.clone()))
-            .await
-            .map_err(|error| io::Error::other(format!("acp set_session_model failed: {error}")))?;
+        conn.set_session_model(acp::SetSessionModelRequest::new(
+            session_id.clone(),
+            model.clone(),
+        ))
+        .await
+        .map_err(|error| io::Error::other(format!("acp set_session_model failed: {error}")))?;
         current_model = Some(model);
     }
 
@@ -237,8 +250,7 @@ async fn bridge_main(
                 });
             }
             BridgeCommand::SetModel { model } => {
-                let request =
-                    acp::SetSessionModelRequest::new(session_id.clone(), model.clone());
+                let request = acp::SetSessionModelRequest::new(session_id.clone(), model.clone());
                 match conn.set_session_model(request).await {
                     Ok(_) => {
                         let _ = evt_tx.send(BridgeEvent::ModelChanged { model });
@@ -251,7 +263,10 @@ async fn bridge_main(
                 }
             }
             BridgeCommand::Cancel => {
-                if let Err(error) = conn.cancel(acp::CancelNotification::new(session_id.clone())).await {
+                if let Err(error) = conn
+                    .cancel(acp::CancelNotification::new(session_id.clone()))
+                    .await
+                {
                     let _ = evt_tx.send(BridgeEvent::Error {
                         message: format!("cancel failed: {error}"),
                     });
@@ -340,7 +355,12 @@ impl acp::Client for BridgedAcpClient {
         &self,
         args: acp::RequestPermissionRequest,
     ) -> acp::Result<acp::RequestPermissionResponse> {
-        let title = args.tool_call.fields.title.clone().unwrap_or_else(|| "Tool call".to_string());
+        let title = args
+            .tool_call
+            .fields
+            .title
+            .clone()
+            .unwrap_or_else(|| "Tool call".to_string());
         let options = args
             .options
             .iter()

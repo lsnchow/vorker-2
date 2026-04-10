@@ -1,8 +1,8 @@
-use serde_json::Value;
-use std::io::{BufRead, BufReader};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::io::{self, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -73,7 +73,9 @@ struct ReviewContext {
     content: String,
 }
 
-pub fn run_adversarial(request: &AdversarialRunRequest) -> Result<AdversarialRunResult, Box<dyn std::error::Error + Send + Sync>> {
+pub fn run_adversarial(
+    request: &AdversarialRunRequest,
+) -> Result<AdversarialRunResult, Box<dyn std::error::Error + Send + Sync>> {
     let workspace = ProjectWorkspace::for_cwd(&request.cwd)?;
     workspace.confirm()?;
     write_status(&request.status_file_path, "collecting review context");
@@ -94,11 +96,19 @@ pub fn run_adversarial(request: &AdversarialRunRequest) -> Result<AdversarialRun
     enrich_findings_with_code(&request.cwd, &mut report);
     let report_markdown = render_markdown_report(&report, request.coach);
     write_status(&request.status_file_path, "writing review report");
-    let report_path = write_report(&workspace, &report_markdown, request.output_report_path.clone())?;
+    let report_path = write_report(
+        &workspace,
+        &report_markdown,
+        request.output_report_path.clone(),
+    )?;
 
     let apply_summary = if request.apply {
         write_status(&request.status_file_path, "applying suggested patch");
-        Some(run_codex_apply(&request.cwd, &request.model, &report_markdown)?)
+        Some(run_codex_apply(
+            &request.cwd,
+            &request.model,
+            &report_markdown,
+        )?)
     } else {
         None
     };
@@ -214,7 +224,11 @@ fn build_adversarial_prompt(context: &ReviewContext, focus: &str, coach: bool) -
     )
 }
 
-fn collect_review_context(cwd: &Path, base: Option<&str>, requested_scope: ReviewScope) -> io::Result<ReviewContext> {
+fn collect_review_context(
+    cwd: &Path,
+    base: Option<&str>,
+    requested_scope: ReviewScope,
+) -> io::Result<ReviewContext> {
     let in_git_repo = is_git_repository(cwd);
     let scope = match requested_scope {
         ReviewScope::Auto => {
@@ -229,7 +243,9 @@ fn collect_review_context(cwd: &Path, base: Option<&str>, requested_scope: Revie
         ReviewScope::Branch => ReviewScope::Branch,
         ReviewScope::WorkingTree => {
             if !in_git_repo {
-                return Err(io::Error::other("working-tree review requires a git repository"));
+                return Err(io::Error::other(
+                    "working-tree review requires a git repository",
+                ));
             }
             ReviewScope::WorkingTree
         }
@@ -318,9 +334,12 @@ fn collect_workspace_file_context(cwd: &Path) -> io::Result<String> {
                 continue;
             }
             if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                let skip = relative
-                    .iter()
-                    .any(|segment| matches!(segment.to_string_lossy().as_ref(), ".git" | "node_modules" | "target" | ".next" | "dist" | "__pycache__"));
+                let skip = relative.iter().any(|segment| {
+                    matches!(
+                        segment.to_string_lossy().as_ref(),
+                        ".git" | "node_modules" | "target" | ".next" | "dist" | "__pycache__"
+                    )
+                });
                 if !skip {
                     stack.push(entry_path);
                 }
@@ -355,11 +374,7 @@ fn collect_untracked_file_context(cwd: &Path, status: &str) -> io::Result<String
         if content.is_empty() {
             continue;
         }
-        let preview = content
-            .lines()
-            .take(120)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let preview = content.lines().take(120).collect::<Vec<_>>().join("\n");
         sections.push(format!("### {path}\n```text\n{preview}\n```"));
     }
     Ok(sections.join("\n\n"))
@@ -433,8 +448,11 @@ fn run_codex_review(
         report
     } else {
         let raw = fs::read_to_string(&output_path)?;
-        serde_json::from_str::<AdversarialReport>(&raw)
-            .map_err(|error| io::Error::other(format!("failed to parse adversarial review JSON: {error}\nraw output:\n{raw}")))?
+        serde_json::from_str::<AdversarialReport>(&raw).map_err(|error| {
+            io::Error::other(format!(
+                "failed to parse adversarial review JSON: {error}\nraw output:\n{raw}"
+            ))
+        })?
     };
     Ok(report)
 }
@@ -473,7 +491,9 @@ fn run_codex_apply(
     }
     let output = child.wait_with_output()?;
     if !output.status.success() {
-        return Err(io::Error::other(String::from_utf8_lossy(&output.stderr).trim().to_string()).into());
+        return Err(
+            io::Error::other(String::from_utf8_lossy(&output.stderr).trim().to_string()).into(),
+        );
     }
 
     Ok(fs::read_to_string(output_path).unwrap_or_else(|_| "Applied follow-up patch.".to_string()))
@@ -481,7 +501,8 @@ fn run_codex_apply(
 
 fn enrich_findings_with_code(cwd: &Path, report: &mut AdversarialReport) {
     for finding in &mut report.findings {
-        finding.code_snippet = load_code_snippet(cwd, &finding.file, finding.line_start, finding.line_end);
+        finding.code_snippet =
+            load_code_snippet(cwd, &finding.file, finding.line_start, finding.line_end);
     }
 }
 
@@ -562,7 +583,9 @@ fn ensure_git_repository(cwd: &Path) -> io::Result<()> {
     if is_git_repository(cwd) {
         Ok(())
     } else {
-        Err(io::Error::other("adversarial review requires a git repository"))
+        Err(io::Error::other(
+            "adversarial review requires a git repository",
+        ))
     }
 }
 
@@ -584,7 +607,9 @@ where
 {
     let output = Command::new("git").args(args).current_dir(cwd).output()?;
     if !output.status.success() {
-        return Err(io::Error::other(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+        return Err(io::Error::other(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -676,7 +701,10 @@ fn maybe_capture_stream_event(
         Err(_) => return Ok(()),
     };
 
-    let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let Some(item) = value.get("item") else {
         return Ok(());
     };
@@ -738,7 +766,10 @@ fn parse_report_into_rows(report: &AdversarialReport, coach: bool) -> Vec<Transc
 
     for finding in &report.findings {
         let mut detail = vec![
-            format!("Location: `{}`:{}-{}", finding.file, finding.line_start, finding.line_end),
+            format!(
+                "Location: `{}`:{}-{}",
+                finding.file, finding.line_start, finding.line_end
+            ),
             format!("Confidence: {:.2}", finding.confidence),
             String::new(),
             finding.body.clone(),
@@ -807,7 +838,10 @@ fn escape_single_quotes(input: &str) -> String {
 }
 
 fn shell_escape_arg(input: &str) -> String {
-    if input.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/')) {
+    if input
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'))
+    {
         input.to_string()
     } else {
         format!("'{}'", escape_single_quotes(input))
