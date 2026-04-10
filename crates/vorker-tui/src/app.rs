@@ -94,6 +94,7 @@ pub enum AppCommand {
         theme: String,
     },
     ExportTranscript,
+    ShowStatus,
     SetModel {
         model: String,
     },
@@ -1001,6 +1002,9 @@ impl App {
             SlashCommandId::Export => {
                 self.pending_actions.push(AppCommand::ExportTranscript);
             }
+            SlashCommandId::Status => {
+                self.pending_actions.push(AppCommand::ShowStatus);
+            }
             SlashCommandId::Coach => {
                 self.pending_actions.push(AppCommand::RunReview {
                     focus: String::new(),
@@ -1041,7 +1045,7 @@ impl App {
                 self.apply_system_notice(if current_review_mode() {
                     "Commands: /stop /model /coach /apply /exit-review"
                 } else {
-                    "Commands: /review /ralph /export /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
+                    "Commands: /review /ralph /export /status /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
                 });
             }
             SlashCommandId::Permissions => {
@@ -2063,6 +2067,27 @@ pub fn run_app(
                         &app.thread_record(),
                     )?;
                     app.apply_system_notice(format!("Transcript exported to {}", path.display()));
+                }
+                AppCommand::ShowStatus => {
+                    let jobs = side_agent_store.list_jobs();
+                    let running_agents = jobs
+                        .iter()
+                        .filter(|job| job.status == SideAgentStatus::Running)
+                        .count();
+                    app.apply_system_notice(format!(
+                        "Status\nmodel: {}\ncwd: {}\nworkspace: {}\napprovals: {}\nthread: {} ({})\nside agents: {} total, {} running",
+                        app.navigation
+                            .selected_model_id
+                            .as_deref()
+                            .unwrap_or("detecting..."),
+                        cwd.display(),
+                        workspace.project_dir().display(),
+                        app.approval_mode().label(),
+                        app.thread_name(),
+                        format_thread_duration(app.thread_duration_seconds()),
+                        jobs.len(),
+                        running_agents,
+                    ));
                 }
                 AppCommand::SetModel { model } => {
                     runtime.block_on(bridge.set_model(model))?;
