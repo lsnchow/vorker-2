@@ -6,3 +6,4 @@ certs/
 .vorker-2/
 .worktrees/
 target/
+.omx/
