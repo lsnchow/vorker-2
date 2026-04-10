@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use vorker_tui::{SideAgentStatus, SideAgentStore};
+use vorker_tui::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let suffix = SystemTime::now()
@@ -117,4 +117,34 @@ fn side_agent_status_has_stable_display_labels() {
     assert_eq!(SideAgentStatus::Completed.label(), "completed");
     assert_eq!(SideAgentStatus::Stopped.label(), "stopped");
     assert_eq!(SideAgentStatus::Failed.label(), "failed");
+}
+
+#[test]
+fn side_agent_event_summary_extracts_codex_jsonl_events() {
+    let root = unique_temp_dir("events");
+    fs::create_dir_all(&root).expect("create root");
+    let events_path = root.join("events.jsonl");
+    fs::write(
+        &events_path,
+        [
+            r#"{"type":"item.started","item":{"type":"command_execution","command":"cargo test"}}"#,
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"Looks good."}}"#,
+            r#"{"type":"turn.completed"}"#,
+        ]
+        .join("\n"),
+    )
+    .expect("write events");
+
+    let summary = summarize_side_agent_events(&events_path, 10).expect("summary");
+
+    assert_eq!(
+        summary,
+        vec![
+            "command started: cargo test".to_string(),
+            "assistant response captured".to_string(),
+            "turn completed".to_string(),
+        ]
+    );
+
+    fs::remove_dir_all(root).ok();
 }

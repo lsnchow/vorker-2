@@ -23,7 +23,7 @@ use crate::mentions::{
 use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
-use crate::side_agent_store::{SideAgentStatus, SideAgentStore};
+use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 
@@ -1525,6 +1525,17 @@ fn poll_side_agent_jobs(
     Ok(())
 }
 
+fn format_agent_result(id: &str, events: &[String], output: &str) -> String {
+    let mut sections = vec![format!("Agent {id} result:")];
+    if !events.is_empty() {
+        sections.push("Events:".to_string());
+        sections.extend(events.iter().map(|event| format!("- {event}")));
+    }
+    sections.push("Output:".to_string());
+    sections.push(output.to_string());
+    sections.join("\n")
+}
+
 fn open_review_window(
     cwd: &Path,
     model: &str,
@@ -2006,11 +2017,24 @@ pub fn run_app(
                     if let Some(job) = side_agent_jobs.iter().find(|job| job.id == id) {
                         let output = std::fs::read_to_string(&job.output_path)
                             .unwrap_or_else(|_| "No output captured yet.".to_string());
-                        app.apply_assistant_text(&format!("Agent {id} result:\n{output}"));
+                        let events = summarize_side_agent_events(
+                            &PathBuf::from(
+                                side_agent_store
+                                    .job(&id)
+                                    .map(|job| job.events_path)
+                                    .unwrap_or_default(),
+                            ),
+                            8,
+                        )
+                        .unwrap_or_default();
+                        app.apply_assistant_text(&format_agent_result(&id, &events, &output));
                     } else if let Some(job) = side_agent_store.job(&id) {
                         let output = std::fs::read_to_string(&job.output_path)
                             .unwrap_or_else(|_| "No output captured yet.".to_string());
-                        app.apply_assistant_text(&format!("Agent {id} result:\n{output}"));
+                        let events =
+                            summarize_side_agent_events(&PathBuf::from(&job.events_path), 8)
+                                .unwrap_or_default();
+                        app.apply_assistant_text(&format_agent_result(&id, &events, &output));
                     } else {
                         app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }

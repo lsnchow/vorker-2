@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -177,4 +178,56 @@ fn now_epoch_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+pub fn summarize_side_agent_events(path: &Path, limit: usize) -> io::Result<Vec<String>> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        if out.len() >= limit {
+            break;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(summary) = summarize_event_value(&value) {
+            out.push(summary);
+        }
+    }
+    Ok(out)
+}
+
+fn summarize_event_value(value: &Value) -> Option<String> {
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let item = value.get("item");
+    let item_type = item
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    match (event_type, item_type) {
+        ("item.started", "command_execution") => {
+            let command = item
+                .and_then(|item| item.get("command"))
+                .and_then(Value::as_str)
+                .unwrap_or("command");
+            Some(format!("command started: {command}"))
+        }
+        ("item.completed", "command_execution") => Some("command completed".to_string()),
+        ("item.completed", "agent_message") => Some("assistant response captured".to_string()),
+        ("turn.completed", _) => Some("turn completed".to_string()),
+        ("error", _) => value
+            .get("message")
+            .and_then(Value::as_str)
+            .map(|message| format!("error: {message}")),
+        _ => None,
+    }
 }

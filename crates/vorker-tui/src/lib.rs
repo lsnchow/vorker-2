@@ -24,6 +24,8 @@ pub use navigation::{
 };
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
 pub use render::{DashboardOptions, PopupItem, RowKind, TranscriptRow, render_dashboard};
-pub use side_agent_store::{SideAgentStatus, SideAgentStore, StoredSideAgentJob};
+pub use side_agent_store::{
+    SideAgentStatus, SideAgentStore, StoredSideAgentJob, summarize_side_agent_events,
+};
 pub use slash::{SlashCommand, SlashCommandId, filtered_commands, is_slash_mode};
 pub use thread_store::{ApprovalMode, StoredThread, ThreadStore};
