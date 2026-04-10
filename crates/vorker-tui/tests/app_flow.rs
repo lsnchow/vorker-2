@@ -226,6 +226,18 @@ fn slash_theme_queues_theme_change() {
 }
 
 #[test]
+fn slash_theme_list_shows_available_themes() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/theme list".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(output.contains("Themes: default, review, opencode"));
+}
+
+#[test]
 fn review_output_is_parsed_into_structured_rows() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_review_output(

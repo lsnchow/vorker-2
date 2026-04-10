@@ -126,7 +126,7 @@ fn render_card(options: &DashboardOptions, width: usize) -> Vec<String> {
         .saturating_add(2)
         .min(width.saturating_sub(2).max(20));
     let horizontal = "─".repeat(inner_width);
-    let border_tone = if options.theme_name == "review" {
+    let border_tone = if is_review_theme(options) {
         "brightMagenta"
     } else {
         "brightGreen"
@@ -170,7 +170,7 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
         let prefix = if options.color {
             let tone = match row.kind {
                 RowKind::User => {
-                    if options.theme_name == "review" {
+                    if is_review_theme(options) {
                         "brightMagenta"
                     } else {
                         "brightGreen"
@@ -178,7 +178,7 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
                 }
                 RowKind::Assistant => "white",
                 RowKind::Tool => {
-                    if options.theme_name == "review" {
+                    if is_review_theme(options) {
                         "yellow"
                     } else {
                         "brightMagenta"
@@ -190,7 +190,7 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
         } else {
             prefix_text.to_string()
         };
-        let context = if options.theme_name == "review" {
+        let context = if is_review_theme(options) {
             RichContext::Review
         } else {
             RichContext::Normal
@@ -227,7 +227,7 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
             &if options.color {
                 colorize(
                     "◦ ",
-                    if options.theme_name == "review" {
+                    if is_review_theme(options) {
                         "brightMagenta"
                     } else {
                         "brightGreen"
@@ -295,7 +295,7 @@ fn render_composer(options: &DashboardOptions, width: usize) -> String {
     } else {
         "\u{1b}[39m"
     };
-    let (background, accent) = if options.theme_name == "review" {
+    let (background, accent) = if is_review_theme(options) {
         ("\u{1b}[48;5;237m", "\u{1b}[38;5;213m")
     } else {
         ("\u{1b}[48;5;238m", "\u{1b}[38;5;117m")
@@ -362,7 +362,7 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
             .collect();
     }
 
-    let commands = filtered_commands(&options.command_buffer, options.theme_name == "review");
+    let commands = filtered_commands(&options.command_buffer, is_review_theme(options));
     if commands.is_empty() {
         return Vec::new();
     }
@@ -424,6 +424,10 @@ fn render_footer(options: &DashboardOptions, width: usize) -> String {
 
 fn model_label(options: &DashboardOptions) -> &str {
     options.selected_model_id.as_deref().unwrap_or("detecting...")
+}
+
+fn is_review_theme(options: &DashboardOptions) -> bool {
+    matches!(options.theme_name.as_str(), "review" | "opencode")
 }
 
 fn wrap_prefixed(

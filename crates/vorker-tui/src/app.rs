@@ -896,6 +896,8 @@ impl App {
                 let theme = command_tail(buffer);
                 if theme.is_empty() {
                     self.apply_system_notice("Usage: /theme <default|review|opencode>");
+                } else if theme == "list" {
+                    self.apply_system_notice("Themes: default, review, opencode");
                 } else {
                     self.pending_actions.push(AppCommand::SetTheme { theme });
                 }
@@ -1748,7 +1750,8 @@ pub fn run_app(
                 AppCommand::SetTheme { theme } => {
                     let normalized = match theme.trim().to_ascii_lowercase().as_str() {
                         "default" | "green" => "default",
-                        "review" | "opencode" | "purple" => "review",
+                        "review" | "purple" => "review",
+                        "opencode" | "oc" => "opencode",
                         other => {
                             app.apply_system_notice(format!("Unknown theme: {other}"));
                             continue;
