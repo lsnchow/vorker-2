@@ -23,6 +23,7 @@ use crate::mentions::{
 use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
+use crate::side_agent_store::{SideAgentStatus, SideAgentStore};
 use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 
@@ -42,7 +43,7 @@ struct SideAgentJob {
     prompt: String,
     child: Child,
     output_path: PathBuf,
-    started_at: Instant,
+    stderr_path: PathBuf,
     completed: bool,
 }
 
@@ -1448,18 +1449,22 @@ fn poll_review_job(app: &mut App, review_job: &mut Option<ReviewJob>) -> io::Res
     Ok(())
 }
 
-fn spawn_side_agent(cwd: &Path, prompt_text: &str) -> io::Result<SideAgentJob> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let id = format!("agent-{stamp}");
-    let output_path = std::env::temp_dir().join(format!("vorker-{id}.md"));
+fn spawn_side_agent(
+    cwd: &Path,
+    prompt_text: &str,
+    store: &mut SideAgentStore,
+    agents_dir: &Path,
+) -> io::Result<SideAgentJob> {
+    let model = current_review_model();
+    let record = store.create_job_in_dir(cwd, prompt_text, &model, agents_dir)?;
+    let output_path = PathBuf::from(&record.output_path);
+    let stderr_path = PathBuf::from(&record.stderr_path);
+    let stderr = std::fs::File::create(&stderr_path)?;
     let mut command = std::process::Command::new("codex");
     command
         .arg("exec")
         .arg("--model")
-        .arg(current_review_model())
+        .arg(model)
         .arg("--full-auto")
         .arg("--color")
         .arg("never")
@@ -1470,23 +1475,48 @@ fn spawn_side_agent(cwd: &Path, prompt_text: &str) -> io::Result<SideAgentJob> {
         .arg(cwd)
         .arg(prompt_text)
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::from(stderr));
 
-    Ok(SideAgentJob {
-        id,
-        prompt: prompt_text.to_string(),
-        child: command.spawn()?,
-        output_path,
-        started_at: Instant::now(),
-        completed: false,
-    })
+    match command.spawn() {
+        Ok(child) => Ok(SideAgentJob {
+            id: record.id,
+            prompt: prompt_text.to_string(),
+            child,
+            output_path,
+            stderr_path,
+            completed: false,
+        }),
+        Err(error) => {
+            let _ = store.mark_finished(&record.id, SideAgentStatus::Failed);
+            Err(error)
+        }
+    }
 }
 
-fn poll_side_agent_jobs(app: &mut App, jobs: &mut [SideAgentJob]) -> io::Result<()> {
+fn poll_side_agent_jobs(
+    app: &mut App,
+    jobs: &mut [SideAgentJob],
+    store: &mut SideAgentStore,
+) -> io::Result<()> {
     for job in jobs.iter_mut().filter(|job| !job.completed) {
         if let Some(status) = job.child.try_wait()? {
             job.completed = true;
-            app.apply_system_notice(format!("Side agent {} finished with {}.", job.id, status));
+            let stored_status = if status.success() {
+                SideAgentStatus::Completed
+            } else {
+                SideAgentStatus::Failed
+            };
+            store.mark_finished(&job.id, stored_status)?;
+            if status.success() {
+                app.apply_system_notice(format!("Side agent {} finished with {}.", job.id, status));
+            } else {
+                let detail = std::fs::read_to_string(&job.stderr_path)
+                    .ok()
+                    .map(|text| text.trim().to_string())
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or_else(|| status.to_string());
+                app.apply_system_notice(format!("Side agent {} failed: {detail}", job.id));
+            }
         }
     }
     Ok(())
@@ -1628,6 +1658,7 @@ pub fn run_app(
     let mut workspace = ProjectWorkspace::for_cwd(&cwd)?;
     let global_root = workspace.root().to_path_buf();
     let mut thread_store = workspace.open_thread_store()?;
+    let mut side_agent_store = workspace.open_side_agent_store()?;
     let mut initial_thread = thread_store
         .latest_for_cwd(&cwd)
         .unwrap_or_else(|| thread_store.create_thread(&cwd));
@@ -1677,6 +1708,7 @@ pub fn run_app(
             return Ok(());
         }
         thread_store = workspace.open_thread_store()?;
+        side_agent_store = workspace.open_side_agent_store()?;
         app.apply_system_notice(format!(
             "Project workspace ready: {}",
             format_path_for_humans(&workspace.project_dir())
@@ -1703,7 +1735,7 @@ pub fn run_app(
         drain_bridge_events(&mut app, &mut bridge, &mut pending_permission_reply);
         app.tick();
         poll_review_job(&mut app, &mut review_job)?;
-        poll_side_agent_jobs(&mut app, &mut side_agent_jobs)?;
+        poll_side_agent_jobs(&mut app, &mut side_agent_jobs, &mut side_agent_store)?;
         persist_dirty_thread(&mut app, &mut thread_store)?;
         let width = size()
             .map(|(columns, _)| usize::from(columns))
@@ -1774,6 +1806,7 @@ pub fn run_app(
                         runtime.block_on(bridge.shutdown())?;
                         app.load_thread(thread);
                         thread_store = workspace.open_thread_store()?;
+                        side_agent_store = workspace.open_side_agent_store()?;
                         app.set_workspace_files(load_workspace_files(&cwd));
                         bridge = runtime.block_on(AcpBridge::start(
                             cwd.clone(),
@@ -1802,6 +1835,7 @@ pub fn run_app(
                     }
                     runtime.block_on(bridge.shutdown())?;
                     thread_store = workspace.open_thread_store()?;
+                    side_agent_store = workspace.open_side_agent_store()?;
                     let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
                         let mut created = thread_store.create_thread(&cwd);
                         created.model = default_model.clone();
@@ -1888,6 +1922,7 @@ pub fn run_app(
                     for job in side_agent_jobs.iter_mut().filter(|job| !job.completed) {
                         let _ = job.child.kill();
                         job.completed = true;
+                        let _ = side_agent_store.mark_finished(&job.id, SideAgentStatus::Stopped);
                         stopped_agents += 1;
                     }
                     review_job = None;
@@ -1908,7 +1943,12 @@ pub fn run_app(
                     app.queue_prompt(display_text, prompt_text);
                 }
                 AppCommand::SpawnAgent { prompt_text } => {
-                    match spawn_side_agent(&cwd, &prompt_text) {
+                    match spawn_side_agent(
+                        &cwd,
+                        &prompt_text,
+                        &mut side_agent_store,
+                        &workspace.side_agents_dir(),
+                    ) {
                         Ok(job) => {
                             app.apply_system_notice(format!(
                                 "Spawned Codex agent {}: {}",
@@ -1922,18 +1962,15 @@ pub fn run_app(
                     }
                 }
                 AppCommand::ListAgents => {
-                    if side_agent_jobs.is_empty() {
+                    let jobs = side_agent_store.list_jobs();
+                    if jobs.is_empty() {
                         app.apply_system_notice("No side agents in this session.");
                     } else {
                         app.apply_system_notice("Side agents:");
-                        for job in &side_agent_jobs {
-                            let status = if job.completed { "done" } else { "running" };
+                        for job in jobs {
                             app.apply_system_notice(format!(
-                                "{}  {}  {}s  {}",
-                                job.id,
-                                status,
-                                job.started_at.elapsed().as_secs(),
-                                job.prompt
+                                "{}  {:?}  {}  {}",
+                                job.id, job.status, job.model, job.prompt
                             ));
                         }
                     }
@@ -1947,14 +1984,24 @@ pub fn run_app(
                         } else {
                             let _ = job.child.kill();
                             job.completed = true;
+                            let _ = side_agent_store.mark_finished(&id, SideAgentStatus::Stopped);
                             app.apply_system_notice(format!("Stopped side agent {id}."));
                         }
+                    } else if side_agent_store.job(&id).is_some() {
+                        side_agent_store.mark_finished(&id, SideAgentStatus::Stopped)?;
+                        app.apply_system_notice(format!(
+                            "Marked stored side agent {id} as stopped."
+                        ));
                     } else {
                         app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }
                 }
                 AppCommand::ShowAgentResult { id } => {
                     if let Some(job) = side_agent_jobs.iter().find(|job| job.id == id) {
+                        let output = std::fs::read_to_string(&job.output_path)
+                            .unwrap_or_else(|_| "No output captured yet.".to_string());
+                        app.apply_assistant_text(&format!("Agent {id} result:\n{output}"));
+                    } else if let Some(job) = side_agent_store.job(&id) {
                         let output = std::fs::read_to_string(&job.output_path)
                             .unwrap_or_else(|_| "No output captured yet.".to_string());
                         app.apply_assistant_text(&format!("Agent {id} result:\n{output}"));

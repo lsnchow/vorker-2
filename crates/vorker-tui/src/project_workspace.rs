@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{fit, truncate, visible_length};
-use crate::{StoredThread, ThreadStore};
+use crate::{SideAgentStore, StoredThread, ThreadStore};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ProjectWorkspaceMeta {
@@ -87,6 +87,16 @@ impl ProjectWorkspace {
     }
 
     #[must_use]
+    pub fn side_agents_path(&self) -> PathBuf {
+        self.project_dir.join("side-agents.json")
+    }
+
+    #[must_use]
+    pub fn side_agents_dir(&self) -> PathBuf {
+        self.project_dir.join("side-agents")
+    }
+
+    #[must_use]
     pub fn meta_path(&self) -> PathBuf {
         self.project_dir.join("meta.json")
     }
@@ -107,6 +117,10 @@ impl ProjectWorkspace {
 
     pub fn open_thread_store(&self) -> io::Result<ThreadStore> {
         ThreadStore::open_at(self.threads_path())
+    }
+
+    pub fn open_side_agent_store(&self) -> io::Result<SideAgentStore> {
+        SideAgentStore::open_at(self.side_agents_path())
     }
 
     pub fn list_all_threads_under(root: PathBuf) -> io::Result<Vec<StoredThread>> {
