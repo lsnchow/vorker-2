@@ -141,6 +141,27 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
 }
 
 #[test]
+fn slash_popup_filters_by_command_aliases() {
+    let mut options = DashboardOptions {
+        command_buffer: "/cl".to_string(),
+        ..DashboardOptions::default()
+    };
+
+    let output = render_dashboard(&vorker_core::Snapshot::default(), options.clone());
+    assert!(
+        output.contains("/stop") && output.contains("stop the active prompt"),
+        "alias /clean should surface /stop in popup:\n{output}"
+    );
+
+    options.command_buffer = "/appr".to_string();
+    let output = render_dashboard(&vorker_core::Snapshot::default(), options);
+    assert!(
+        output.contains("/permissions"),
+        "alias /approvals should surface /permissions in popup:\n{output}"
+    );
+}
+
+#[test]
 fn render_dashboard_colors_the_composer_surface() {
     let output = render_dashboard(
         &Snapshot::default(),

@@ -1268,7 +1268,7 @@ fn parse_exact_slash_command(buffer: &str) -> Option<crate::slash::SlashCommand>
     crate::slash::SLASH_COMMANDS
         .iter()
         .copied()
-        .find(|entry| entry.name == command)
+        .find(|entry| entry.matches_exact(command))
 }
 
 fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, String) {

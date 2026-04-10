@@ -134,6 +134,17 @@ fn slash_stop_queues_stop_action() {
 }
 
 #[test]
+fn slash_stop_alias_clean_queues_stop_action() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/clean".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::Stop]);
+}
+
+#[test]
 fn slash_steer_queues_steering_prompt() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/steer focus on safety".chars() {
