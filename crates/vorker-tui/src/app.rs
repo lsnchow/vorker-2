@@ -154,8 +154,6 @@ pub struct App {
     rows: Vec<TranscriptRow>,
     mention_bindings: Vec<ComposerMentionBinding>,
     workspace_files: Vec<String>,
-    mention_items: Vec<String>,
-    mention_selected_index: usize,
     slash_selected_index: usize,
     popup: AppPopupState,
     working_started_at: Option<Instant>,
@@ -244,8 +242,6 @@ impl App {
             rows: thread.rows.clone(),
             mention_bindings: Vec::new(),
             workspace_files: Vec::new(),
-            mention_items: Vec::new(),
-            mention_selected_index: 0,
             slash_selected_index: 0,
             popup: AppPopupState::default(),
             working_started_at: None,
@@ -320,8 +316,6 @@ impl App {
         self.navigation.model_choices = thread.model.into_iter().collect();
         self.navigation.model_picker_open = false;
         self.mention_bindings.clear();
-        self.mention_items.clear();
-        self.mention_selected_index = 0;
         self.popup.close();
         self.working_started_at = None;
         self.needs_replay_context = !self.rows.is_empty();
@@ -635,9 +629,9 @@ impl App {
                 slash_menu_selected_index: self.slash_selected_index,
                 mention_items: self
                     .is_mention_popup()
-                    .then(|| self.mention_items.clone())
+                    .then(|| self.popup.mention_items().to_vec())
                     .unwrap_or_default(),
-                mention_selected_index: self.mention_selected_index,
+                mention_selected_index: self.popup.selected_index(),
                 permission_title: popup.0,
                 permission_items: popup.1,
                 permission_selected_index: popup.2,
@@ -993,15 +987,19 @@ impl App {
     fn handle_mention_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.mention_selected_index =
-                    cycle_index(self.mention_selected_index, self.mention_items.len(), -1);
+                self.popup
+                    .cycle_selected_index(self.popup.mention_items().len(), -1);
             }
             KeyCode::Down => {
-                self.mention_selected_index =
-                    cycle_index(self.mention_selected_index, self.mention_items.len(), 1);
+                self.popup
+                    .cycle_selected_index(self.popup.mention_items().len(), 1);
             }
             KeyCode::Enter => {
-                if let Some(selected) = self.mention_items.get(self.mention_selected_index).cloned()
+                if let Some(selected) = self
+                    .popup
+                    .mention_items()
+                    .get(self.popup.selected_index())
+                    .cloned()
                     && let Some((text, binding)) =
                         insert_selected_mention(&self.navigation.command_buffer, &selected)
                 {
@@ -1015,8 +1013,6 @@ impl App {
             }
             KeyCode::Esc => {
                 self.popup.close();
-                self.mention_items.clear();
-                self.mention_selected_index = 0;
             }
             _ => {}
         }
@@ -1040,8 +1036,6 @@ impl App {
                 return;
             }
             self.popup.close();
-            self.mention_items.clear();
-            self.mention_selected_index = 0;
             return;
         }
 
@@ -1209,7 +1203,6 @@ impl App {
 
         self.navigation.command_buffer.clear();
         self.popup.close();
-        self.mention_items.clear();
         self.slash_selected_index = 0;
 
         let Some(command) = command else {
@@ -1557,16 +1550,12 @@ impl App {
 
         if let Some(query) = extract_active_mention_query(&self.navigation.command_buffer) {
             self.popup.open_mention();
-            self.mention_items = filter_mention_items(&query, &self.workspace_files);
-            self.mention_selected_index = self
-                .mention_selected_index
-                .min(self.mention_items.len().saturating_sub(1));
+            self.popup
+                .set_mention_items(filter_mention_items(&query, &self.workspace_files));
             return;
         }
 
         self.popup.close();
-        self.mention_items.clear();
-        self.mention_selected_index = 0;
     }
 }
 

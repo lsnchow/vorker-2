@@ -20,6 +20,7 @@ pub struct AppPopupState {
     mode: Option<PopupMode>,
     permission_title: Option<String>,
     permission_items: Vec<PermissionOptionView>,
+    mention_items: Vec<String>,
     selected_index: usize,
     skill_toggle_query: String,
 }
@@ -94,13 +95,25 @@ impl AppPopupState {
     }
 
     pub fn open_mention(&mut self) {
+        self.mention_items.clear();
         self.mode = Some(PopupMode::Mention);
+    }
+
+    pub fn set_mention_items(&mut self, items: Vec<String>) {
+        self.mention_items = items;
+        self.clamp_selected_index(self.mention_items.len());
+    }
+
+    #[must_use]
+    pub fn mention_items(&self) -> &[String] {
+        &self.mention_items
     }
 
     pub fn close(&mut self) {
         self.mode = None;
         self.permission_title = None;
         self.permission_items.clear();
+        self.mention_items.clear();
         self.selected_index = 0;
         self.skill_toggle_query.clear();
     }
