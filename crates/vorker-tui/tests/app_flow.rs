@@ -456,6 +456,42 @@ fn slash_timeline_queues_thread_timeline() {
 }
 
 #[test]
+fn slash_timeline_recent_queues_recent_timeline() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/timeline recent".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowTimelineMode {
+            mode: "recent".to_string(),
+            filter: None,
+        }]
+    );
+}
+
+#[test]
+fn slash_timeline_filter_queues_filtered_timeline() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/timeline filter model".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowTimelineMode {
+            mode: "filter".to_string(),
+            filter: Some("model".to_string()),
+        }]
+    );
+}
+
+#[test]
 fn slash_status_queues_status_summary() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/status".chars() {

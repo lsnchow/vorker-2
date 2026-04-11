@@ -25,7 +25,8 @@ use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::session_event_store::{
-    SessionEventStore, apply_events_to_thread, derive_thread_events, render_session_event_timeline,
+    SessionEventStore, apply_events_to_thread, derive_thread_events,
+    render_session_event_timeline_with_mode,
 };
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
@@ -112,6 +113,10 @@ pub enum AppCommand {
     ShowStagedDiff,
     CompactTranscript,
     ShowTimeline,
+    ShowTimelineMode {
+        mode: String,
+        filter: Option<String>,
+    },
     ShowStatus,
     ListPromptHistory,
     ListSkills,
@@ -1439,7 +1444,24 @@ impl App {
                 self.pending_actions.push(AppCommand::CompactTranscript);
             }
             SlashCommandId::Timeline => {
-                self.pending_actions.push(AppCommand::ShowTimeline);
+                let tail = command_tail(buffer);
+                if tail.eq_ignore_ascii_case("recent") {
+                    self.pending_actions.push(AppCommand::ShowTimelineMode {
+                        mode: "recent".to_string(),
+                        filter: None,
+                    });
+                } else if let Some(filter) = tail.strip_prefix("filter ").map(str::trim) {
+                    if filter.is_empty() {
+                        self.apply_system_notice("Usage: /timeline filter <kind>");
+                    } else {
+                        self.pending_actions.push(AppCommand::ShowTimelineMode {
+                            mode: "filter".to_string(),
+                            filter: Some(filter.to_string()),
+                        });
+                    }
+                } else {
+                    self.pending_actions.push(AppCommand::ShowTimeline);
+                }
             }
             SlashCommandId::Status => {
                 self.pending_actions.push(AppCommand::ShowStatus);
@@ -2665,6 +2687,15 @@ pub fn run_app(
                     let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
                     app.apply_assistant_text(&timeline);
                 }
+                AppCommand::ShowTimelineMode { mode, filter } => {
+                    let timeline = load_timeline_text_with_mode(
+                        &session_event_store,
+                        &app.thread_record(),
+                        &mode,
+                        filter.as_deref(),
+                    )?;
+                    app.apply_assistant_text(&timeline);
+                }
                 AppCommand::ShowStatus => {
                     let jobs = side_agent_store.list_jobs();
                     let running_agents = jobs
@@ -3207,11 +3238,25 @@ fn load_timeline_text(
     session_event_store: &SessionEventStore,
     thread: &StoredThread,
 ) -> io::Result<String> {
+    load_timeline_text_with_mode(session_event_store, thread, "full", None)
+}
+
+fn load_timeline_text_with_mode(
+    session_event_store: &SessionEventStore,
+    thread: &StoredThread,
+    mode: &str,
+    filter: Option<&str>,
+) -> io::Result<String> {
     let events = session_event_store.events(&thread.id)?;
     if events.is_empty() {
         Ok(render_thread_timeline(thread))
     } else {
-        Ok(render_session_event_timeline(&thread.name, &events))
+        Ok(render_session_event_timeline_with_mode(
+            &thread.name,
+            &events,
+            mode,
+            filter,
+        ))
     }
 }
 

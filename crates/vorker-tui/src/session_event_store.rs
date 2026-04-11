@@ -259,17 +259,49 @@ pub fn apply_events_to_thread(base: &StoredThread, events: &[SessionEvent]) -> S
 
 #[must_use]
 pub fn render_session_event_timeline(thread_name: &str, events: &[SessionEvent]) -> String {
+    render_session_event_timeline_with_mode(thread_name, events, "full", None)
+}
+
+#[must_use]
+pub fn render_session_event_timeline_with_mode(
+    thread_name: &str,
+    events: &[SessionEvent],
+    mode: &str,
+    filter: Option<&str>,
+) -> String {
     if events.is_empty() {
         return "Timeline is empty.".to_string();
     }
 
+    let filtered = filter
+        .map(|filter| {
+            events
+                .iter()
+                .filter(|event| event_matches_filter(&event.kind, filter))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| events.to_vec());
+
+    let visible = if mode.eq_ignore_ascii_case("recent") {
+        let start = filtered.len().saturating_sub(10);
+        filtered[start..].to_vec()
+    } else {
+        filtered
+    };
+
+    if visible.is_empty() {
+        return "Timeline is empty.".to_string();
+    }
+
     let mut lines = vec![format!(
-        "## Timeline\n- thread: {}\n- events: {}",
+        "## Timeline\n- thread: {}\n- events: {}\n- mode: {}",
         thread_name,
-        events.len()
+        visible.len(),
+        mode
     )];
 
-    for (index, event) in events.iter().enumerate() {
+    for (index, event) in visible.iter().enumerate() {
         lines.push(format!(
             "{}. {}",
             index + 1,
@@ -329,6 +361,48 @@ fn summarize_event_kind(kind: &SessionEventKind) -> String {
         SessionEventKind::TranscriptReplaced { rows } => {
             format!("[transcript] replaced with {} row(s)", rows.len())
         }
+    }
+}
+
+fn event_matches_filter(kind: &SessionEventKind, filter: &str) -> bool {
+    match filter.to_ascii_lowercase().as_str() {
+        "thread" => matches!(
+            kind,
+            SessionEventKind::ThreadCreated { .. } | SessionEventKind::ThreadRenamed { .. }
+        ),
+        "model" => matches!(kind, SessionEventKind::ModelChanged { .. }),
+        "approvals" => matches!(kind, SessionEventKind::ApprovalModeChanged { .. }),
+        "workspace" | "cwd" => matches!(kind, SessionEventKind::CwdChanged { .. }),
+        "user" => matches!(
+            kind,
+            SessionEventKind::RowAppended {
+                row_kind: RowKind::User,
+                ..
+            }
+        ),
+        "assistant" => matches!(
+            kind,
+            SessionEventKind::RowAppended {
+                row_kind: RowKind::Assistant,
+                ..
+            }
+        ),
+        "tool" => matches!(
+            kind,
+            SessionEventKind::RowAppended {
+                row_kind: RowKind::Tool,
+                ..
+            }
+        ),
+        "system" => matches!(
+            kind,
+            SessionEventKind::RowAppended {
+                row_kind: RowKind::System,
+                ..
+            }
+        ),
+        "transcript" => matches!(kind, SessionEventKind::TranscriptReplaced { .. }),
+        _ => false,
     }
 }
 

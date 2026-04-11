@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use vorker_tui::{
     ApprovalMode, RowKind, SessionEventKind, SessionEventStore, StoredThread, TranscriptRow,
     apply_events_to_thread, derive_thread_events, render_session_event_timeline,
+    render_session_event_timeline_with_mode,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -121,6 +122,46 @@ fn render_session_event_timeline_summarizes_events() {
     assert!(timeline.contains("events:"));
     assert!(timeline.contains("[thread] created"));
     assert!(timeline.contains("[user] build controller"));
+}
+
+#[test]
+fn render_session_event_timeline_recent_limits_output() {
+    let mut thread = StoredThread::ephemeral("/workspace/pod");
+    thread.name = "Hyperloop controls".to_string();
+    for index in 0..12 {
+        thread.rows.push(TranscriptRow {
+            kind: RowKind::User,
+            text: format!("row {index}"),
+            detail: None,
+        });
+    }
+    let events = derive_thread_events(None, &thread);
+
+    let timeline = render_session_event_timeline_with_mode(&thread.name, &events, "recent", None);
+
+    assert!(timeline.contains("- mode: recent"));
+    assert!(!timeline.contains("1. [thread] created"));
+    assert!(timeline.contains("10."));
+}
+
+#[test]
+fn render_session_event_timeline_filter_limits_to_matching_kind() {
+    let mut thread = StoredThread::ephemeral("/workspace/pod");
+    thread.name = "Hyperloop controls".to_string();
+    thread.model = Some("gpt-5.4".to_string());
+    thread.rows.push(TranscriptRow {
+        kind: RowKind::User,
+        text: "build controller".to_string(),
+        detail: None,
+    });
+    let events = derive_thread_events(None, &thread);
+
+    let timeline =
+        render_session_event_timeline_with_mode(&thread.name, &events, "filter", Some("model"));
+
+    assert!(timeline.contains("- mode: filter"));
+    assert!(timeline.contains("[model]"));
+    assert!(!timeline.contains("[user]"));
 }
 
 #[test]
