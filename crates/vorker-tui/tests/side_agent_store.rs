@@ -114,6 +114,7 @@ fn side_agent_store_can_allocate_project_local_output_paths() {
         )
         .expect("create job");
 
+    assert_eq!(job.display_name, "Routing Inspector");
     assert!(job.output_path.contains("/side-agents/"));
     assert!(job.output_path.ends_with("/last-message.md"));
     assert!(job.stderr_path.ends_with("/stderr.log"));
@@ -127,6 +128,35 @@ fn side_agent_store_can_allocate_project_local_output_paths() {
             .unwrap()
             .exists()
     );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn side_agent_store_generates_unique_display_names() {
+    let root = unique_temp_dir("display-names");
+    fs::create_dir_all(&root).expect("create root");
+    let mut store = SideAgentStore::open_at(root.join("agents.json")).expect("open store");
+
+    let first = store
+        .create_job_in_dir(
+            "/workspace/c",
+            "inspect auth boundary",
+            "gpt-5.3-codex",
+            root.join("side-agents"),
+        )
+        .expect("create first");
+    let second = store
+        .create_job_in_dir(
+            "/workspace/c",
+            "inspect auth boundary",
+            "gpt-5.3-codex",
+            root.join("side-agents"),
+        )
+        .expect("create second");
+
+    assert_eq!(first.display_name, "Auth Inspector");
+    assert_eq!(second.display_name, "Auth Inspector 2");
 
     fs::remove_dir_all(root).ok();
 }

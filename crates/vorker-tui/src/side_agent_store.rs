@@ -30,6 +30,8 @@ impl SideAgentStatus {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredSideAgentJob {
     pub id: String,
+    #[serde(default)]
+    pub display_name: String,
     pub prompt: String,
     pub cwd: String,
     pub model: String,
@@ -54,7 +56,7 @@ pub struct SideAgentStore {
 
 impl SideAgentStore {
     pub fn open_at(path: PathBuf) -> io::Result<Self> {
-        let jobs = if path.exists() {
+        let mut jobs = if path.exists() {
             let raw = fs::read_to_string(&path)?;
             if raw.trim().is_empty() {
                 Vec::new()
@@ -66,6 +68,8 @@ impl SideAgentStore {
         } else {
             Vec::new()
         };
+
+        normalize_display_names(&mut jobs);
 
         Ok(Self { path, jobs })
     }
@@ -79,9 +83,11 @@ impl SideAgentStore {
         stderr_path: impl AsRef<Path>,
     ) -> io::Result<StoredSideAgentJob> {
         let now = now_epoch_seconds();
+        let prompt = prompt.into();
         let job = StoredSideAgentJob {
             id: generate_agent_id(),
-            prompt: prompt.into(),
+            display_name: allocate_display_name(&prompt, &self.jobs),
+            prompt,
             cwd: cwd.as_ref().display().to_string(),
             model: model.into(),
             status: SideAgentStatus::Running,
@@ -104,6 +110,7 @@ impl SideAgentStore {
         agents_dir: impl AsRef<Path>,
     ) -> io::Result<StoredSideAgentJob> {
         let id = generate_agent_id();
+        let prompt = prompt.into();
         let job_dir = agents_dir.as_ref().join(&id);
         fs::create_dir_all(&job_dir)?;
         let output_path = job_dir.join("last-message.md");
@@ -114,7 +121,8 @@ impl SideAgentStore {
         fs::File::create(&events_path)?;
         self.insert_job(StoredSideAgentJob {
             id,
-            prompt: prompt.into(),
+            display_name: allocate_display_name(&prompt, &self.jobs),
+            prompt,
             cwd: cwd.as_ref().display().to_string(),
             model: model.into(),
             status: SideAgentStatus::Running,
@@ -169,6 +177,91 @@ impl SideAgentStore {
         let data = serde_json::to_string_pretty(&payload).map_err(io::Error::other)?;
         fs::write(&self.path, data)
     }
+}
+
+fn normalize_display_names(jobs: &mut [StoredSideAgentJob]) {
+    let mut seen = Vec::<String>::new();
+    for job in jobs.iter_mut() {
+        if job.display_name.trim().is_empty() {
+            job.display_name = allocate_display_name_from_names(&job.prompt, &seen);
+        }
+        if seen.iter().any(|name| name == &job.display_name) {
+            job.display_name = allocate_display_name_from_names(&job.prompt, &seen);
+        }
+        seen.push(job.display_name.clone());
+    }
+}
+
+fn allocate_display_name(prompt: &str, existing: &[StoredSideAgentJob]) -> String {
+    let existing_names = existing
+        .iter()
+        .map(|job| job.display_name.clone())
+        .collect::<Vec<_>>();
+    allocate_display_name_from_names(prompt, &existing_names)
+}
+
+fn allocate_display_name_from_names(prompt: &str, existing: &[String]) -> String {
+    let base = derive_display_name(prompt);
+    let mut candidate = base.clone();
+    let mut index = 2usize;
+    while existing.iter().any(|name| name == &candidate) {
+        candidate = format!("{base} {index}");
+        index += 1;
+    }
+    candidate
+}
+
+fn derive_display_name(prompt: &str) -> String {
+    let lower = prompt.to_ascii_lowercase();
+    let subject = if lower.contains("auth") {
+        "Auth"
+    } else if lower.contains("diff") {
+        "Diff"
+    } else if lower.contains("doc") || lower.contains("readme") {
+        "Docs"
+    } else if lower.contains("test") {
+        "Test"
+    } else if lower.contains("route") || lower.contains("routing") {
+        "Routing"
+    } else if lower.contains("api") {
+        "API"
+    } else if lower.contains("build") {
+        "Build"
+    } else if lower.contains("config") {
+        "Config"
+    } else if lower.contains("queue") {
+        "Queue"
+    } else {
+        first_significant_word(prompt).unwrap_or("Task")
+    };
+
+    let role = if lower.contains("review") {
+        "Reviewer"
+    } else if lower.contains("debug") {
+        "Debugger"
+    } else if lower.contains("inspect") || lower.contains("check") || lower.contains("audit") {
+        "Inspector"
+    } else if lower.contains("summarize") {
+        "Summarizer"
+    } else if lower.contains("fix") || lower.contains("patch") {
+        "Fixer"
+    } else if lower.contains("sim") {
+        "Simulator"
+    } else {
+        "Worker"
+    };
+
+    format!("{subject} {role}")
+}
+
+fn first_significant_word(prompt: &str) -> Option<&str> {
+    prompt
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .find(|part| !part.is_empty())
+        .map(|word| match word.to_ascii_lowercase().as_str() {
+            "inspect" | "review" | "debug" | "fix" | "check" | "summarize" | "analyze" => "Task",
+            _ => word,
+        })
 }
 
 fn invalid_data_error(path: &Path, error: serde_json::Error) -> io::Error {

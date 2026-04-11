@@ -50,7 +50,7 @@ struct ReviewJob {
 
 struct SideAgentJob {
     id: String,
-    prompt: String,
+    display_name: String,
     child: Child,
     output_path: PathBuf,
     stderr_path: PathBuf,
@@ -2052,7 +2052,7 @@ fn spawn_side_agent(
     match command.spawn() {
         Ok(child) => Ok(SideAgentJob {
             id: record.id,
-            prompt: prompt_text.to_string(),
+            display_name: record.display_name,
             child,
             output_path,
             stderr_path,
@@ -2094,8 +2094,8 @@ fn poll_side_agent_jobs(
     Ok(())
 }
 
-fn format_agent_result(id: &str, events: &[String], output: &str) -> String {
-    let mut sections = vec![format!("Agent {id} result:")];
+fn format_agent_result(id: &str, display_name: &str, events: &[String], output: &str) -> String {
+    let mut sections = vec![format!("Agent {display_name} ({id}) result:")];
     if !events.is_empty() {
         sections.push("Events:".to_string());
         sections.extend(events.iter().map(|event| format!("- {event}")));
@@ -2103,6 +2103,33 @@ fn format_agent_result(id: &str, events: &[String], output: &str) -> String {
     sections.push("Output:".to_string());
     sections.push(output.to_string());
     sections.join("\n")
+}
+
+fn resolve_agent_identifier(
+    requested: &str,
+    live_jobs: &[SideAgentJob],
+    store: &SideAgentStore,
+) -> Option<String> {
+    if live_jobs.iter().any(|job| job.id == requested) || store.job(requested).is_some() {
+        return Some(requested.to_string());
+    }
+
+    let lower = requested.to_ascii_lowercase();
+    let mut matches = live_jobs
+        .iter()
+        .map(|job| (job.id.clone(), job.display_name.clone()))
+        .chain(
+            store
+                .list_jobs()
+                .into_iter()
+                .map(|job| (job.id, job.display_name)),
+        )
+        .filter(|(_, name)| name.to_ascii_lowercase() == lower)
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    (matches.len() == 1).then(|| matches.remove(0))
 }
 
 fn open_review_window(
@@ -2582,8 +2609,8 @@ pub fn run_app(
                     ) {
                         Ok(job) => {
                             app.apply_system_notice(format!(
-                                "Spawned Codex agent {}: {}",
-                                job.id, job.prompt
+                                "Spawned Codex agent {} ({}).",
+                                job.display_name, job.id
                             ));
                             side_agent_jobs.push(job);
                         }
@@ -2600,8 +2627,9 @@ pub fn run_app(
                         app.apply_system_notice("Side agents:");
                         for job in jobs {
                             app.apply_system_notice(format!(
-                                "{}  {}  {}  {}",
+                                "{}  {}  {}  {}  {}",
                                 job.id,
+                                job.display_name,
                                 job.status.label(),
                                 job.model,
                                 job.prompt
@@ -2610,28 +2638,46 @@ pub fn run_app(
                     }
                 }
                 AppCommand::StopAgent { id } => {
-                    if let Some(job) = side_agent_jobs.iter_mut().find(|job| job.id == id) {
+                    let resolved =
+                        resolve_agent_identifier(&id, &side_agent_jobs, &side_agent_store);
+                    if let Some(job) = side_agent_jobs
+                        .iter_mut()
+                        .find(|job| Some(job.id.as_str()) == resolved.as_deref())
+                    {
                         if job.completed {
                             app.apply_system_notice(format!(
-                                "Side agent {id} is already finished."
+                                "Side agent {} ({}) is already finished.",
+                                job.display_name, job.id
                             ));
                         } else {
                             let _ = job.child.kill();
                             job.completed = true;
-                            let _ = side_agent_store.mark_finished(&id, SideAgentStatus::Stopped);
-                            app.apply_system_notice(format!("Stopped side agent {id}."));
+                            let _ =
+                                side_agent_store.mark_finished(&job.id, SideAgentStatus::Stopped);
+                            app.apply_system_notice(format!(
+                                "Stopped side agent {} ({}).",
+                                job.display_name, job.id
+                            ));
                         }
-                    } else if side_agent_store.job(&id).is_some() {
-                        side_agent_store.mark_finished(&id, SideAgentStatus::Stopped)?;
+                    } else if let Some(agent_id) = resolved
+                        && let Some(job) = side_agent_store.job(&agent_id)
+                    {
+                        side_agent_store.mark_finished(&agent_id, SideAgentStatus::Stopped)?;
                         app.apply_system_notice(format!(
-                            "Marked stored side agent {id} as stopped."
+                            "Marked stored side agent {} ({}) as stopped.",
+                            job.display_name, agent_id
                         ));
                     } else {
                         app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }
                 }
                 AppCommand::ShowAgentResult { id } => {
-                    if let Some(job) = side_agent_jobs.iter().find(|job| job.id == id) {
+                    let resolved =
+                        resolve_agent_identifier(&id, &side_agent_jobs, &side_agent_store);
+                    if let Some(job) = side_agent_jobs
+                        .iter()
+                        .find(|job| Some(job.id.as_str()) == resolved.as_deref())
+                    {
                         let output = std::fs::read_to_string(&job.output_path)
                             .unwrap_or_else(|_| "No output captured yet.".to_string());
                         let events = summarize_side_agent_events(
@@ -2644,14 +2690,26 @@ pub fn run_app(
                             8,
                         )
                         .unwrap_or_default();
-                        app.apply_assistant_text(&format_agent_result(&id, &events, &output));
-                    } else if let Some(job) = side_agent_store.job(&id) {
+                        app.apply_assistant_text(&format_agent_result(
+                            &job.id,
+                            &job.display_name,
+                            &events,
+                            &output,
+                        ));
+                    } else if let Some(agent_id) = resolved
+                        && let Some(job) = side_agent_store.job(&agent_id)
+                    {
                         let output = std::fs::read_to_string(&job.output_path)
                             .unwrap_or_else(|_| "No output captured yet.".to_string());
                         let events =
                             summarize_side_agent_events(&PathBuf::from(&job.events_path), 8)
                                 .unwrap_or_default();
-                        app.apply_assistant_text(&format_agent_result(&id, &events, &output));
+                        app.apply_assistant_text(&format_agent_result(
+                            &agent_id,
+                            &job.display_name,
+                            &events,
+                            &output,
+                        ));
                     } else {
                         app.apply_system_notice(format!("Unknown agent id: {id}"));
                     }
@@ -3539,11 +3597,12 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_status_summary,
-        render_thread_timeline, render_thread_timeline_with_mode, render_working_tree_diff,
+        SideAgentJob, copy_to_clipboard, format_agent_result, normalize_for_raw_terminal,
+        render_staged_diff, render_status_summary, render_thread_timeline,
+        render_thread_timeline_with_mode, render_working_tree_diff, resolve_agent_identifier,
         should_redraw_frame, summarize_transcript_rows, tool_update_text, truncate_lines,
     };
-    use crate::{RowKind, StoredThread, TranscriptRow};
+    use crate::{RowKind, SideAgentStore, StoredThread, TranscriptRow};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3756,5 +3815,37 @@ mod tests {
     fn should_redraw_frame_only_when_frame_changes() {
         assert!(!should_redraw_frame("same", "same"));
         assert!(should_redraw_frame("before", "after"));
+    }
+
+    #[test]
+    fn format_agent_result_uses_display_name() {
+        let result = format_agent_result(
+            "agent-1",
+            "Auth Inspector",
+            &["turn completed".to_string()],
+            "Looks good.",
+        );
+
+        assert!(result.contains("Agent Auth Inspector (agent-1) result:"));
+        assert!(result.contains("- turn completed"));
+    }
+
+    #[test]
+    fn resolve_agent_identifier_accepts_exact_display_name() {
+        let live_jobs = vec![SideAgentJob {
+            id: "agent-1".to_string(),
+            display_name: "Auth Inspector".to_string(),
+            child: std::process::Command::new("true")
+                .spawn()
+                .expect("spawn true"),
+            output_path: std::path::PathBuf::from("/tmp/out"),
+            stderr_path: std::path::PathBuf::from("/tmp/err"),
+            completed: true,
+        }];
+        let store = SideAgentStore::open_at(unique_temp_dir("resolve-id").join("agents.json"))
+            .expect("store");
+
+        let resolved = resolve_agent_identifier("Auth Inspector", &live_jobs, &store);
+        assert_eq!(resolved.as_deref(), Some("agent-1"));
     }
 }
