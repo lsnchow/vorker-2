@@ -137,7 +137,8 @@ fn render_session_event_timeline_recent_limits_output() {
     }
     let events = derive_thread_events(None, &thread);
 
-    let timeline = render_session_event_timeline_with_mode(&thread.name, &events, "recent", None);
+    let timeline =
+        render_session_event_timeline_with_mode(&thread.name, &events, "recent", None, None);
 
     assert!(timeline.contains("- mode: recent"));
     assert!(!timeline.contains("1. [thread] created"));
@@ -156,12 +157,38 @@ fn render_session_event_timeline_filter_limits_to_matching_kind() {
     });
     let events = derive_thread_events(None, &thread);
 
-    let timeline =
-        render_session_event_timeline_with_mode(&thread.name, &events, "filter", Some("model"));
+    let timeline = render_session_event_timeline_with_mode(
+        &thread.name,
+        &events,
+        "filter",
+        Some("model"),
+        None,
+    );
 
     assert!(timeline.contains("- mode: filter"));
     assert!(timeline.contains("[model]"));
     assert!(!timeline.contains("[user]"));
+}
+
+#[test]
+fn render_session_event_timeline_recent_respects_custom_limit() {
+    let mut thread = StoredThread::ephemeral("/workspace/pod");
+    thread.name = "Hyperloop controls".to_string();
+    for index in 0..12 {
+        thread.rows.push(TranscriptRow {
+            kind: RowKind::User,
+            text: format!("row {index}"),
+            detail: None,
+        });
+    }
+    let events = derive_thread_events(None, &thread);
+
+    let timeline =
+        render_session_event_timeline_with_mode(&thread.name, &events, "recent", None, Some(3));
+
+    assert!(timeline.contains("- mode: recent"));
+    assert!(timeline.contains("3. [user] row 11"));
+    assert!(!timeline.contains("4."));
 }
 
 #[test]

@@ -508,6 +508,26 @@ fn slash_timeline_recent_queues_recent_timeline() {
         vec![AppCommand::ShowTimelineMode {
             mode: "recent".to_string(),
             filter: None,
+            limit: None,
+        }]
+    );
+}
+
+#[test]
+fn slash_timeline_recent_with_limit_queues_limited_recent_timeline() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/timeline recent 5".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowTimelineMode {
+            mode: "recent".to_string(),
+            filter: None,
+            limit: Some(5),
         }]
     );
 }
@@ -526,6 +546,7 @@ fn slash_timeline_filter_queues_filtered_timeline() {
         vec![AppCommand::ShowTimelineMode {
             mode: "filter".to_string(),
             filter: Some("model".to_string()),
+            limit: None,
         }]
     );
 }

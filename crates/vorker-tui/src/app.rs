@@ -118,6 +118,7 @@ pub enum AppCommand {
     ShowTimelineMode {
         mode: String,
         filter: Option<String>,
+        limit: Option<usize>,
     },
     ShowStatus,
     ListPromptHistory,
@@ -1458,7 +1459,17 @@ impl App {
                     self.pending_actions.push(AppCommand::ShowTimelineMode {
                         mode: "recent".to_string(),
                         filter: None,
+                        limit: None,
                     });
+                } else if let Some(value) = tail.strip_prefix("recent ").map(str::trim) {
+                    match value.parse::<usize>() {
+                        Ok(limit) => self.pending_actions.push(AppCommand::ShowTimelineMode {
+                            mode: "recent".to_string(),
+                            filter: None,
+                            limit: Some(limit),
+                        }),
+                        Err(_) => self.apply_system_notice("Usage: /timeline recent <count>"),
+                    }
                 } else if let Some(filter) = tail.strip_prefix("filter ").map(str::trim) {
                     if filter.is_empty() {
                         self.apply_system_notice("Usage: /timeline filter <kind>");
@@ -1466,6 +1477,7 @@ impl App {
                         self.pending_actions.push(AppCommand::ShowTimelineMode {
                             mode: "filter".to_string(),
                             filter: Some(filter.to_string()),
+                            limit: None,
                         });
                     }
                 } else {
@@ -2697,12 +2709,17 @@ pub fn run_app(
                     let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
                     app.apply_assistant_text(&timeline);
                 }
-                AppCommand::ShowTimelineMode { mode, filter } => {
+                AppCommand::ShowTimelineMode {
+                    mode,
+                    filter,
+                    limit,
+                } => {
                     let timeline = load_timeline_text_with_mode(
                         &session_event_store,
                         &app.thread_record(),
                         &mode,
                         filter.as_deref(),
+                        limit,
                     )?;
                     app.apply_assistant_text(&timeline);
                 }
@@ -3248,7 +3265,7 @@ fn load_timeline_text(
     session_event_store: &SessionEventStore,
     thread: &StoredThread,
 ) -> io::Result<String> {
-    load_timeline_text_with_mode(session_event_store, thread, "full", None)
+    load_timeline_text_with_mode(session_event_store, thread, "full", None, None)
 }
 
 fn load_timeline_text_with_mode(
@@ -3256,6 +3273,7 @@ fn load_timeline_text_with_mode(
     thread: &StoredThread,
     mode: &str,
     filter: Option<&str>,
+    limit: Option<usize>,
 ) -> io::Result<String> {
     let events = session_event_store.events(&thread.id)?;
     if events.is_empty() {
@@ -3266,6 +3284,7 @@ fn load_timeline_text_with_mode(
             &events,
             mode,
             filter,
+            limit,
         ))
     }
 }

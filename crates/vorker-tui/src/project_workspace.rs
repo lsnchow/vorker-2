@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::session_event_store::apply_events_to_thread;
 use crate::theme::{fit, truncate, visible_length};
 use crate::{
     PromptHistoryStore, SessionEventStore, SideAgentStore, SkillStore, StoredThread, ThreadStore,
@@ -155,12 +156,21 @@ impl ProjectWorkspace {
         };
 
         for entry in entries.flatten() {
-            let path = entry.path().join("threads.json");
+            let project_dir = entry.path();
+            let path = project_dir.join("threads.json");
             if !path.exists() {
                 continue;
             }
             let store = ThreadStore::open_at(path)?;
-            threads.extend(store.list_threads());
+            let event_store = SessionEventStore::open_at(project_dir.join("events"))?;
+            threads.extend(store.list_threads().into_iter().map(|thread| {
+                let events = event_store.events(&thread.id).unwrap_or_default();
+                if events.is_empty() {
+                    thread
+                } else {
+                    apply_events_to_thread(&thread, &events)
+                }
+            }));
         }
 
         threads.sort_by(|left, right| {

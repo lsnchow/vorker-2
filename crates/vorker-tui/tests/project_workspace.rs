@@ -3,7 +3,8 @@ use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
-    ProjectWorkspace, RowKind, ThreadStore, TranscriptRow, render_project_confirmation,
+    ProjectWorkspace, RowKind, SessionEventKind, SessionEventStore, ThreadStore, TranscriptRow,
+    render_project_confirmation,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -89,6 +90,21 @@ fn list_all_threads_reads_threads_across_multiple_project_workspaces() {
     thread_b.name = "Beta thread".to_string();
     store_b.upsert(thread_b.clone()).expect("save b");
 
+    let event_store_b = SessionEventStore::open_at(workspace_b.events_dir()).expect("events b");
+    event_store_b
+        .append(
+            &thread_b.id,
+            &[vorker_tui::SessionEvent {
+                timestamp_epoch_seconds: 1,
+                thread_id: thread_b.id.clone(),
+                kind: SessionEventKind::ThreadRenamed {
+                    from: "Beta thread".to_string(),
+                    to: "Beta renamed".to_string(),
+                },
+            }],
+        )
+        .expect("append event");
+
     let threads = ProjectWorkspace::list_all_threads_under(root.clone()).expect("aggregate list");
     assert_eq!(threads.len(), 2);
     assert!(
@@ -98,9 +114,10 @@ fn list_all_threads_reads_threads_across_multiple_project_workspaces() {
                 && thread.cwd == repo_a.display().to_string())
     );
     assert!(
-        threads.iter().any(
-            |thread| thread.name == "Beta thread" && thread.cwd == repo_b.display().to_string()
-        )
+        threads
+            .iter()
+            .any(|thread| thread.name == "Beta renamed"
+                && thread.cwd == repo_b.display().to_string())
     );
 }
 

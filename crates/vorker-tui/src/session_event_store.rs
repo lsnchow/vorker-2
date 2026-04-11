@@ -260,7 +260,7 @@ pub fn apply_events_to_thread(base: &StoredThread, events: &[SessionEvent]) -> S
 
 #[must_use]
 pub fn render_session_event_timeline(thread_name: &str, events: &[SessionEvent]) -> String {
-    render_session_event_timeline_with_mode(thread_name, events, "full", None)
+    render_session_event_timeline_with_mode(thread_name, events, "full", None, None)
 }
 
 #[must_use]
@@ -269,6 +269,7 @@ pub fn render_session_event_timeline_with_mode(
     events: &[SessionEvent],
     mode: &str,
     filter: Option<&str>,
+    limit: Option<usize>,
 ) -> String {
     if events.is_empty() {
         return "Timeline is empty.".to_string();
@@ -285,7 +286,8 @@ pub fn render_session_event_timeline_with_mode(
         .unwrap_or_else(|| events.to_vec());
 
     let visible = if mode.eq_ignore_ascii_case("recent") {
-        let start = filtered.len().saturating_sub(10);
+        let window = limit.unwrap_or(10);
+        let start = filtered.len().saturating_sub(window);
         filtered[start..].to_vec()
     } else {
         filtered
