@@ -83,6 +83,7 @@ Inside the shell, type `/` to open the command list.
 /agent-stop <id>       stop a side-agent job
 /queue <prompt>        queue follow-up work
 /queue list            show queued follow-up prompts
+/queue pop             remove the next queued follow-up prompt
 /queue clear           clear queued follow-up prompts
 /steer <guidance>      send steering guidance
 /stop                  interrupt active work and side agents

@@ -83,6 +83,7 @@ pub enum AppCommand {
         prompt_text: String,
     },
     ListQueuedPrompts,
+    PopQueuedPrompt,
     ClearQueuedPrompts,
     SpawnAgent {
         prompt_text: String,
@@ -585,6 +586,12 @@ impl App {
         let count = self.prompt_queue.len();
         self.prompt_queue.clear();
         count
+    }
+
+    pub fn pop_queued_prompt(&mut self) -> Option<String> {
+        self.prompt_queue
+            .pop_front()
+            .map(|(display_text, _)| display_text)
     }
 
     pub fn open_permission_prompt(
@@ -1293,6 +1300,8 @@ impl App {
                     self.apply_system_notice("Usage: /queue <prompt>");
                 } else if display_text == "list" {
                     self.pending_actions.push(AppCommand::ListQueuedPrompts);
+                } else if display_text == "pop" {
+                    self.pending_actions.push(AppCommand::PopQueuedPrompt);
                 } else if display_text == "clear" {
                     self.pending_actions.push(AppCommand::ClearQueuedPrompts);
                 } else {
@@ -2396,6 +2405,13 @@ pub fn run_app(
                         for (index, prompt) in queued.iter().enumerate() {
                             app.apply_system_notice(format!("{}. {}", index + 1, prompt));
                         }
+                    }
+                }
+                AppCommand::PopQueuedPrompt => {
+                    if let Some(prompt) = app.pop_queued_prompt() {
+                        app.apply_system_notice(format!("Removed queued prompt: {prompt}"));
+                    } else {
+                        app.apply_system_notice("Queue is empty.");
                     }
                 }
                 AppCommand::ClearQueuedPrompts => {

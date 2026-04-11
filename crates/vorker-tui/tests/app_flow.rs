@@ -206,6 +206,17 @@ fn slash_queue_clear_queues_a_queue_clear_action() {
 }
 
 #[test]
+fn slash_queue_pop_queues_a_queue_pop_action() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/queue pop".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::PopQueuedPrompt]);
+}
+
+#[test]
 fn slash_agent_queues_codex_side_agent() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/agent inspect auth".chars() {
