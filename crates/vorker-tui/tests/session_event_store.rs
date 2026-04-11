@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
     ApprovalMode, RowKind, SessionEventKind, SessionEventStore, StoredThread, TranscriptRow,
-    derive_thread_events,
+    derive_thread_events, render_session_event_timeline,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -102,4 +102,23 @@ fn session_event_store_appends_and_reads_events() {
     assert!(store.path_for(&thread.id).starts_with(&root));
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn render_session_event_timeline_summarizes_events() {
+    let mut thread = StoredThread::ephemeral("/workspace/pod");
+    thread.name = "Hyperloop controls".to_string();
+    thread.rows.push(TranscriptRow {
+        kind: RowKind::User,
+        text: "build controller".to_string(),
+        detail: None,
+    });
+    let events = derive_thread_events(None, &thread);
+
+    let timeline = render_session_event_timeline(&thread.name, &events);
+
+    assert!(timeline.contains("## Timeline"));
+    assert!(timeline.contains("events:"));
+    assert!(timeline.contains("[thread] created"));
+    assert!(timeline.contains("[user] build controller"));
 }

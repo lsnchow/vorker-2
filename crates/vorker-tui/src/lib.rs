@@ -34,6 +34,7 @@ pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{DashboardOptions, PopupItem, RowKind, TranscriptRow, render_dashboard};
 pub use session_event_store::{
     SessionEvent, SessionEventKind, SessionEventStore, derive_thread_events,
+    render_session_event_timeline,
 };
 pub use side_agent_store::{
     SideAgentStatus, SideAgentStore, StoredSideAgentJob, summarize_side_agent_events,

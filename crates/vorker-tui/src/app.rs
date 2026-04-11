@@ -24,7 +24,9 @@ use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
-use crate::session_event_store::{SessionEventStore, derive_thread_events};
+use crate::session_event_store::{
+    SessionEventStore, derive_thread_events, render_session_event_timeline,
+};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
 use crate::slash::{
@@ -2630,7 +2632,7 @@ pub fn run_app(
                     Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
                 },
                 AppCommand::CopyTimeline => {
-                    let timeline = render_thread_timeline(&app.thread_record());
+                    let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
                     match copy_to_clipboard(&timeline) {
                         Ok(()) => app.apply_system_notice("Timeline copied to clipboard."),
                         Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
@@ -2648,7 +2650,7 @@ pub fn run_app(
                     app.compact_transcript();
                 }
                 AppCommand::ShowTimeline => {
-                    let timeline = render_thread_timeline(&app.thread_record());
+                    let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
                     app.apply_assistant_text(&timeline);
                 }
                 AppCommand::ShowStatus => {
@@ -3169,6 +3171,18 @@ fn render_thread_timeline(thread: &StoredThread) -> String {
         lines.push(format!("{}. [{}] {}", index + 1, kind, summary));
     }
     lines.join("\n")
+}
+
+fn load_timeline_text(
+    session_event_store: &SessionEventStore,
+    thread: &StoredThread,
+) -> io::Result<String> {
+    let events = session_event_store.events(&thread.id)?;
+    if events.is_empty() {
+        Ok(render_thread_timeline(thread))
+    } else {
+        Ok(render_session_event_timeline(&thread.name, &events))
+    }
 }
 
 fn summarize_transcript_rows(rows: &[TranscriptRow]) -> String {

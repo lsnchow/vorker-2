@@ -199,11 +199,78 @@ pub fn derive_thread_events(
     events
 }
 
+#[must_use]
+pub fn render_session_event_timeline(thread_name: &str, events: &[SessionEvent]) -> String {
+    if events.is_empty() {
+        return "Timeline is empty.".to_string();
+    }
+
+    let mut lines = vec![format!(
+        "## Timeline\n- thread: {}\n- events: {}",
+        thread_name,
+        events.len()
+    )];
+
+    for (index, event) in events.iter().enumerate() {
+        lines.push(format!(
+            "{}. {}",
+            index + 1,
+            summarize_event_kind(&event.kind)
+        ));
+    }
+
+    lines.join("\n")
+}
+
 fn row_event(row: TranscriptRow) -> SessionEventKind {
     SessionEventKind::RowAppended {
         row_kind: row.kind,
         text: row.text,
         detail: row.detail,
+    }
+}
+
+fn summarize_event_kind(kind: &SessionEventKind) -> String {
+    match kind {
+        SessionEventKind::ThreadCreated { thread_name, cwd } => {
+            format!("[thread] created '{thread_name}' in {cwd}")
+        }
+        SessionEventKind::ThreadRenamed { from, to } => {
+            format!("[thread] renamed from '{from}' to '{to}'")
+        }
+        SessionEventKind::ModelChanged { from, to } => {
+            format!(
+                "[model] {} -> {}",
+                from.as_deref().unwrap_or("unset"),
+                to.as_deref().unwrap_or("unset")
+            )
+        }
+        SessionEventKind::ApprovalModeChanged { from, to } => {
+            format!("[approvals] {} -> {}", from.label(), to.label())
+        }
+        SessionEventKind::CwdChanged { from, to } => {
+            format!("[cwd] {} -> {}", from, to)
+        }
+        SessionEventKind::RowAppended { row_kind, text, .. } => {
+            let kind = match row_kind {
+                RowKind::System => "system",
+                RowKind::User => "user",
+                RowKind::Assistant => "assistant",
+                RowKind::Tool => "tool",
+            };
+            let summary = text
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .chars()
+                .take(100)
+                .collect::<String>();
+            format!("[{kind}] {summary}")
+        }
+        SessionEventKind::TranscriptReplaced { row_count } => {
+            format!("[transcript] replaced with {} row(s)", row_count)
+        }
     }
 }
 
