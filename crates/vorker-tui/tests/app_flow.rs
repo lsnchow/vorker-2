@@ -347,6 +347,30 @@ fn slash_copy_queues_transcript_copy() {
 }
 
 #[test]
+fn slash_copy_diff_queues_diff_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy diff".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::CopyDiff]);
+}
+
+#[test]
+fn slash_copy_timeline_queues_timeline_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy timeline".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::CopyTimeline]);
+}
+
+#[test]
 fn unavailable_transcript_command_shows_notice_in_empty_thread() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/copy".chars() {

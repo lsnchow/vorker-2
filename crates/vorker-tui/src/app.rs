@@ -103,6 +103,8 @@ pub enum AppCommand {
     },
     ExportTranscript,
     CopyTranscript,
+    CopyDiff,
+    CopyTimeline,
     ShowDiff,
     ShowStagedDiff,
     CompactTranscript,
@@ -1413,7 +1415,14 @@ impl App {
                 self.pending_actions.push(AppCommand::ExportTranscript);
             }
             SlashCommandId::Copy => {
-                self.pending_actions.push(AppCommand::CopyTranscript);
+                let scope = command_tail(buffer);
+                if scope.eq_ignore_ascii_case("diff") {
+                    self.pending_actions.push(AppCommand::CopyDiff);
+                } else if scope.eq_ignore_ascii_case("timeline") {
+                    self.pending_actions.push(AppCommand::CopyTimeline);
+                } else {
+                    self.pending_actions.push(AppCommand::CopyTranscript);
+                }
             }
             SlashCommandId::Diff => {
                 let scope = command_tail(buffer);
@@ -2605,6 +2614,20 @@ pub fn run_app(
                     let markdown = crate::render_transcript_markdown(&app.thread_record());
                     match copy_to_clipboard(&markdown) {
                         Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
+                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+                    }
+                }
+                AppCommand::CopyDiff => match render_working_tree_diff(&cwd, 160) {
+                    Ok(diff) => match copy_to_clipboard(&diff) {
+                        Ok(()) => app.apply_system_notice("Diff copied to clipboard."),
+                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+                    },
+                    Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+                },
+                AppCommand::CopyTimeline => {
+                    let timeline = render_thread_timeline(&app.thread_record());
+                    match copy_to_clipboard(&timeline) {
+                        Ok(()) => app.apply_system_notice("Timeline copied to clipboard."),
                         Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
                     }
                 }
