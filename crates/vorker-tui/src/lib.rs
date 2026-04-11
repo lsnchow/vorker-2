@@ -2,6 +2,7 @@
 
 mod app;
 mod boot;
+mod bottom_pane_state;
 mod bridge;
 mod composer_state;
 mod demo;
@@ -23,6 +24,7 @@ mod transcript_export;
 
 pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
+pub use bottom_pane_state::BottomPaneState;
 pub use composer_state::ComposerState;
 pub use demo::render_hyperloop_mock;
 pub use mentions::{

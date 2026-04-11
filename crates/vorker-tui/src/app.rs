@@ -15,16 +15,15 @@ use std::time::{Duration, Instant};
 use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
+use crate::bottom_pane_state::BottomPaneState;
 use crate::bridge::{AcpBridge, BridgeEvent};
-use crate::composer_state::ComposerState;
 use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
     insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
-use crate::model_picker_state::ModelPickerState;
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
-use crate::popup_state::{AppPopupState, PopupMode};
+use crate::popup_state::PopupMode;
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
@@ -154,10 +153,8 @@ pub struct App {
     workspace_path: String,
     current_thread: StoredThread,
     rows: Vec<TranscriptRow>,
-    composer: ComposerState,
     workspace_files: Vec<String>,
-    popup: AppPopupState,
-    model_picker: ModelPickerState,
+    bottom_pane: BottomPaneState,
     working_started_at: Option<Instant>,
     needs_replay_context: bool,
     dirty: bool,
@@ -238,13 +235,15 @@ impl App {
             workspace_path,
             current_thread: thread.clone(),
             rows: thread.rows.clone(),
-            composer: ComposerState::default(),
             workspace_files: Vec::new(),
-            popup: AppPopupState::default(),
-            model_picker: {
-                let mut state = ModelPickerState::default();
-                state.set_selected_model_id(selected_model.clone());
-                state.set_model_choices(selected_model.into_iter().collect());
+            bottom_pane: {
+                let mut state = BottomPaneState::default();
+                state
+                    .model_picker_mut()
+                    .set_selected_model_id(selected_model.clone());
+                state
+                    .model_picker_mut()
+                    .set_model_choices(selected_model.into_iter().collect());
                 state
             },
             working_started_at: None,
@@ -274,19 +273,43 @@ impl App {
         &self.workspace_path
     }
 
+    fn composer(&self) -> &crate::ComposerState {
+        self.bottom_pane.composer()
+    }
+
+    fn composer_mut(&mut self) -> &mut crate::ComposerState {
+        self.bottom_pane.composer_mut()
+    }
+
+    fn popup(&self) -> &crate::AppPopupState {
+        self.bottom_pane.popup()
+    }
+
+    fn popup_mut(&mut self) -> &mut crate::AppPopupState {
+        self.bottom_pane.popup_mut()
+    }
+
+    fn model_picker(&self) -> &crate::ModelPickerState {
+        self.bottom_pane.model_picker()
+    }
+
+    fn model_picker_mut(&mut self) -> &mut crate::ModelPickerState {
+        self.bottom_pane.model_picker_mut()
+    }
+
     #[must_use]
     pub fn command_buffer(&self) -> &str {
-        self.composer.buffer()
+        self.composer().buffer()
     }
 
     #[must_use]
     pub fn selected_model_id(&self) -> Option<&str> {
-        self.model_picker.selected_model_id()
+        self.model_picker().selected_model_id()
     }
 
     #[must_use]
     pub fn model_choices(&self) -> &[String] {
-        self.model_picker.model_choices()
+        self.model_picker().model_choices()
     }
 
     #[must_use]
@@ -308,7 +331,7 @@ impl App {
         let mut thread = self.current_thread.clone();
         thread.cwd = self.workspace_path.clone();
         thread.rows = self.rows.clone();
-        thread.model = self.model_picker.selected_model_id().map(str::to_string);
+        thread.model = self.model_picker().selected_model_id().map(str::to_string);
         thread.total_active_seconds = self.thread_duration_seconds();
         thread
     }
@@ -329,14 +352,14 @@ impl App {
         self.workspace_path = thread.cwd.clone();
         self.current_thread = thread.clone();
         self.rows = thread.rows.clone();
-        self.composer.clear_buffer();
-        self.model_picker
+        self.composer_mut().clear_buffer();
+        self.model_picker_mut()
             .set_selected_model_id(thread.model.clone());
-        self.model_picker
+        self.model_picker_mut()
             .set_model_choices(thread.model.into_iter().collect());
-        self.model_picker.close();
-        self.composer.clear_mentions();
-        self.popup.close();
+        self.model_picker_mut().close();
+        self.composer_mut().clear_mentions();
+        self.popup_mut().close();
         self.working_started_at = None;
         self.needs_replay_context = !self.rows.is_empty();
         self.dirty = false;
@@ -371,7 +394,7 @@ impl App {
     }
 
     pub fn set_model_choices(&mut self, model_choices: Vec<String>) {
-        self.model_picker.set_model_choices(model_choices);
+        self.model_picker_mut().set_model_choices(model_choices);
     }
 
     pub fn set_workspace_files(&mut self, workspace_files: Vec<String>) {
@@ -489,15 +512,17 @@ impl App {
             available_models.insert(0, current_model.clone());
         }
 
-        self.model_picker.set_selected_model_id(Some(current_model));
+        self.model_picker_mut()
+            .set_selected_model_id(Some(current_model));
         self.set_model_choices(available_models);
         self.dirty = true;
     }
 
     pub fn apply_model_changed(&mut self, model: impl Into<String>) {
         let model = model.into();
-        self.model_picker.ensure_choice(model.clone());
-        self.model_picker.set_selected_model_id(Some(model.clone()));
+        self.model_picker_mut().ensure_choice(model.clone());
+        self.model_picker_mut()
+            .set_selected_model_id(Some(model.clone()));
         self.apply_system_notice(format!("Model changed to {model}"));
     }
 
@@ -606,11 +631,11 @@ impl App {
         title: impl Into<String>,
         items: Vec<PermissionOptionView>,
     ) {
-        self.popup.open_permission_prompt(title, items);
+        self.popup_mut().open_permission_prompt(title, items);
     }
 
     pub fn render(&self, width: usize, color: bool) -> String {
-        let popup = self.popup.render_state(&self.filtered_skill_items());
+        let popup = self.popup().render_state(&self.filtered_skill_items());
         let review_mode = current_review_mode();
         let busy = self.working_started_at.is_some();
         render_dashboard(
@@ -621,15 +646,15 @@ impl App {
                 theme_name: self.shell_theme.clone(),
                 workspace_path: self.workspace_path.clone(),
                 selected_model_id: self.selected_model_id().map(str::to_string),
-                model_choices: self.model_picker.model_choices().to_vec(),
-                model_picker_open: self.model_picker.is_open(),
-                command_buffer: self.composer.buffer().to_string(),
-                slash_menu_selected_index: self.composer.slash_selected_index(),
+                model_choices: self.model_picker().model_choices().to_vec(),
+                model_picker_open: self.model_picker().is_open(),
+                command_buffer: self.composer().buffer().to_string(),
+                slash_menu_selected_index: self.composer().slash_selected_index(),
                 mention_items: self
                     .is_mention_popup()
-                    .then(|| self.popup.mention_items().to_vec())
+                    .then(|| self.popup().mention_items().to_vec())
                     .unwrap_or_default(),
-                mention_selected_index: self.popup.selected_index(),
+                mention_selected_index: self.popup().selected_index(),
                 permission_title: popup.0,
                 permission_items: popup.1,
                 permission_selected_index: popup.2,
@@ -661,7 +686,11 @@ impl App {
                 } else {
                     "Improve documentation in @filename".to_string()
                 },
-                footer_mode: match (review_mode, busy, self.composer.buffer().trim().is_empty()) {
+                footer_mode: match (
+                    review_mode,
+                    busy,
+                    self.composer().buffer().trim().is_empty(),
+                ) {
                     (true, true, _) => FooterMode::ReviewBusy,
                     (true, false, _) => FooterMode::Review,
                     (false, true, _) => FooterMode::Busy,
@@ -677,27 +706,27 @@ impl App {
             return false;
         }
 
-        if self.popup.is_mode(PopupMode::Permission) {
+        if self.popup().is_mode(PopupMode::Permission) {
             self.handle_permission_key(key);
             return true;
         }
 
-        if self.popup.is_mode(PopupMode::SkillAction) {
+        if self.popup().is_mode(PopupMode::SkillAction) {
             self.handle_skill_action_key(key);
             return true;
         }
 
-        if self.popup.is_mode(PopupMode::SkillToggle) {
+        if self.popup().is_mode(PopupMode::SkillToggle) {
             self.handle_skill_toggle_key(key);
             return true;
         }
 
-        if self.popup.is_mode(PopupMode::BusyAction) {
+        if self.popup().is_mode(PopupMode::BusyAction) {
             self.handle_busy_action_key(key);
             return true;
         }
 
-        if self.model_picker.is_open() {
+        if self.model_picker().is_open() {
             self.handle_model_picker_key(key);
             return true;
         }
@@ -714,12 +743,13 @@ impl App {
             KeyCode::Down => self.navigate_slash(1),
             KeyCode::Enter => self.submit_current_input(),
             KeyCode::Backspace => {
-                let _ = self.composer.pop_char();
+                let _ = self.composer_mut().pop_char();
                 self.prompt_history_cursor = None;
-                self.composer.set_mention_bindings(prune_mention_bindings(
-                    self.composer.buffer(),
-                    self.composer.mention_bindings(),
-                ));
+                let bindings = prune_mention_bindings(
+                    self.composer().buffer(),
+                    self.composer().mention_bindings(),
+                );
+                self.composer_mut().set_mention_bindings(bindings);
                 self.sync_inline_popup();
             }
             KeyCode::Char(ch)
@@ -727,7 +757,7 @@ impl App {
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
                 self.navigation.focused_pane = Pane::Input;
-                self.composer.push_char(ch);
+                self.composer_mut().push_char(ch);
                 self.prompt_history_cursor = None;
                 self.sync_inline_popup();
             }
@@ -738,21 +768,21 @@ impl App {
     }
 
     fn is_mention_popup(&self) -> bool {
-        self.popup.is_mode(PopupMode::Mention)
+        self.popup().is_mode(PopupMode::Mention)
     }
 
     fn handle_permission_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.popup
-                    .cycle_selected_index(self.popup.permission_items_len(), -1);
+                let len = self.popup().permission_items_len();
+                self.popup_mut().cycle_selected_index(len, -1);
             }
             KeyCode::Down => {
-                self.popup
-                    .cycle_selected_index(self.popup.permission_items_len(), 1);
+                let len = self.popup().permission_items_len();
+                self.popup_mut().cycle_selected_index(len, 1);
             }
             KeyCode::Enter => {
-                let option_id = self.popup.permission_option_id();
+                let option_id = self.popup().permission_option_id();
                 self.pending_actions
                     .push(AppCommand::ResolvePermission { option_id });
                 self.close_permission_prompt();
@@ -767,23 +797,23 @@ impl App {
     }
 
     fn close_permission_prompt(&mut self) {
-        self.popup.close();
+        self.popup_mut().close();
     }
 
     fn handle_skill_action_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.popup.cycle_selected_index(2, -1);
+                self.popup_mut().cycle_selected_index(2, -1);
             }
             KeyCode::Down => {
-                self.popup.cycle_selected_index(2, 1);
+                self.popup_mut().cycle_selected_index(2, 1);
             }
             KeyCode::Enter => {
-                if self.popup.selected_index() == 0 {
+                if self.popup().selected_index() == 0 {
                     self.pending_actions.push(AppCommand::ListSkills);
                     self.close_skill_popup();
                 } else {
-                    self.popup.open_skill_toggle(true);
+                    self.popup_mut().open_skill_toggle(true);
                     self.sync_skill_toggle_items();
                 }
             }
@@ -796,16 +826,16 @@ impl App {
         match key.code {
             KeyCode::Up => {
                 let len = self.filtered_skill_names().len();
-                self.popup.cycle_selected_index(len, -1);
+                self.popup_mut().cycle_selected_index(len, -1);
             }
             KeyCode::Down => {
                 let len = self.filtered_skill_names().len();
-                self.popup.cycle_selected_index(len, 1);
+                self.popup_mut().cycle_selected_index(len, 1);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(name) = self
                     .filtered_skill_names()
-                    .get(self.popup.selected_index())
+                    .get(self.popup().selected_index())
                     .cloned()
                 {
                     let enabled = !self.enabled_skills.contains(&name);
@@ -814,15 +844,15 @@ impl App {
                 }
             }
             KeyCode::Backspace => {
-                self.popup.pop_skill_toggle_char();
+                self.popup_mut().pop_skill_toggle_char();
                 self.sync_skill_toggle_items();
             }
             KeyCode::Char(ch)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
-                self.popup.push_skill_toggle_char(ch);
-                self.popup.set_selected_index(0);
+                self.popup_mut().push_skill_toggle_char(ch);
+                self.popup_mut().set_selected_index(0);
                 self.sync_skill_toggle_items();
             }
             KeyCode::Esc => self.close_skill_popup(),
@@ -831,25 +861,25 @@ impl App {
     }
 
     fn close_skill_popup(&mut self) {
-        self.popup.close();
+        self.popup_mut().close();
     }
 
     fn handle_busy_action_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.popup.cycle_selected_index(2, -1);
+                self.popup_mut().cycle_selected_index(2, -1);
             }
             KeyCode::Down => {
-                self.popup.cycle_selected_index(2, 1);
+                self.popup_mut().cycle_selected_index(2, 1);
             }
             KeyCode::Enter => {
-                let display_text = self.composer.buffer().trim().to_string();
+                let display_text = self.composer().buffer().trim().to_string();
                 if display_text.is_empty() {
                     self.close_busy_action_popup();
                     return;
                 }
 
-                match self.popup.selected_index() {
+                match self.popup().selected_index() {
                     0 => {
                         let prompt_text = self.build_prompt_text(&display_text);
                         self.pending_actions.push(AppCommand::QueuePrompt {
@@ -864,39 +894,45 @@ impl App {
                     }
                 }
 
-                self.composer.clear_buffer();
-                self.composer.clear_mentions();
+                self.composer_mut().clear_buffer();
+                self.composer_mut().clear_mentions();
                 self.sync_inline_popup();
                 self.close_busy_action_popup();
             }
             KeyCode::Esc => self.close_busy_action_popup(),
             KeyCode::Backspace => {
-                let _ = self.composer.pop_char();
-                self.composer.set_mention_bindings(prune_mention_bindings(
-                    self.composer.buffer(),
-                    self.composer.mention_bindings(),
-                ));
+                let _ = self.composer_mut().pop_char();
+                let bindings = prune_mention_bindings(
+                    self.composer().buffer(),
+                    self.composer().mention_bindings(),
+                );
+                self.composer_mut().set_mention_bindings(bindings);
             }
             KeyCode::Char(ch)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
-                self.composer.push_char(ch);
-                self.composer.set_mention_bindings(prune_mention_bindings(
-                    self.composer.buffer(),
-                    self.composer.mention_bindings(),
-                ));
+                self.composer_mut().push_char(ch);
+                let bindings = prune_mention_bindings(
+                    self.composer().buffer(),
+                    self.composer().mention_bindings(),
+                );
+                self.composer_mut().set_mention_bindings(bindings);
             }
             _ => {}
         }
     }
 
     fn close_busy_action_popup(&mut self) {
-        self.popup.close();
+        self.popup_mut().close();
     }
 
     fn filtered_skill_items(&self) -> Vec<crate::render::PopupItem> {
-        let query = self.popup.skill_toggle_query().trim().to_ascii_lowercase();
+        let query = self
+            .popup()
+            .skill_toggle_query()
+            .trim()
+            .to_ascii_lowercase();
         self.skills
             .iter()
             .filter(|skill| {
@@ -920,7 +956,11 @@ impl App {
     }
 
     fn filtered_skill_names(&self) -> Vec<String> {
-        let query = self.popup.skill_toggle_query().trim().to_ascii_lowercase();
+        let query = self
+            .popup()
+            .skill_toggle_query()
+            .trim()
+            .to_ascii_lowercase();
         self.skills
             .iter()
             .filter(|skill| {
@@ -934,49 +974,49 @@ impl App {
 
     fn sync_skill_toggle_items(&mut self) {
         let len = self.filtered_skill_names().len();
-        self.popup.clamp_selected_index(len);
+        self.popup_mut().clamp_selected_index(len);
     }
 
     fn handle_model_picker_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
                 let current = self
-                    .model_picker
+                    .model_picker()
                     .selected_model_id()
                     .and_then(|selected| {
-                        self.model_picker
+                        self.model_picker()
                             .model_choices()
                             .iter()
                             .position(|item| item == selected)
                     })
                     .unwrap_or(0);
-                let index = cycle_index(current, self.model_picker.model_choices().len(), -1);
-                self.model_picker
-                    .set_selected_model_id(self.model_picker.model_choices().get(index).cloned());
+                let index = cycle_index(current, self.model_picker().model_choices().len(), -1);
+                let next = self.model_picker().model_choices().get(index).cloned();
+                self.model_picker_mut().set_selected_model_id(next);
             }
             KeyCode::Down => {
                 let current = self
-                    .model_picker
+                    .model_picker()
                     .selected_model_id()
                     .and_then(|selected| {
-                        self.model_picker
+                        self.model_picker()
                             .model_choices()
                             .iter()
                             .position(|item| item == selected)
                     })
                     .unwrap_or(0);
-                let index = cycle_index(current, self.model_picker.model_choices().len(), 1);
-                self.model_picker
-                    .set_selected_model_id(self.model_picker.model_choices().get(index).cloned());
+                let index = cycle_index(current, self.model_picker().model_choices().len(), 1);
+                let next = self.model_picker().model_choices().get(index).cloned();
+                self.model_picker_mut().set_selected_model_id(next);
             }
             KeyCode::Enter => {
                 if let Some(model) = self.selected_model_id().map(str::to_string) {
                     self.pending_actions.push(AppCommand::SetModel { model });
                 }
-                self.model_picker.close();
+                self.model_picker_mut().close();
             }
             KeyCode::Esc => {
-                self.model_picker.close();
+                self.model_picker_mut().close();
             }
             _ => {}
         }
@@ -985,61 +1025,62 @@ impl App {
     fn handle_mention_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.popup
-                    .cycle_selected_index(self.popup.mention_items().len(), -1);
+                let len = self.popup().mention_items().len();
+                self.popup_mut().cycle_selected_index(len, -1);
             }
             KeyCode::Down => {
-                self.popup
-                    .cycle_selected_index(self.popup.mention_items().len(), 1);
+                let len = self.popup().mention_items().len();
+                self.popup_mut().cycle_selected_index(len, 1);
             }
             KeyCode::Enter => {
                 if let Some(selected) = self
-                    .popup
+                    .popup()
                     .mention_items()
-                    .get(self.popup.selected_index())
+                    .get(self.popup().selected_index())
                     .cloned()
                     && let Some((text, binding)) =
-                        insert_selected_mention(self.composer.buffer(), &selected)
+                        insert_selected_mention(self.composer().buffer(), &selected)
                 {
-                    self.composer.set_buffer(text);
-                    self.composer.set_mention_bindings(prune_mention_bindings(
-                        self.composer.buffer(),
-                        &[self.composer.mention_bindings().to_vec(), vec![binding]].concat(),
-                    ));
+                    self.composer_mut().set_buffer(text);
+                    let bindings = prune_mention_bindings(
+                        self.composer().buffer(),
+                        &[self.composer().mention_bindings().to_vec(), vec![binding]].concat(),
+                    );
+                    self.composer_mut().set_mention_bindings(bindings);
                 }
                 self.sync_inline_popup();
             }
             KeyCode::Esc => {
-                self.popup.close();
+                self.popup_mut().close();
             }
             _ => {}
         }
     }
 
     fn handle_escape(&mut self) {
-        if self.model_picker.is_open() {
-            self.model_picker.close();
+        if self.model_picker().is_open() {
+            self.model_picker_mut().close();
             return;
         }
 
-        if self.popup.mode().is_some() {
-            if self.popup.is_mode(PopupMode::BusyAction) {
+        if self.popup().mode().is_some() {
+            if self.popup().is_mode(PopupMode::BusyAction) {
                 self.close_busy_action_popup();
                 return;
             }
-            if self.popup.is_mode(PopupMode::SkillAction)
-                || self.popup.is_mode(PopupMode::SkillToggle)
+            if self.popup().is_mode(PopupMode::SkillAction)
+                || self.popup().is_mode(PopupMode::SkillToggle)
             {
                 self.close_skill_popup();
                 return;
             }
-            self.popup.close();
+            self.popup_mut().close();
             return;
         }
 
-        if !self.composer.buffer().is_empty() {
-            self.composer.clear_buffer();
-            self.composer.clear_mentions();
+        if !self.composer().buffer().is_empty() {
+            self.composer_mut().clear_buffer();
+            self.composer_mut().clear_mentions();
             return;
         }
 
@@ -1049,29 +1090,29 @@ impl App {
     }
 
     fn autocomplete_slash_command(&mut self) {
-        if !is_slash_mode(self.composer.buffer()) {
+        if !is_slash_mode(self.composer().buffer()) {
             return;
         }
 
         let commands = filtered_commands_for_state(
-            self.composer.buffer(),
+            self.composer().buffer(),
             current_review_mode(),
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
         );
-        if let Some(command) = commands.get(self.composer.slash_selected_index()) {
-            self.composer.set_buffer(format!("{} ", command.name));
+        if let Some(command) = commands.get(self.composer().slash_selected_index()) {
+            self.composer_mut().set_buffer(format!("{} ", command.name));
         }
     }
 
     fn navigate_slash(&mut self, delta: isize) {
-        if !is_slash_mode(self.composer.buffer()) {
+        if !is_slash_mode(self.composer().buffer()) {
             self.recall_prompt_history(delta);
             return;
         }
 
         let commands = filtered_commands_for_state(
-            self.composer.buffer(),
+            self.composer().buffer(),
             current_review_mode(),
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
@@ -1080,11 +1121,12 @@ impl App {
             return;
         }
 
-        self.composer.set_slash_selected_index(cycle_index(
-            self.composer.slash_selected_index(),
+        let next_index = cycle_index(
+            self.composer().slash_selected_index(),
             commands.len(),
             delta,
-        ));
+        );
+        self.composer_mut().set_slash_selected_index(next_index);
     }
 
     fn recall_prompt_history(&mut self, delta: isize) {
@@ -1107,34 +1149,34 @@ impl App {
         };
 
         self.prompt_history_cursor = next;
-        self.composer.set_buffer(
-            next.and_then(|index| self.prompt_history.get(index).cloned())
-                .unwrap_or_default(),
-        );
-        self.composer.clear_mentions();
+        let recalled = next
+            .and_then(|index| self.prompt_history.get(index).cloned())
+            .unwrap_or_default();
+        self.composer_mut().set_buffer(recalled);
+        self.composer_mut().clear_mentions();
         self.sync_inline_popup();
     }
 
     fn submit_current_input(&mut self) {
         if self.working_started_at.is_some() {
-            let display_text = self.composer.buffer().trim().to_string();
+            let display_text = self.composer().buffer().trim().to_string();
             if is_slash_mode(&display_text) {
                 self.execute_slash_command(&display_text);
                 return;
             }
 
             if !display_text.is_empty() {
-                self.popup.open_busy_action();
+                self.popup_mut().open_busy_action();
             }
             return;
         }
 
-        if self.model_picker.is_open() {
+        if self.model_picker().is_open() {
             self.handle_model_picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             return;
         }
 
-        let trimmed = self.composer.buffer().trim().to_string();
+        let trimmed = self.composer().buffer().trim().to_string();
         if trimmed.is_empty() {
             return;
         }
@@ -1158,8 +1200,8 @@ impl App {
         });
         self.needs_replay_context = false;
         self.dirty = true;
-        self.composer.clear_buffer();
-        self.composer.clear_mentions();
+        self.composer_mut().clear_buffer();
+        self.composer_mut().clear_mentions();
         self.sync_inline_popup();
     }
 
@@ -1177,7 +1219,7 @@ impl App {
         }
 
         let bindings =
-            collect_buffer_mentions(self.composer.buffer(), self.composer.mention_bindings());
+            collect_buffer_mentions(self.composer().buffer(), self.composer().mention_bindings());
         let context =
             resolve_mention_context(std::path::Path::new(&self.workspace_path), &bindings);
         for error in &context.errors {
@@ -1200,13 +1242,13 @@ impl App {
                 self.working_started_at.is_some(),
                 !self.rows.is_empty(),
             )
-            .get(self.composer.slash_selected_index())
+            .get(self.composer().slash_selected_index())
             .copied()
         });
 
-        self.composer.clear_buffer();
-        self.popup.close();
-        self.composer.set_slash_selected_index(0);
+        self.composer_mut().clear_buffer();
+        self.popup_mut().close();
+        self.composer_mut().set_slash_selected_index(0);
 
         let Some(command) = command else {
             self.apply_system_notice("Unknown command.");
@@ -1402,7 +1444,7 @@ impl App {
                 let mut tokens = buffer.split_whitespace().skip(1);
                 match tokens.next() {
                     None => {
-                        self.popup.open_skill_action();
+                        self.popup_mut().open_skill_action();
                     }
                     Some("list") => self.pending_actions.push(AppCommand::ListSkills),
                     Some("enable") => {
@@ -1441,9 +1483,9 @@ impl App {
                         }
                     }
                     Some("search") => {
-                        self.popup.open_skill_toggle(true);
+                        self.popup_mut().open_skill_toggle(true);
                         for ch in tokens.collect::<Vec<_>>().join(" ").chars() {
-                            self.popup.push_skill_toggle_char(ch);
+                            self.popup_mut().push_skill_toggle_char(ch);
                         }
                         self.sync_skill_toggle_items();
                     }
@@ -1480,7 +1522,7 @@ impl App {
                 if let Some(model) = requested {
                     self.pending_actions.push(AppCommand::SetModel { model });
                 } else {
-                    self.model_picker.open();
+                    self.model_picker_mut().open();
                 }
             }
             SlashCommandId::New => {
@@ -1548,19 +1590,18 @@ impl App {
     }
 
     fn sync_inline_popup(&mut self) {
-        self.composer.set_mention_bindings(prune_mention_bindings(
-            self.composer.buffer(),
-            self.composer.mention_bindings(),
-        ));
+        let bindings =
+            prune_mention_bindings(self.composer().buffer(), self.composer().mention_bindings());
+        self.composer_mut().set_mention_bindings(bindings);
 
-        if let Some(query) = extract_active_mention_query(self.composer.buffer()) {
-            self.popup.open_mention();
-            self.popup
-                .set_mention_items(filter_mention_items(&query, &self.workspace_files));
+        if let Some(query) = extract_active_mention_query(self.composer().buffer()) {
+            let mention_items = filter_mention_items(&query, &self.workspace_files);
+            self.popup_mut().open_mention();
+            self.popup_mut().set_mention_items(mention_items);
             return;
         }
 
-        self.popup.close();
+        self.popup_mut().close();
     }
 }
 
