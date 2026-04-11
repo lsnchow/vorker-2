@@ -82,6 +82,8 @@ pub enum AppCommand {
         display_text: String,
         prompt_text: String,
     },
+    ListQueuedPrompts,
+    ClearQueuedPrompts,
     SpawnAgent {
         prompt_text: String,
     },
@@ -128,6 +130,7 @@ enum PopupMode {
     Permission,
     SkillAction,
     SkillToggle,
+    BusyAction,
 }
 
 pub struct App {
@@ -571,6 +574,19 @@ impl App {
         self.prompt_queue.len()
     }
 
+    pub fn queued_prompts(&self) -> Vec<String> {
+        self.prompt_queue
+            .iter()
+            .map(|(display_text, _)| display_text.clone())
+            .collect()
+    }
+
+    pub fn clear_queued_prompts(&mut self) -> usize {
+        let count = self.prompt_queue.len();
+        self.prompt_queue.clear();
+        count
+    }
+
     pub fn open_permission_prompt(
         &mut self,
         title: impl Into<String>,
@@ -619,6 +635,24 @@ impl App {
                     )
                 }),
                 self.filtered_skill_items(),
+                self.permission_selected_index,
+            ),
+            Some(PopupMode::BusyAction) => (
+                Some("Current work is active".to_string()),
+                vec![
+                    crate::render::PopupItem {
+                        label: "1. Queue after current turn".to_string(),
+                        description: Some(
+                            "Run this prompt when the current work finishes.".to_string(),
+                        ),
+                    },
+                    crate::render::PopupItem {
+                        label: "2. Send as steering guidance".to_string(),
+                        description: Some(
+                            "Send this text to the active turn instead of queueing it.".to_string(),
+                        ),
+                    },
+                ],
                 self.permission_selected_index,
             ),
             _ => (None, Vec::new(), 0),
@@ -694,6 +728,11 @@ impl App {
 
         if self.popup_mode == Some(PopupMode::SkillToggle) {
             self.handle_skill_toggle_key(key);
+            return true;
+        }
+
+        if self.popup_mode == Some(PopupMode::BusyAction) {
+            self.handle_busy_action_key(key);
             return true;
         }
 
@@ -850,6 +889,64 @@ impl App {
         self.permission_selected_index = 0;
     }
 
+    fn handle_busy_action_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up => {
+                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, -1);
+            }
+            KeyCode::Down => {
+                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, 1);
+            }
+            KeyCode::Enter => {
+                let display_text = self.navigation.command_buffer.trim().to_string();
+                if display_text.is_empty() {
+                    self.close_busy_action_popup();
+                    return;
+                }
+
+                match self.permission_selected_index {
+                    0 => {
+                        let prompt_text = self.build_prompt_text(&display_text);
+                        self.pending_actions.push(AppCommand::QueuePrompt {
+                            display_text,
+                            prompt_text,
+                        });
+                    }
+                    _ => {
+                        self.pending_actions.push(AppCommand::SteerPrompt {
+                            prompt_text: format!("[STEER]\n{display_text}"),
+                        });
+                    }
+                }
+
+                self.navigation.command_buffer.clear();
+                self.mention_bindings.clear();
+                self.sync_inline_popup();
+                self.close_busy_action_popup();
+            }
+            KeyCode::Esc => self.close_busy_action_popup(),
+            KeyCode::Backspace => {
+                let _ = self.navigation.command_buffer.pop();
+                self.mention_bindings =
+                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+            }
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.navigation.command_buffer.push(ch);
+                self.mention_bindings =
+                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+            }
+            _ => {}
+        }
+    }
+
+    fn close_busy_action_popup(&mut self) {
+        self.popup_mode = None;
+        self.permission_selected_index = 0;
+    }
+
     fn filtered_skill_items(&self) -> Vec<crate::render::PopupItem> {
         let query = self.skill_toggle_query.trim().to_ascii_lowercase();
         self.skills
@@ -977,6 +1074,16 @@ impl App {
         }
 
         if self.popup_mode.is_some() {
+            if self.popup_mode == Some(PopupMode::BusyAction) {
+                self.close_busy_action_popup();
+                return;
+            }
+            if self.popup_mode == Some(PopupMode::SkillAction)
+                || self.popup_mode == Some(PopupMode::SkillToggle)
+            {
+                self.close_skill_popup();
+                return;
+            }
             self.popup_mode = None;
             self.mention_items.clear();
             self.mention_selected_index = 0;
@@ -1055,14 +1162,8 @@ impl App {
             }
 
             if !display_text.is_empty() {
-                let prompt_text = self.build_prompt_text(&display_text);
-                self.pending_actions.push(AppCommand::QueuePrompt {
-                    display_text,
-                    prompt_text,
-                });
-                self.navigation.command_buffer.clear();
-                self.mention_bindings.clear();
-                self.sync_inline_popup();
+                self.popup_mode = Some(PopupMode::BusyAction);
+                self.permission_selected_index = 0;
             }
             return;
         }
@@ -1190,6 +1291,10 @@ impl App {
                 let display_text = command_tail(buffer);
                 if display_text.is_empty() {
                     self.apply_system_notice("Usage: /queue <prompt>");
+                } else if display_text == "list" {
+                    self.pending_actions.push(AppCommand::ListQueuedPrompts);
+                } else if display_text == "clear" {
+                    self.pending_actions.push(AppCommand::ClearQueuedPrompts);
                 } else {
                     let prompt_text = self.build_prompt_text(&display_text);
                     self.pending_actions.push(AppCommand::QueuePrompt {
@@ -2281,6 +2386,21 @@ pub fn run_app(
                     prompt_text,
                 } => {
                     app.queue_prompt(display_text, prompt_text);
+                }
+                AppCommand::ListQueuedPrompts => {
+                    let queued = app.queued_prompts();
+                    if queued.is_empty() {
+                        app.apply_system_notice("Queue is empty.");
+                    } else {
+                        app.apply_system_notice(format!("Queued prompts ({})", queued.len()));
+                        for (index, prompt) in queued.iter().enumerate() {
+                            app.apply_system_notice(format!("{}. {}", index + 1, prompt));
+                        }
+                    }
+                }
+                AppCommand::ClearQueuedPrompts => {
+                    let cleared = app.clear_queued_prompts();
+                    app.apply_system_notice(format!("Cleared {cleared} queued prompt(s)."));
                 }
                 AppCommand::SpawnAgent { prompt_text } => {
                     match spawn_side_agent(

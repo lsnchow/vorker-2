@@ -62,7 +62,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 24] = [
     SlashCommand {
         id: SlashCommandId::Queue,
         name: "/queue",
-        description: "queue a follow-up prompt after current work finishes",
+        description: "queue a prompt, or use /queue list and /queue clear",
         aliases: &[],
     },
     SlashCommand {

@@ -233,7 +233,7 @@ fn render_transcript(snapshot: &Snapshot, options: &DashboardOptions, width: usi
 
     if let Some(seconds) = options.working_seconds {
         lines.extend(wrap_prefixed(
-            &format!("Working ({seconds}s • esc to interrupt)"),
+            &format!("Working ({seconds}s • enter to queue/steer • /stop to interrupt)"),
             &if options.color {
                 colorize(
                     "◦ ",

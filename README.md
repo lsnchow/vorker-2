@@ -82,6 +82,8 @@ Inside the shell, type `/` to open the command list.
 /agent-result <id>     show side-agent output
 /agent-stop <id>       stop a side-agent job
 /queue <prompt>        queue follow-up work
+/queue list            show queued follow-up prompts
+/queue clear           clear queued follow-up prompts
 /steer <guidance>      send steering guidance
 /stop                  interrupt active work and side agents
 /theme <name>          switch theme
@@ -102,6 +104,8 @@ Aliases:
 - `/?` -> `/help`
 
 When the composer is not in slash mode, `Up` / `Down` recall recent prompts from project history.
+
+If work is already running and you press `Enter` on a draft prompt, Vorker now opens a compact choice to either queue the text for later or send it as steering guidance to the active turn. Use `/stop` to interrupt active work.
 
 ## File Mentions
 

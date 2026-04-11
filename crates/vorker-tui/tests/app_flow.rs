@@ -184,6 +184,28 @@ fn slash_queue_queues_follow_up_prompt() {
 }
 
 #[test]
+fn slash_queue_list_queues_a_queue_listing_action() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/queue list".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ListQueuedPrompts]);
+}
+
+#[test]
+fn slash_queue_clear_queues_a_queue_clear_action() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/queue clear".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ClearQueuedPrompts]);
+}
+
+#[test]
 fn slash_agent_queues_codex_side_agent() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/agent inspect auth".chars() {
@@ -504,7 +526,7 @@ fn typing_a_prompt_queues_a_turn_and_shows_working_state() {
     let output = app.render(100, false);
     assert!(output.contains("› hello"), "missing user row:\n{output}");
     assert!(
-        output.contains("Working (0s • esc to interrupt)"),
+        output.contains("Working (0s • enter to queue/steer • /stop to interrupt)"),
         "missing working row:\n{output}"
     );
 }
@@ -549,6 +571,82 @@ fn slash_stop_runs_even_when_work_is_active() {
     assert!(app.handle_key(key(KeyCode::Enter)));
 
     assert_eq!(app.take_actions(), vec![AppCommand::Stop]);
+}
+
+#[test]
+fn enter_while_busy_opens_queue_or_steer_prompt_instead_of_queueing_immediately() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    let _ = app.take_actions();
+
+    for ch in "add tests next".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert!(
+        app.take_actions().is_empty(),
+        "busy enter should open chooser before dispatching an action"
+    );
+
+    let output = app.render(120, false);
+    assert!(output.contains("Current work is active"), "{output}");
+    assert!(output.contains("1. Queue after current turn"), "{output}");
+    assert!(output.contains("2. Send as steering guidance"), "{output}");
+}
+
+#[test]
+fn busy_prompt_enter_confirms_queue() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    let _ = app.take_actions();
+
+    for ch in "add tests next".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::QueuePrompt {
+            display_text: "add tests next".to_string(),
+            prompt_text: wrapped_prompt("add tests next"),
+        }]
+    );
+}
+
+#[test]
+fn busy_prompt_can_send_text_as_steering_guidance() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    let _ = app.take_actions();
+
+    for ch in "focus on safety".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SteerPrompt {
+            prompt_text: "[STEER]\nfocus on safety".to_string(),
+        }]
+    );
 }
 
 #[test]

@@ -126,7 +126,7 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
     );
 
     assert!(
-        output.contains("◦ Working (4s • esc to interrupt)"),
+        output.contains("◦ Working (4s • enter to queue/steer • /stop to interrupt)"),
         "missing working row:\n{output}"
     );
     assert!(output.contains("› /"), "missing composer text:\n{output}");
