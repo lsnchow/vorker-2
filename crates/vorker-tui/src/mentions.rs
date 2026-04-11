@@ -32,7 +32,7 @@ pub fn extract_active_mention_query(buffer: &str) -> Option<String> {
 
 #[must_use]
 pub fn filter_mention_items(query: &str, paths: &[String]) -> Vec<String> {
-    let query = query.to_ascii_lowercase();
+    let query = mention_query_parts(query).0.to_ascii_lowercase();
     let mut scored: Vec<(usize, usize, String)> = paths
         .iter()
         .enumerate()
@@ -66,15 +66,16 @@ pub fn insert_selected_mention(
     selected_path: &str,
 ) -> Option<(String, ComposerMentionBinding)> {
     let query = extract_active_mention_query(buffer)?;
-    let suffix = format!("@{query}");
-    let replacement = format!("@{selected_path}");
-    let updated = buffer.trim_end_matches(&suffix).to_string() + &replacement + " ";
+    let (_, range_suffix) = mention_query_parts(&query);
+    let raw_suffix = format!("@{query}");
+    let replacement = format!("@{selected_path}{range_suffix}");
+    let updated = buffer.trim_end_matches(&raw_suffix).to_string() + &replacement + " ";
 
     Some((
         updated,
         ComposerMentionBinding {
             token: replacement,
-            path: selected_path.to_string(),
+            path: format!("{selected_path}{range_suffix}"),
         },
     ))
 }
@@ -250,6 +251,13 @@ fn normalize_line_number(value: &str) -> &str {
         .strip_prefix('L')
         .or_else(|| value.strip_prefix('l'))
         .unwrap_or(value)
+}
+
+fn mention_query_parts(query: &str) -> (&str, &str) {
+    query
+        .split_once('#')
+        .map(|(path, suffix)| (path, &query[path.len()..path.len() + 1 + suffix.len()]))
+        .unwrap_or((query, ""))
 }
 
 fn slice_lines(text: &str, start: usize, end: usize) -> Option<String> {

@@ -2,8 +2,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
-    ComposerMentionBinding, collect_buffer_mentions, prune_mention_bindings,
-    resolve_mention_context,
+    ComposerMentionBinding, collect_buffer_mentions, filter_mention_items, insert_selected_mention,
+    prune_mention_bindings, resolve_mention_context,
 };
 
 fn temp_path(name: &str) -> std::path::PathBuf {
@@ -91,4 +91,24 @@ fn collect_buffer_mentions_includes_manual_mentions_without_existing_bindings() 
     assert_eq!(bindings.len(), 1);
     assert_eq!(bindings[0].token, "@README.md#L2-L3");
     assert_eq!(bindings[0].path, "README.md#L2-L3");
+}
+
+#[test]
+fn filter_mention_items_ignores_line_range_suffix_while_matching() {
+    let items = filter_mention_items(
+        "rea#L10-L20",
+        &["zeta.txt".to_string(), "README.md".to_string()],
+    );
+
+    assert_eq!(items[0], "README.md");
+}
+
+#[test]
+fn insert_selected_mention_preserves_typed_line_range_suffix() {
+    let (updated, binding) =
+        insert_selected_mention("Review @rea#L10-L20", "README.md").expect("mention");
+
+    assert_eq!(updated, "Review @README.md#L10-L20 ");
+    assert_eq!(binding.token, "@README.md#L10-L20");
+    assert_eq!(binding.path, "README.md#L10-L20");
 }
