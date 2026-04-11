@@ -21,8 +21,8 @@ pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 pub use demo::render_hyperloop_mock;
 pub use mentions::{
-    ComposerMentionBinding, MentionContext, extract_active_mention_query, filter_mention_items,
-    insert_selected_mention, prune_mention_bindings, resolve_mention_context,
+    ComposerMentionBinding, MentionContext, collect_buffer_mentions, extract_active_mention_query,
+    filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
 pub use navigation::{
     ACTION_ITEMS, ActionItem, NavKey, NavigationState, Pane, apply_navigation_key,

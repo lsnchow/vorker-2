@@ -95,6 +95,24 @@ pub fn prune_mention_bindings(
 }
 
 #[must_use]
+pub fn collect_buffer_mentions(
+    buffer: &str,
+    bindings: &[ComposerMentionBinding],
+) -> Vec<ComposerMentionBinding> {
+    let mut resolved = prune_mention_bindings(buffer, bindings);
+    for token in extract_manual_mentions(buffer) {
+        if resolved.iter().any(|binding| binding.token == token) {
+            continue;
+        }
+        resolved.push(ComposerMentionBinding {
+            path: token.trim_start_matches('@').to_string(),
+            token,
+        });
+    }
+    resolved
+}
+
+#[must_use]
 pub fn resolve_mention_context(cwd: &Path, bindings: &[ComposerMentionBinding]) -> MentionContext {
     let mut sections = Vec::new();
     let mut errors = Vec::new();
@@ -170,6 +188,38 @@ fn current_token_for_binding(buffer: &str, token_prefix: &str) -> Option<String>
         search = &search[next_start..];
     }
     None
+}
+
+fn extract_manual_mentions(buffer: &str) -> Vec<String> {
+    let mut mentions = Vec::new();
+    let mut chars = buffer.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if ch != '@' {
+            continue;
+        }
+        let before_ok = index == 0
+            || buffer[..index]
+                .chars()
+                .last()
+                .is_some_and(char::is_whitespace);
+        if !before_ok {
+            continue;
+        }
+
+        let mut end = buffer.len();
+        while let Some((next_index, next_ch)) = chars.peek().copied() {
+            if next_ch.is_whitespace() {
+                end = next_index;
+                break;
+            }
+            let _ = chars.next();
+        }
+
+        if end > index + 1 {
+            mentions.push(buffer[index..end].to_string());
+        }
+    }
+    mentions
 }
 
 fn parse_mention_target(path: &str) -> (&str, Option<(usize, usize)>) {

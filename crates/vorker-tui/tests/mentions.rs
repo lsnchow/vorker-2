@@ -1,7 +1,10 @@
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use vorker_tui::{ComposerMentionBinding, prune_mention_bindings, resolve_mention_context};
+use vorker_tui::{
+    ComposerMentionBinding, collect_buffer_mentions, prune_mention_bindings,
+    resolve_mention_context,
+};
 
 fn temp_path(name: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
@@ -79,4 +82,13 @@ fn prune_mention_bindings_tracks_line_range_suffixes() {
     assert_eq!(pruned.len(), 1);
     assert_eq!(pruned[0].token, "@README.md#L10-L20");
     assert_eq!(pruned[0].path, "README.md#L10-L20");
+}
+
+#[test]
+fn collect_buffer_mentions_includes_manual_mentions_without_existing_bindings() {
+    let bindings = collect_buffer_mentions("Review @README.md#L2-L3 please", &[]);
+
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0].token, "@README.md#L2-L3");
+    assert_eq!(bindings[0].path, "README.md#L2-L3");
 }

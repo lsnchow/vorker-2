@@ -17,8 +17,8 @@ use vorker_core::Snapshot;
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
-    ComposerMentionBinding, extract_active_mention_query, filter_mention_items,
-    insert_selected_mention, prune_mention_bindings, resolve_mention_context,
+    ComposerMentionBinding, collect_buffer_mentions, extract_active_mention_query,
+    filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
 use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
@@ -1215,10 +1215,10 @@ impl App {
             ));
         }
 
-        let context = resolve_mention_context(
-            std::path::Path::new(&self.workspace_path),
-            &self.mention_bindings,
-        );
+        let bindings =
+            collect_buffer_mentions(&self.navigation.command_buffer, &self.mention_bindings);
+        let context =
+            resolve_mention_context(std::path::Path::new(&self.workspace_path), &bindings);
         for error in &context.errors {
             self.apply_system_notice(error.clone());
         }
