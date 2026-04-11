@@ -8,7 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{fit, truncate, visible_length};
-use crate::{PromptHistoryStore, SideAgentStore, SkillStore, StoredThread, ThreadStore};
+use crate::{
+    PromptHistoryStore, SessionEventStore, SideAgentStore, SkillStore, StoredThread, ThreadStore,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ProjectWorkspaceMeta {
@@ -95,6 +97,11 @@ impl ProjectWorkspace {
     }
 
     #[must_use]
+    pub fn events_dir(&self) -> PathBuf {
+        self.project_dir.join("events")
+    }
+
+    #[must_use]
     pub fn side_agents_dir(&self) -> PathBuf {
         self.project_dir.join("side-agents")
     }
@@ -132,6 +139,10 @@ impl ProjectWorkspace {
 
     pub fn open_skill_store(&self) -> io::Result<SkillStore> {
         SkillStore::open_at(self.skills_path())
+    }
+
+    pub fn open_session_event_store(&self) -> io::Result<SessionEventStore> {
+        SessionEventStore::open_at(self.events_dir())
     }
 
     pub fn list_all_threads_under(root: PathBuf) -> io::Result<Vec<StoredThread>> {

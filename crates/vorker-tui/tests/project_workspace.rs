@@ -33,6 +33,11 @@ fn project_workspace_maps_a_directory_to_a_scoped_store_under_vorker_home() {
         workspace.threads_path().display()
     );
     assert!(
+        workspace.events_dir().ends_with("events"),
+        "missing events dir path: {}",
+        workspace.events_dir().display()
+    );
+    assert!(
         !workspace.is_confirmed(),
         "new workspace should require confirmation"
     );

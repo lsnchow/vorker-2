@@ -10,6 +10,7 @@ mod project_workspace;
 mod prompt_history;
 mod render;
 mod rich_text;
+mod session_event_store;
 mod side_agent_store;
 mod skill_store;
 mod slash;
@@ -31,6 +32,9 @@ pub use navigation::{
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
 pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{DashboardOptions, PopupItem, RowKind, TranscriptRow, render_dashboard};
+pub use session_event_store::{
+    SessionEvent, SessionEventKind, SessionEventStore, derive_thread_events,
+};
 pub use side_agent_store::{
     SideAgentStatus, SideAgentStore, StoredSideAgentJob, summarize_side_agent_events,
 };

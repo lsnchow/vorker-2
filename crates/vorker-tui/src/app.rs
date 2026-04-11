@@ -24,6 +24,7 @@ use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
+use crate::session_event_store::{SessionEventStore, derive_thread_events};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
 use crate::slash::{
@@ -2184,6 +2185,7 @@ pub fn run_app(
     let mut side_agent_store = workspace.open_side_agent_store()?;
     let mut prompt_history_store = workspace.open_prompt_history_store()?;
     let mut skill_store = workspace.open_skill_store()?;
+    let mut session_event_store = workspace.open_session_event_store()?;
     let mut initial_thread = thread_store
         .latest_for_cwd(&cwd)
         .unwrap_or_else(|| thread_store.create_thread(&cwd));
@@ -2238,6 +2240,7 @@ pub fn run_app(
         side_agent_store = workspace.open_side_agent_store()?;
         prompt_history_store = workspace.open_prompt_history_store()?;
         skill_store = workspace.open_skill_store()?;
+        session_event_store = workspace.open_session_event_store()?;
         refresh_skill_state(&mut app, &cwd, &skill_store)?;
         app.apply_system_notice(format!(
             "Project workspace ready: {}",
@@ -2266,7 +2269,7 @@ pub fn run_app(
         app.tick();
         poll_review_job(&mut app, &mut review_job)?;
         poll_side_agent_jobs(&mut app, &mut side_agent_jobs, &mut side_agent_store)?;
-        persist_dirty_thread(&mut app, &mut thread_store)?;
+        persist_dirty_thread(&mut app, &mut thread_store, &session_event_store)?;
         let width = size()
             .map(|(columns, _)| usize::from(columns))
             .unwrap_or(120);
@@ -2339,6 +2342,7 @@ pub fn run_app(
                         side_agent_store = workspace.open_side_agent_store()?;
                         prompt_history_store = workspace.open_prompt_history_store()?;
                         skill_store = workspace.open_skill_store()?;
+                        session_event_store = workspace.open_session_event_store()?;
                         app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
                         app.set_workspace_files(load_workspace_files(&cwd));
                         refresh_skill_state(&mut app, &cwd, &skill_store)?;
@@ -2372,6 +2376,7 @@ pub fn run_app(
                     side_agent_store = workspace.open_side_agent_store()?;
                     prompt_history_store = workspace.open_prompt_history_store()?;
                     skill_store = workspace.open_skill_store()?;
+                    session_event_store = workspace.open_session_event_store()?;
                     let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
                         let mut created = thread_store.create_thread(&cwd);
                         created.model = default_model.clone();
@@ -2719,7 +2724,7 @@ pub fn run_app(
                 }
             }
         }
-        persist_dirty_thread(&mut app, &mut thread_store)?;
+        persist_dirty_thread(&mut app, &mut thread_store, &session_event_store)?;
         if should_exit {
             break;
         }
@@ -2740,9 +2745,16 @@ fn load_bootstrap_snapshot() -> Snapshot {
     Snapshot::default()
 }
 
-fn persist_dirty_thread(app: &mut App, thread_store: &mut ThreadStore) -> io::Result<()> {
+fn persist_dirty_thread(
+    app: &mut App,
+    thread_store: &mut ThreadStore,
+    session_event_store: &SessionEventStore,
+) -> io::Result<()> {
     if let Some(thread) = app.take_dirty_thread() {
-        thread_store.upsert(thread)?;
+        let previous = thread_store.thread(&thread.id);
+        let events = derive_thread_events(previous.as_ref(), &thread);
+        thread_store.upsert(thread.clone())?;
+        session_event_store.append(&thread.id, &events)?;
     }
     Ok(())
 }
