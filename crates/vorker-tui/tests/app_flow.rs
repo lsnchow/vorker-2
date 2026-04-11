@@ -437,6 +437,35 @@ fn slash_copy_events_queues_event_transcript_copy() {
 }
 
 #[test]
+fn slash_copy_rows_queues_row_transcript_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy rows".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::CopyTranscriptMode {
+            mode: "rows".to_string()
+        }]
+    );
+}
+
+#[test]
+fn slash_copy_status_queues_status_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy status".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::CopyStatus]);
+}
+
+#[test]
 fn slash_copy_timeline_queues_timeline_copy() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_assistant_text("hello");

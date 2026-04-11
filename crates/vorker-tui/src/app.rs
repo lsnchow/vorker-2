@@ -111,6 +111,7 @@ pub enum AppCommand {
     CopyTranscriptMode {
         mode: String,
     },
+    CopyStatus,
     CopyDiff,
     CopyTimeline,
     ShowDiff,
@@ -1438,6 +1439,8 @@ impl App {
                 let scope = command_tail(buffer);
                 if scope.eq_ignore_ascii_case("diff") {
                     self.pending_actions.push(AppCommand::CopyDiff);
+                } else if scope.eq_ignore_ascii_case("status") {
+                    self.pending_actions.push(AppCommand::CopyStatus);
                 } else if scope.eq_ignore_ascii_case("timeline") {
                     self.pending_actions.push(AppCommand::CopyTimeline);
                 } else {
@@ -2712,6 +2715,37 @@ pub fn run_app(
                     },
                     Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
                 },
+                AppCommand::CopyStatus => {
+                    let jobs = side_agent_store.list_jobs();
+                    let running_agents = jobs
+                        .iter()
+                        .filter(|job| job.status == SideAgentStatus::Running)
+                        .count();
+                    let event_count = session_event_store
+                        .events(&app.thread_record().id)
+                        .map(|events| events.len())
+                        .unwrap_or(0);
+                    let status = render_status_summary(
+                        app.navigation
+                            .selected_model_id
+                            .as_deref()
+                            .unwrap_or("detecting..."),
+                        &cwd.display().to_string(),
+                        &workspace.project_dir().display().to_string(),
+                        app.approval_mode().label(),
+                        app.thread_name(),
+                        &format_thread_duration(app.thread_duration_seconds()),
+                        app.rows.len(),
+                        event_count,
+                        app.queued_prompt_count(),
+                        jobs.len(),
+                        running_agents,
+                    );
+                    match copy_to_clipboard(&status) {
+                        Ok(()) => app.apply_system_notice("Status copied to clipboard."),
+                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+                    }
+                }
                 AppCommand::CopyTimeline => {
                     let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
                     match copy_to_clipboard(&timeline) {

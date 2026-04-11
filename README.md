@@ -91,6 +91,9 @@ Inside the shell, type `/` to open the command list.
 /status                show shell/session status
 /export                export the current transcript
 /copy                  copy the current transcript to the clipboard
+/copy rows             copy the row-based transcript snapshot
+/copy events           copy the event-backed transcript if available
+/copy status           copy the current shell status summary
 /copy diff             copy the current working tree diff
 /copy timeline         copy the current thread timeline
 /compact               compact the current transcript into a short summary
