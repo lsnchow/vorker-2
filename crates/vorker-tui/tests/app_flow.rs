@@ -409,6 +409,17 @@ fn slash_diff_queues_working_tree_diff() {
 }
 
 #[test]
+fn slash_diff_staged_queues_staged_diff() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/diff staged".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ShowStagedDiff]);
+}
+
+#[test]
 fn slash_timeline_queues_thread_timeline() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_assistant_text("hello");

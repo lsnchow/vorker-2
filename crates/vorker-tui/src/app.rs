@@ -104,6 +104,7 @@ pub enum AppCommand {
     ExportTranscript,
     CopyTranscript,
     ShowDiff,
+    ShowStagedDiff,
     CompactTranscript,
     ShowTimeline,
     ShowStatus,
@@ -1415,7 +1416,12 @@ impl App {
                 self.pending_actions.push(AppCommand::CopyTranscript);
             }
             SlashCommandId::Diff => {
-                self.pending_actions.push(AppCommand::ShowDiff);
+                let scope = command_tail(buffer);
+                if scope.eq_ignore_ascii_case("staged") || scope.eq_ignore_ascii_case("cached") {
+                    self.pending_actions.push(AppCommand::ShowStagedDiff);
+                } else {
+                    self.pending_actions.push(AppCommand::ShowDiff);
+                }
             }
             SlashCommandId::Compact => {
                 self.pending_actions.push(AppCommand::CompactTranscript);
@@ -2606,6 +2612,10 @@ pub fn run_app(
                     Ok(diff) => app.apply_assistant_text(&diff),
                     Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
                 },
+                AppCommand::ShowStagedDiff => match render_staged_diff(&cwd, 160) {
+                    Ok(diff) => app.apply_assistant_text(&diff),
+                    Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
+                },
                 AppCommand::CompactTranscript => {
                     app.compact_transcript();
                 }
@@ -3055,6 +3065,28 @@ fn render_working_tree_diff(cwd: &Path, max_lines: usize) -> io::Result<String> 
     }
 }
 
+fn render_staged_diff(cwd: &Path, max_lines: usize) -> io::Result<String> {
+    let status = run_git(cwd, ["status", "--short", "--untracked-files=all"])?;
+    let staged = run_git(cwd, ["diff", "--cached", "--unified=3"])?;
+
+    let mut sections = Vec::new();
+    if !status.trim().is_empty() {
+        sections.push(format!("## Git status\n{}", status.trim_end()));
+    }
+    if !staged.trim().is_empty() {
+        sections.push(format!(
+            "## Staged diff\n{}",
+            truncate_lines(&staged, max_lines)
+        ));
+    }
+
+    if sections.is_empty() {
+        Ok("No staged changes.".to_string())
+    } else {
+        Ok(sections.join("\n\n"))
+    }
+}
+
 fn render_thread_timeline(thread: &StoredThread) -> String {
     if thread.rows.is_empty() {
         return "Timeline is empty.".to_string();
@@ -3210,7 +3242,7 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_to_clipboard, normalize_for_raw_terminal, render_thread_timeline,
+        copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_thread_timeline,
         render_working_tree_diff, summarize_transcript_rows, tool_update_text, truncate_lines,
     };
     use crate::{RowKind, StoredThread, TranscriptRow};
@@ -3287,6 +3319,22 @@ mod tests {
             error.to_string().contains("not a git repository")
                 || error.to_string().contains("git command failed")
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_staged_diff_reports_no_staged_changes_for_clean_repo() {
+        let root = unique_temp_dir("clean-staged");
+        fs::create_dir_all(&root).expect("root");
+        std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["init"])
+            .output()
+            .expect("git init");
+
+        let output = render_staged_diff(&root, 20).expect("diff");
+        assert_eq!(output, "No staged changes.");
 
         let _ = fs::remove_dir_all(root);
     }
