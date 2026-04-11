@@ -382,7 +382,12 @@ fn slash_copy_queues_transcript_copy() {
     }
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert_eq!(app.take_actions(), vec![AppCommand::CopyTranscript]);
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::CopyTranscriptMode {
+            mode: "auto".to_string()
+        }]
+    );
 }
 
 #[test]
@@ -395,6 +400,40 @@ fn slash_copy_diff_queues_diff_copy() {
     assert!(app.handle_key(key(KeyCode::Enter)));
 
     assert_eq!(app.take_actions(), vec![AppCommand::CopyDiff]);
+}
+
+#[test]
+fn slash_copy_brief_queues_brief_transcript_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy brief".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::CopyTranscriptMode {
+            mode: "brief".to_string()
+        }]
+    );
+}
+
+#[test]
+fn slash_copy_events_queues_event_transcript_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/copy events".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::CopyTranscriptMode {
+            mode: "events".to_string()
+        }]
+    );
 }
 
 #[test]

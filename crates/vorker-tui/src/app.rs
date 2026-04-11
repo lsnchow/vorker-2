@@ -108,7 +108,9 @@ pub enum AppCommand {
     ExportTranscript {
         mode: String,
     },
-    CopyTranscript,
+    CopyTranscriptMode {
+        mode: String,
+    },
     CopyDiff,
     CopyTimeline,
     ShowDiff,
@@ -1439,7 +1441,13 @@ impl App {
                 } else if scope.eq_ignore_ascii_case("timeline") {
                     self.pending_actions.push(AppCommand::CopyTimeline);
                 } else {
-                    self.pending_actions.push(AppCommand::CopyTranscript);
+                    let mode = if scope.is_empty() {
+                        "auto".to_string()
+                    } else {
+                        scope
+                    };
+                    self.pending_actions
+                        .push(AppCommand::CopyTranscriptMode { mode });
                 }
             }
             SlashCommandId::Diff => {
@@ -2667,13 +2675,30 @@ pub fn run_app(
                         Err(error) => app.apply_system_notice(format!("Export failed: {error}")),
                     }
                 }
-                AppCommand::CopyTranscript => {
+                AppCommand::CopyTranscriptMode { mode } => {
                     let thread = app.thread_record();
                     let events = session_event_store.events(&thread.id)?;
-                    let markdown = if events.is_empty() {
-                        crate::render_transcript_markdown(&thread)
-                    } else {
-                        crate::render_transcript_markdown_from_events(&thread, &events)
+                    let markdown = match mode.trim().to_ascii_lowercase().as_str() {
+                        "events" => crate::render_transcript_markdown_from_events(&thread, &events),
+                        "rows" => crate::render_transcript_markdown(&thread),
+                        "brief" => {
+                            if events.is_empty() {
+                                crate::render_transcript_markdown_with_options(
+                                    &thread, false, false,
+                                )
+                            } else {
+                                crate::render_transcript_markdown_from_events_with_options(
+                                    &thread, &events, false, false,
+                                )
+                            }
+                        }
+                        _ => {
+                            if events.is_empty() {
+                                crate::render_transcript_markdown(&thread)
+                            } else {
+                                crate::render_transcript_markdown_from_events(&thread, &events)
+                            }
+                        }
                     };
                     match copy_to_clipboard(&markdown) {
                         Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
