@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use vorker_tui::{App, AppCommand, Pane, SkillInfo};
+use vorker_tui::{App, AppCommand, Pane, SkillInfo, SlashCommandId, filtered_commands_for_state};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -107,15 +107,13 @@ fn slash_review_queues_an_adversarial_run_with_flags() {
 }
 
 #[test]
-fn slash_exit_review_queues_shell_exit() {
-    let mut app = App::new(vorker_core::Snapshot::default());
-
-    for ch in "/exit-review".chars() {
-        assert!(app.handle_key(key(KeyCode::Char(ch))));
-    }
-    assert!(app.handle_key(key(KeyCode::Enter)));
-
-    assert_eq!(app.take_actions(), vec![AppCommand::ExitShell]);
+fn review_mode_command_set_includes_exit_review() {
+    let commands = filtered_commands_for_state("/", true, false, true);
+    assert!(
+        commands
+            .iter()
+            .any(|command| command.id == SlashCommandId::ExitReview)
+    );
 }
 
 #[test]
@@ -360,6 +358,29 @@ fn unavailable_transcript_command_shows_notice_in_empty_thread() {
     let output = app.render(120, false);
     assert!(
         output.contains("/copy is unavailable in the current state."),
+        "{output}"
+    );
+}
+
+#[test]
+fn busy_hidden_commands_cannot_be_run_by_exact_manual_entry() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    let _ = app.take_actions();
+
+    for ch in "/new".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert!(app.take_actions().is_empty());
+    let output = app.render(120, false);
+    assert!(
+        output.contains("/new is unavailable in the current state."),
         "{output}"
     );
 }

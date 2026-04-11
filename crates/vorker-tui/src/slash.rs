@@ -82,6 +82,23 @@ pub fn command_is_available(command: SlashCommand, transcript_available: bool) -
     }
 }
 
+#[must_use]
+pub fn command_is_enabled_in_state(
+    command: SlashCommand,
+    review_mode: bool,
+    busy: bool,
+    transcript_available: bool,
+) -> bool {
+    let visible = if review_mode {
+        command.visibility.visible_in_review_mode
+    } else {
+        command.visibility.visible_in_normal_mode
+    };
+    visible
+        && (!busy || command.visibility.allow_while_busy)
+        && command_is_available(command, transcript_available)
+}
+
 const NORMAL_ONLY: SlashCommandVisibility = SlashCommandVisibility {
     visible_in_review_mode: false,
     visible_in_normal_mode: true,

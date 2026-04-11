@@ -37,8 +37,8 @@ pub use side_agent_store::{
 pub use skill_store::{SkillInfo, SkillStore, build_skill_context, discover_skills};
 pub use slash::{
     SlashCommand, SlashCommandAvailability, SlashCommandCategory, SlashCommandId,
-    SlashCommandVisibility, category_label, command_is_available, filtered_commands,
-    filtered_commands_for_state, help_summary, is_slash_mode,
+    SlashCommandVisibility, category_label, command_is_available, command_is_enabled_in_state,
+    filtered_commands, filtered_commands_for_state, help_summary, is_slash_mode,
 };
 pub use thread_store::{ApprovalMode, StoredThread, ThreadStore};
 pub use transcript_export::{render_transcript_markdown, write_transcript_export};
