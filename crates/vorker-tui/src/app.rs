@@ -100,6 +100,7 @@ pub enum AppCommand {
     },
     ExportTranscript,
     CopyTranscript,
+    ShowDiff,
     ShowStatus,
     ListPromptHistory,
     ListSkills,
@@ -1376,6 +1377,9 @@ impl App {
             SlashCommandId::Copy => {
                 self.pending_actions.push(AppCommand::CopyTranscript);
             }
+            SlashCommandId::Diff => {
+                self.pending_actions.push(AppCommand::ShowDiff);
+            }
             SlashCommandId::Status => {
                 self.pending_actions.push(AppCommand::ShowStatus);
             }
@@ -2547,6 +2551,10 @@ pub fn run_app(
                     copy_to_clipboard(&markdown)?;
                     app.apply_system_notice("Transcript copied to clipboard.");
                 }
+                AppCommand::ShowDiff => {
+                    let diff = render_working_tree_diff(&cwd, 160)?;
+                    app.apply_assistant_text(&diff);
+                }
                 AppCommand::ShowStatus => {
                     let jobs = side_agent_store.list_jobs();
                     let running_agents = jobs
@@ -2960,6 +2968,68 @@ fn copy_to_clipboard(text: &str) -> io::Result<()> {
     }
 }
 
+fn render_working_tree_diff(cwd: &Path, max_lines: usize) -> io::Result<String> {
+    let status = run_git(cwd, ["status", "--short", "--untracked-files=all"])?;
+    let diff = run_git(cwd, ["diff", "--unified=3"])?;
+    let staged = run_git(cwd, ["diff", "--cached", "--unified=3"])?;
+
+    let mut sections = Vec::new();
+    if !status.trim().is_empty() {
+        sections.push(format!("## Git status\n{}", status.trim_end()));
+    }
+    if !staged.trim().is_empty() {
+        sections.push(format!(
+            "## Staged diff\n{}",
+            truncate_lines(&staged, max_lines)
+        ));
+    }
+    if !diff.trim().is_empty() {
+        sections.push(format!(
+            "## Unstaged diff\n{}",
+            truncate_lines(&diff, max_lines)
+        ));
+    }
+
+    if sections.is_empty() {
+        Ok("Working tree is clean.".to_string())
+    } else {
+        Ok(sections.join("\n\n"))
+    }
+}
+
+fn truncate_lines(text: &str, max_lines: usize) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    if lines.len() <= max_lines {
+        text.trim_end().to_string()
+    } else {
+        let mut truncated = lines[..max_lines].join("\n");
+        truncated.push_str("\n\n[diff truncated]");
+        truncated
+    }
+}
+
+fn run_git<I, S>(cwd: &Path, args: I) -> io::Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let output = std::process::Command::new("git")
+        .current_dir(cwd)
+        .args(args)
+        .output()?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(io::Error::other(if stderr.is_empty() {
+            "git command failed".to_string()
+        } else {
+            stderr
+        }))
+    }
+}
+
 fn current_shell_theme() -> &'static str {
     match std::env::var("VORKER_THEME")
         .unwrap_or_default()
@@ -3024,7 +3094,12 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{copy_to_clipboard, normalize_for_raw_terminal, tool_update_text};
+    use super::{
+        copy_to_clipboard, normalize_for_raw_terminal, render_working_tree_diff, tool_update_text,
+        truncate_lines,
+    };
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn normalize_for_raw_terminal_converts_lf_to_crlf() {
@@ -3060,5 +3135,35 @@ mod tests {
     #[test]
     fn copy_to_clipboard_writes_to_pbcopy() {
         copy_to_clipboard("vorker clipboard smoke test").expect("pbcopy");
+    }
+
+    fn unique_temp_dir(name: &str) -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("vorker-app-{name}-{suffix}"))
+    }
+
+    #[test]
+    fn render_working_tree_diff_reports_clean_repo() {
+        let root = unique_temp_dir("clean-repo");
+        fs::create_dir_all(&root).expect("root");
+        std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["init"])
+            .output()
+            .expect("git init");
+
+        let output = render_working_tree_diff(&root, 20).expect("diff");
+        assert_eq!(output, "Working tree is clean.");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn truncate_lines_marks_truncated_output() {
+        let text = "a\nb\nc\nd";
+        assert_eq!(truncate_lines(text, 2), "a\nb\n\n[diff truncated]");
     }
 }

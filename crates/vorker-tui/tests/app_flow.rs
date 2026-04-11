@@ -347,6 +347,17 @@ fn slash_copy_queues_transcript_copy() {
 }
 
 #[test]
+fn slash_diff_queues_working_tree_diff() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/diff".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ShowDiff]);
+}
+
+#[test]
 fn slash_status_queues_status_summary() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/status".chars() {
@@ -612,7 +623,7 @@ fn slash_help_while_busy_uses_the_busy_command_set() {
 
     let output = app.render(160, false);
     assert!(
-        output.contains("Commands: /stop /steer /queue /agent-stop /model /help"),
+        output.contains("Commands: /stop /steer /queue /agent-stop /diff /model /help"),
         "{output}"
     );
     assert!(!output.contains("/new /permissions"), "{output}");
