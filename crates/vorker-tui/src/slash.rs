@@ -451,8 +451,24 @@ pub fn help_summary_for_state(review_mode: bool, busy: bool, transcript_availabl
             SlashCommandAvailability::Always => true,
             SlashCommandAvailability::TranscriptRequired => transcript_available,
         })
-        .map(|command| command.name)
         .collect::<Vec<_>>();
-
-    format!("Commands: {}", commands.join(" "))
+    let mut lines = vec!["Commands:".to_string()];
+    let categories = [
+        SlashCommandCategory::Workflow,
+        SlashCommandCategory::Agent,
+        SlashCommandCategory::Session,
+        SlashCommandCategory::Config,
+        SlashCommandCategory::Review,
+    ];
+    for category in categories {
+        let names = commands
+            .iter()
+            .filter(|command| command.category == category)
+            .map(|command| command.name)
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            lines.push(format!("{}: {}", category_label(category), names.join(" ")));
+        }
+    }
+    lines.join("\n")
 }

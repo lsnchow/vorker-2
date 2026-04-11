@@ -644,12 +644,16 @@ fn slash_help_while_busy_uses_the_busy_command_set() {
     assert!(app.handle_key(key(KeyCode::Enter)));
 
     let output = app.render(160, false);
+    assert!(output.contains("Workflow: /stop /steer /queue"), "{output}");
     assert!(
-        output.contains(
-            "Commands: /stop /steer /queue /agents /agent-stop /agent-result /export /copy /diff /timeline /status /history /model /help"
-        ),
+        output.contains("Agent: /agents /agent-stop /agent-result"),
         "{output}"
     );
+    assert!(
+        output.contains("Session: /export /copy /diff /timeline /status /history /help"),
+        "{output}"
+    );
+    assert!(output.contains("Config: /model"), "{output}");
     assert!(!output.contains("/new /permissions"), "{output}");
 }
 
