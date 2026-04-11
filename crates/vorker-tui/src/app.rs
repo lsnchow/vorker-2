@@ -25,7 +25,7 @@ use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::session_event_store::{
-    SessionEventStore, derive_thread_events, render_session_event_timeline,
+    SessionEventStore, apply_events_to_thread, derive_thread_events, render_session_event_timeline,
 };
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
@@ -2191,6 +2191,7 @@ pub fn run_app(
     let mut initial_thread = thread_store
         .latest_for_cwd(&cwd)
         .unwrap_or_else(|| thread_store.create_thread(&cwd));
+    initial_thread = hydrate_thread_from_events(initial_thread, &session_event_store)?;
     initial_thread.model = initial_thread.model.or(default_model.clone());
     if auto_approve {
         initial_thread.approval_mode = ApprovalMode::Auto;
@@ -2339,12 +2340,13 @@ pub fn run_app(
                             let _ = reply.send(None);
                         }
                         runtime.block_on(bridge.shutdown())?;
-                        app.load_thread(thread);
                         thread_store = workspace.open_thread_store()?;
                         side_agent_store = workspace.open_side_agent_store()?;
                         prompt_history_store = workspace.open_prompt_history_store()?;
                         skill_store = workspace.open_skill_store()?;
                         session_event_store = workspace.open_session_event_store()?;
+                        let thread = hydrate_thread_from_events(thread, &session_event_store)?;
+                        app.load_thread(thread);
                         app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
                         app.set_workspace_files(load_workspace_files(&cwd));
                         refresh_skill_state(&mut app, &cwd, &skill_store)?;
@@ -2385,6 +2387,7 @@ pub fn run_app(
                         created.approval_mode = app.approval_mode();
                         created
                     });
+                    let thread = hydrate_thread_from_events(thread, &session_event_store)?;
                     app.load_thread(thread);
                     app.set_workspace_files(load_workspace_files(&cwd));
                     app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
@@ -2621,7 +2624,13 @@ pub fn run_app(
                     }
                 }
                 AppCommand::CopyTranscript => {
-                    let markdown = crate::render_transcript_markdown(&app.thread_record());
+                    let thread = app.thread_record();
+                    let events = session_event_store.events(&thread.id)?;
+                    let markdown = if events.is_empty() {
+                        crate::render_transcript_markdown(&thread)
+                    } else {
+                        crate::render_transcript_markdown_from_events(&thread, &events)
+                    };
                     match copy_to_clipboard(&markdown) {
                         Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
                         Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
@@ -2786,6 +2795,18 @@ fn refresh_skill_state(app: &mut App, cwd: &Path, store: &crate::SkillStore) -> 
     app.set_skills(skills, enabled);
     app.set_skill_context(context);
     Ok(())
+}
+
+fn hydrate_thread_from_events(
+    thread: StoredThread,
+    session_event_store: &SessionEventStore,
+) -> io::Result<StoredThread> {
+    let events = session_event_store.events(&thread.id)?;
+    if events.is_empty() {
+        Ok(thread)
+    } else {
+        Ok(apply_events_to_thread(&thread, &events))
+    }
 }
 
 fn apply_skill_listing(app: &mut App) {

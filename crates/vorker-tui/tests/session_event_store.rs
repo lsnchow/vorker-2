@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
     ApprovalMode, RowKind, SessionEventKind, SessionEventStore, StoredThread, TranscriptRow,
-    derive_thread_events, render_session_event_timeline,
+    apply_events_to_thread, derive_thread_events, render_session_event_timeline,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -78,7 +78,7 @@ fn derive_thread_events_emits_metadata_changes_and_transcript_replace() {
     );
     assert!(events.iter().any(|event| matches!(
         event.kind,
-        SessionEventKind::TranscriptReplaced { row_count: 1 }
+        SessionEventKind::TranscriptReplaced { ref rows } if rows.len() == 1
     )));
 }
 
@@ -121,4 +121,27 @@ fn render_session_event_timeline_summarizes_events() {
     assert!(timeline.contains("events:"));
     assert!(timeline.contains("[thread] created"));
     assert!(timeline.contains("[user] build controller"));
+}
+
+#[test]
+fn apply_events_to_thread_rebuilds_latest_thread_state() {
+    let base = StoredThread::ephemeral("/workspace/pod");
+    let mut next = base.clone();
+    next.name = "Renamed thread".to_string();
+    next.model = Some("gpt-5.4".to_string());
+    next.approval_mode = ApprovalMode::Auto;
+    next.rows.push(TranscriptRow {
+        kind: RowKind::Assistant,
+        text: "done".to_string(),
+        detail: None,
+    });
+    let events = derive_thread_events(None, &next);
+
+    let rebuilt = apply_events_to_thread(&base, &events);
+
+    assert_eq!(rebuilt.name, "Renamed thread");
+    assert_eq!(rebuilt.model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(rebuilt.approval_mode, ApprovalMode::Auto);
+    assert_eq!(rebuilt.rows.len(), 1);
+    assert_eq!(rebuilt.rows[0].text, "done");
 }

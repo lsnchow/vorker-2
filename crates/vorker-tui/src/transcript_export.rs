@@ -121,8 +121,8 @@ fn append_event(lines: &mut Vec<String>, event: &SessionEvent) {
                 lines.push("```".to_string());
             }
         }
-        SessionEventKind::TranscriptReplaced { row_count } => {
-            lines.push(format!("Transcript replaced with {} row(s).", row_count));
+        SessionEventKind::TranscriptReplaced { rows } => {
+            lines.push(format!("Transcript replaced with {} row(s).", rows.len()));
         }
     }
     lines.push(String::new());

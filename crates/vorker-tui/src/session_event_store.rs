@@ -36,7 +36,7 @@ pub enum SessionEventKind {
         detail: Option<String>,
     },
     TranscriptReplaced {
-        row_count: usize,
+        rows: Vec<TranscriptRow>,
     },
 }
 
@@ -125,6 +125,26 @@ pub fn derive_thread_events(
                     cwd: next.cwd.clone(),
                 },
             });
+            if next.model.is_some() {
+                events.push(SessionEvent {
+                    timestamp_epoch_seconds: timestamp,
+                    thread_id: next.id.clone(),
+                    kind: SessionEventKind::ModelChanged {
+                        from: None,
+                        to: next.model.clone(),
+                    },
+                });
+            }
+            if next.approval_mode != ApprovalMode::Manual {
+                events.push(SessionEvent {
+                    timestamp_epoch_seconds: timestamp,
+                    thread_id: next.id.clone(),
+                    kind: SessionEventKind::ApprovalModeChanged {
+                        from: ApprovalMode::Manual,
+                        to: next.approval_mode,
+                    },
+                });
+            }
             events.extend(next.rows.iter().cloned().map(|row| SessionEvent {
                 timestamp_epoch_seconds: timestamp,
                 thread_id: next.id.clone(),
@@ -189,7 +209,7 @@ pub fn derive_thread_events(
                     timestamp_epoch_seconds: timestamp,
                     thread_id: next.id.clone(),
                     kind: SessionEventKind::TranscriptReplaced {
-                        row_count: next.rows.len(),
+                        rows: next.rows.clone(),
                     },
                 });
             }
@@ -197,6 +217,44 @@ pub fn derive_thread_events(
     }
 
     events
+}
+
+#[must_use]
+pub fn apply_events_to_thread(base: &StoredThread, events: &[SessionEvent]) -> StoredThread {
+    let mut thread = base.clone();
+    for event in events {
+        match &event.kind {
+            SessionEventKind::ThreadCreated { thread_name, cwd } => {
+                thread.name = thread_name.clone();
+                thread.cwd = cwd.clone();
+            }
+            SessionEventKind::ThreadRenamed { to, .. } => {
+                thread.name = to.clone();
+            }
+            SessionEventKind::ModelChanged { to, .. } => {
+                thread.model = to.clone();
+            }
+            SessionEventKind::ApprovalModeChanged { to, .. } => {
+                thread.approval_mode = *to;
+            }
+            SessionEventKind::CwdChanged { to, .. } => {
+                thread.cwd = to.clone();
+            }
+            SessionEventKind::RowAppended {
+                row_kind,
+                text,
+                detail,
+            } => thread.rows.push(TranscriptRow {
+                kind: row_kind.clone(),
+                text: text.clone(),
+                detail: detail.clone(),
+            }),
+            SessionEventKind::TranscriptReplaced { rows } => {
+                thread.rows = rows.clone();
+            }
+        }
+    }
+    thread
 }
 
 #[must_use]
@@ -268,8 +326,8 @@ fn summarize_event_kind(kind: &SessionEventKind) -> String {
                 .collect::<String>();
             format!("[{kind}] {summary}")
         }
-        SessionEventKind::TranscriptReplaced { row_count } => {
-            format!("[transcript] replaced with {} row(s)", row_count)
+        SessionEventKind::TranscriptReplaced { rows } => {
+            format!("[transcript] replaced with {} row(s)", rows.len())
         }
     }
 }
