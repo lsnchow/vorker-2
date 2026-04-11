@@ -11,6 +11,7 @@ pub enum SlashCommandId {
     AgentResult,
     Theme,
     Export,
+    Copy,
     Status,
     History,
     Skills,
@@ -87,7 +88,7 @@ const SHARED: SlashCommandVisibility = SlashCommandVisibility {
     allow_while_busy: true,
 };
 
-pub const SLASH_COMMANDS: [SlashCommand; 24] = [
+pub const SLASH_COMMANDS: [SlashCommand; 25] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -172,6 +173,14 @@ pub const SLASH_COMMANDS: [SlashCommand; 24] = [
         id: SlashCommandId::Export,
         name: "/export",
         description: "export the current transcript to markdown",
+        aliases: &[],
+        category: SlashCommandCategory::Session,
+        visibility: NORMAL_ONLY,
+    },
+    SlashCommand {
+        id: SlashCommandId::Copy,
+        name: "/copy",
+        description: "copy the current transcript to the clipboard",
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,

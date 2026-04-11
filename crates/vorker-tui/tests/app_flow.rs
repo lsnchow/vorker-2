@@ -336,6 +336,17 @@ fn slash_export_queues_transcript_export() {
 }
 
 #[test]
+fn slash_copy_queues_transcript_copy() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/copy".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::CopyTranscript]);
+}
+
+#[test]
 fn slash_status_queues_status_summary() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/status".chars() {

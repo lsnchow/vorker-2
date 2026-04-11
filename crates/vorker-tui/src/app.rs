@@ -99,6 +99,7 @@ pub enum AppCommand {
         theme: String,
     },
     ExportTranscript,
+    CopyTranscript,
     ShowStatus,
     ListPromptHistory,
     ListSkills,
@@ -1372,6 +1373,9 @@ impl App {
             SlashCommandId::Export => {
                 self.pending_actions.push(AppCommand::ExportTranscript);
             }
+            SlashCommandId::Copy => {
+                self.pending_actions.push(AppCommand::CopyTranscript);
+            }
             SlashCommandId::Status => {
                 self.pending_actions.push(AppCommand::ShowStatus);
             }
@@ -2538,6 +2542,11 @@ pub fn run_app(
                     )?;
                     app.apply_system_notice(format!("Transcript exported to {}", path.display()));
                 }
+                AppCommand::CopyTranscript => {
+                    let markdown = crate::render_transcript_markdown(&app.thread_record());
+                    copy_to_clipboard(&markdown)?;
+                    app.apply_system_notice("Transcript copied to clipboard.");
+                }
                 AppCommand::ShowStatus => {
                     let jobs = side_agent_store.list_jobs();
                     let running_agents = jobs
@@ -2926,6 +2935,31 @@ fn format_path_for_humans(path: &Path) -> String {
     raw
 }
 
+fn copy_to_clipboard(text: &str) -> io::Result<()> {
+    let mut child = std::process::Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write as _;
+        stdin.write_all(text.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(io::Error::other(if stderr.is_empty() {
+            "pbcopy failed".to_string()
+        } else {
+            format!("pbcopy failed: {stderr}")
+        }))
+    }
+}
+
 fn current_shell_theme() -> &'static str {
     match std::env::var("VORKER_THEME")
         .unwrap_or_default()
@@ -2990,7 +3024,7 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_for_raw_terminal, tool_update_text};
+    use super::{copy_to_clipboard, normalize_for_raw_terminal, tool_update_text};
 
     #[test]
     fn normalize_for_raw_terminal_converts_lf_to_crlf() {
@@ -3021,5 +3055,10 @@ mod tests {
             tool_update_text(Some("Read".to_string()), Some("   ".to_string())),
             Some("Read".to_string())
         );
+    }
+
+    #[test]
+    fn copy_to_clipboard_writes_to_pbcopy() {
+        copy_to_clipboard("vorker clipboard smoke test").expect("pbcopy");
     }
 }
