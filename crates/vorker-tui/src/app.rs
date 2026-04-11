@@ -16,9 +16,10 @@ use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 use crate::bridge::{AcpBridge, BridgeEvent};
+use crate::composer_state::ComposerState;
 use crate::mentions::{
-    ComposerMentionBinding, collect_buffer_mentions, extract_active_mention_query,
-    filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
+    collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
+    insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
@@ -152,9 +153,8 @@ pub struct App {
     workspace_path: String,
     current_thread: StoredThread,
     rows: Vec<TranscriptRow>,
-    mention_bindings: Vec<ComposerMentionBinding>,
+    composer: ComposerState,
     workspace_files: Vec<String>,
-    slash_selected_index: usize,
     popup: AppPopupState,
     working_started_at: Option<Instant>,
     needs_replay_context: bool,
@@ -240,9 +240,8 @@ impl App {
             workspace_path,
             current_thread: thread.clone(),
             rows: thread.rows.clone(),
-            mention_bindings: Vec::new(),
+            composer: ComposerState::default(),
             workspace_files: Vec::new(),
-            slash_selected_index: 0,
             popup: AppPopupState::default(),
             working_started_at: None,
             needs_replay_context: !thread.rows.is_empty(),
@@ -269,6 +268,11 @@ impl App {
     #[must_use]
     pub fn workspace_path(&self) -> &str {
         &self.workspace_path
+    }
+
+    #[must_use]
+    pub fn command_buffer(&self) -> &str {
+        self.composer.buffer()
     }
 
     #[must_use]
@@ -311,11 +315,11 @@ impl App {
         self.workspace_path = thread.cwd.clone();
         self.current_thread = thread.clone();
         self.rows = thread.rows.clone();
-        self.navigation.command_buffer.clear();
+        self.composer.clear_buffer();
         self.navigation.selected_model_id = thread.model.clone();
         self.navigation.model_choices = thread.model.into_iter().collect();
         self.navigation.model_picker_open = false;
-        self.mention_bindings.clear();
+        self.composer.clear_mentions();
         self.popup.close();
         self.working_started_at = None;
         self.needs_replay_context = !self.rows.is_empty();
@@ -625,8 +629,8 @@ impl App {
                 selected_model_id: self.navigation.selected_model_id.clone(),
                 model_choices: self.navigation.model_choices.clone(),
                 model_picker_open: self.navigation.model_picker_open,
-                command_buffer: self.navigation.command_buffer.clone(),
-                slash_menu_selected_index: self.slash_selected_index,
+                command_buffer: self.composer.buffer().to_string(),
+                slash_menu_selected_index: self.composer.slash_selected_index(),
                 mention_items: self
                     .is_mention_popup()
                     .then(|| self.popup.mention_items().to_vec())
@@ -663,11 +667,7 @@ impl App {
                 } else {
                     "Improve documentation in @filename".to_string()
                 },
-                footer_mode: match (
-                    review_mode,
-                    busy,
-                    self.navigation.command_buffer.trim().is_empty(),
-                ) {
+                footer_mode: match (review_mode, busy, self.composer.buffer().trim().is_empty()) {
                     (true, true, _) => FooterMode::ReviewBusy,
                     (true, false, _) => FooterMode::Review,
                     (false, true, _) => FooterMode::Busy,
@@ -720,10 +720,12 @@ impl App {
             KeyCode::Down => self.navigate_slash(1),
             KeyCode::Enter => self.submit_current_input(),
             KeyCode::Backspace => {
-                let _ = self.navigation.command_buffer.pop();
+                let _ = self.composer.pop_char();
                 self.prompt_history_cursor = None;
-                self.mention_bindings =
-                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+                self.composer.set_mention_bindings(prune_mention_bindings(
+                    self.composer.buffer(),
+                    self.composer.mention_bindings(),
+                ));
                 self.sync_inline_popup();
             }
             KeyCode::Char(ch)
@@ -731,7 +733,7 @@ impl App {
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
                 self.navigation.focused_pane = Pane::Input;
-                self.navigation.command_buffer.push(ch);
+                self.composer.push_char(ch);
                 self.prompt_history_cursor = None;
                 self.sync_inline_popup();
             }
@@ -847,7 +849,7 @@ impl App {
                 self.popup.cycle_selected_index(2, 1);
             }
             KeyCode::Enter => {
-                let display_text = self.navigation.command_buffer.trim().to_string();
+                let display_text = self.composer.buffer().trim().to_string();
                 if display_text.is_empty() {
                     self.close_busy_action_popup();
                     return;
@@ -868,24 +870,28 @@ impl App {
                     }
                 }
 
-                self.navigation.command_buffer.clear();
-                self.mention_bindings.clear();
+                self.composer.clear_buffer();
+                self.composer.clear_mentions();
                 self.sync_inline_popup();
                 self.close_busy_action_popup();
             }
             KeyCode::Esc => self.close_busy_action_popup(),
             KeyCode::Backspace => {
-                let _ = self.navigation.command_buffer.pop();
-                self.mention_bindings =
-                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+                let _ = self.composer.pop_char();
+                self.composer.set_mention_bindings(prune_mention_bindings(
+                    self.composer.buffer(),
+                    self.composer.mention_bindings(),
+                ));
             }
             KeyCode::Char(ch)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
-                self.navigation.command_buffer.push(ch);
-                self.mention_bindings =
-                    prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+                self.composer.push_char(ch);
+                self.composer.set_mention_bindings(prune_mention_bindings(
+                    self.composer.buffer(),
+                    self.composer.mention_bindings(),
+                ));
             }
             _ => {}
         }
@@ -1001,13 +1007,13 @@ impl App {
                     .get(self.popup.selected_index())
                     .cloned()
                     && let Some((text, binding)) =
-                        insert_selected_mention(&self.navigation.command_buffer, &selected)
+                        insert_selected_mention(self.composer.buffer(), &selected)
                 {
-                    self.navigation.command_buffer = text;
-                    self.mention_bindings = prune_mention_bindings(
-                        &self.navigation.command_buffer,
-                        &[self.mention_bindings.clone(), vec![binding]].concat(),
-                    );
+                    self.composer.set_buffer(text);
+                    self.composer.set_mention_bindings(prune_mention_bindings(
+                        self.composer.buffer(),
+                        &[self.composer.mention_bindings().to_vec(), vec![binding]].concat(),
+                    ));
                 }
                 self.sync_inline_popup();
             }
@@ -1039,9 +1045,9 @@ impl App {
             return;
         }
 
-        if !self.navigation.command_buffer.is_empty() {
-            self.navigation.command_buffer.clear();
-            self.mention_bindings.clear();
+        if !self.composer.buffer().is_empty() {
+            self.composer.clear_buffer();
+            self.composer.clear_mentions();
             return;
         }
 
@@ -1051,29 +1057,29 @@ impl App {
     }
 
     fn autocomplete_slash_command(&mut self) {
-        if !is_slash_mode(&self.navigation.command_buffer) {
+        if !is_slash_mode(self.composer.buffer()) {
             return;
         }
 
         let commands = filtered_commands_for_state(
-            &self.navigation.command_buffer,
+            self.composer.buffer(),
             current_review_mode(),
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
         );
-        if let Some(command) = commands.get(self.slash_selected_index) {
-            self.navigation.command_buffer = format!("{} ", command.name);
+        if let Some(command) = commands.get(self.composer.slash_selected_index()) {
+            self.composer.set_buffer(format!("{} ", command.name));
         }
     }
 
     fn navigate_slash(&mut self, delta: isize) {
-        if !is_slash_mode(&self.navigation.command_buffer) {
+        if !is_slash_mode(self.composer.buffer()) {
             self.recall_prompt_history(delta);
             return;
         }
 
         let commands = filtered_commands_for_state(
-            &self.navigation.command_buffer,
+            self.composer.buffer(),
             current_review_mode(),
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
@@ -1082,7 +1088,11 @@ impl App {
             return;
         }
 
-        self.slash_selected_index = cycle_index(self.slash_selected_index, commands.len(), delta);
+        self.composer.set_slash_selected_index(cycle_index(
+            self.composer.slash_selected_index(),
+            commands.len(),
+            delta,
+        ));
     }
 
     fn recall_prompt_history(&mut self, delta: isize) {
@@ -1105,16 +1115,17 @@ impl App {
         };
 
         self.prompt_history_cursor = next;
-        self.navigation.command_buffer = next
-            .and_then(|index| self.prompt_history.get(index).cloned())
-            .unwrap_or_default();
-        self.mention_bindings.clear();
+        self.composer.set_buffer(
+            next.and_then(|index| self.prompt_history.get(index).cloned())
+                .unwrap_or_default(),
+        );
+        self.composer.clear_mentions();
         self.sync_inline_popup();
     }
 
     fn submit_current_input(&mut self) {
         if self.working_started_at.is_some() {
-            let display_text = self.navigation.command_buffer.trim().to_string();
+            let display_text = self.composer.buffer().trim().to_string();
             if is_slash_mode(&display_text) {
                 self.execute_slash_command(&display_text);
                 return;
@@ -1131,7 +1142,7 @@ impl App {
             return;
         }
 
-        let trimmed = self.navigation.command_buffer.trim().to_string();
+        let trimmed = self.composer.buffer().trim().to_string();
         if trimmed.is_empty() {
             return;
         }
@@ -1155,8 +1166,8 @@ impl App {
         });
         self.needs_replay_context = false;
         self.dirty = true;
-        self.navigation.command_buffer.clear();
-        self.mention_bindings.clear();
+        self.composer.clear_buffer();
+        self.composer.clear_mentions();
         self.sync_inline_popup();
     }
 
@@ -1174,7 +1185,7 @@ impl App {
         }
 
         let bindings =
-            collect_buffer_mentions(&self.navigation.command_buffer, &self.mention_bindings);
+            collect_buffer_mentions(self.composer.buffer(), self.composer.mention_bindings());
         let context =
             resolve_mention_context(std::path::Path::new(&self.workspace_path), &bindings);
         for error in &context.errors {
@@ -1197,13 +1208,13 @@ impl App {
                 self.working_started_at.is_some(),
                 !self.rows.is_empty(),
             )
-            .get(self.slash_selected_index)
+            .get(self.composer.slash_selected_index())
             .copied()
         });
 
-        self.navigation.command_buffer.clear();
+        self.composer.clear_buffer();
         self.popup.close();
-        self.slash_selected_index = 0;
+        self.composer.set_slash_selected_index(0);
 
         let Some(command) = command else {
             self.apply_system_notice("Unknown command.");
@@ -1545,10 +1556,12 @@ impl App {
     }
 
     fn sync_inline_popup(&mut self) {
-        self.mention_bindings =
-            prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
+        self.composer.set_mention_bindings(prune_mention_bindings(
+            self.composer.buffer(),
+            self.composer.mention_bindings(),
+        ));
 
-        if let Some(query) = extract_active_mention_query(&self.navigation.command_buffer) {
+        if let Some(query) = extract_active_mention_query(self.composer.buffer()) {
             self.popup.open_mention();
             self.popup
                 .set_mention_items(filter_mention_items(&query, &self.workspace_files));

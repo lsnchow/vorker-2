@@ -3,6 +3,7 @@
 mod app;
 mod boot;
 mod bridge;
+mod composer_state;
 mod demo;
 mod mentions;
 mod navigation;
@@ -21,6 +22,7 @@ mod transcript_export;
 
 pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
+pub use composer_state::ComposerState;
 pub use demo::render_hyperloop_mock;
 pub use mentions::{
     ComposerMentionBinding, MentionContext, collect_buffer_mentions, extract_active_mention_query,

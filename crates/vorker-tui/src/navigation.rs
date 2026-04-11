@@ -42,7 +42,6 @@ pub struct NavigationState {
     pub selected_model_id: Option<String>,
     pub model_choices: Vec<String>,
     pub model_picker_open: bool,
-    pub command_buffer: String,
 }
 
 impl Default for NavigationState {
@@ -56,7 +55,6 @@ impl Default for NavigationState {
             selected_model_id: None,
             model_choices: Vec::new(),
             model_picker_open: false,
-            command_buffer: String::new(),
         }
     }
 }

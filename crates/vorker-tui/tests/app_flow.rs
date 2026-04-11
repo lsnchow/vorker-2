@@ -123,7 +123,7 @@ fn tab_autocompletes_the_selected_slash_command() {
     assert!(app.handle_key(key(KeyCode::Char('r'))));
     assert!(app.handle_key(key(KeyCode::Tab)));
 
-    assert_eq!(app.navigation.command_buffer, "/review ");
+    assert_eq!(app.command_buffer(), "/review ");
 }
 
 #[test]
@@ -855,16 +855,16 @@ fn up_down_recall_prompt_history_when_not_in_slash_mode() {
     ]);
 
     assert!(app.handle_key(key(KeyCode::Up)));
-    assert_eq!(app.navigation.command_buffer, "second prompt");
+    assert_eq!(app.command_buffer(), "second prompt");
 
     assert!(app.handle_key(key(KeyCode::Up)));
-    assert_eq!(app.navigation.command_buffer, "first prompt");
+    assert_eq!(app.command_buffer(), "first prompt");
 
     assert!(app.handle_key(key(KeyCode::Down)));
-    assert_eq!(app.navigation.command_buffer, "second prompt");
+    assert_eq!(app.command_buffer(), "second prompt");
 
     assert!(app.handle_key(key(KeyCode::Down)));
-    assert_eq!(app.navigation.command_buffer, "");
+    assert_eq!(app.command_buffer(), "");
 }
 
 #[test]
@@ -1014,7 +1014,7 @@ fn selecting_a_mention_inserts_a_bound_filename() {
 
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert_eq!(app.navigation.command_buffer, "Improve docs in @README.md ");
+    assert_eq!(app.command_buffer(), "Improve docs in @README.md ");
     assert!(app.take_actions().is_empty());
 }
 
