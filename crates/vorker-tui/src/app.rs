@@ -2662,6 +2662,10 @@ pub fn run_app(
                         .iter()
                         .filter(|job| job.status == SideAgentStatus::Running)
                         .count();
+                    let event_count = session_event_store
+                        .events(&app.thread_record().id)
+                        .map(|events| events.len())
+                        .unwrap_or(0);
                     app.apply_system_notice(render_status_summary(
                         app.navigation
                             .selected_model_id
@@ -2673,6 +2677,7 @@ pub fn run_app(
                         app.thread_name(),
                         &format_thread_duration(app.thread_duration_seconds()),
                         app.rows.len(),
+                        event_count,
                         app.queued_prompt_count(),
                         jobs.len(),
                         running_agents,
@@ -3060,12 +3065,13 @@ fn render_status_summary(
     thread_name: &str,
     thread_duration: &str,
     transcript_rows: usize,
+    event_count: usize,
     queued_prompts: usize,
     total_agents: usize,
     running_agents: usize,
 ) -> String {
     format!(
-        "Status\nmodel: {model}\ncwd: {cwd}\nworkspace: {workspace}\napprovals: {approvals}\nthread: {thread_name} ({thread_duration})\ntranscript rows: {transcript_rows}\nqueued prompts: {queued_prompts}\nside agents: {total_agents} total, {running_agents} running"
+        "Status\nmodel: {model}\ncwd: {cwd}\nworkspace: {workspace}\napprovals: {approvals}\nthread: {thread_name} ({thread_duration})\ntranscript rows: {transcript_rows}\nevents: {event_count}\nqueued prompts: {queued_prompts}\nside agents: {total_agents} total, {running_agents} running"
     )
 }
 
@@ -3470,12 +3476,14 @@ mod tests {
             "Thread 1",
             "4s",
             12,
+            5,
             3,
             2,
             1,
         );
 
         assert!(output.contains("transcript rows: 12"));
+        assert!(output.contains("events: 5"));
         assert!(output.contains("queued prompts: 3"));
         assert!(output.contains("side agents: 2 total, 1 running"));
     }
