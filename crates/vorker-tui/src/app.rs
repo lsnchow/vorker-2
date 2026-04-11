@@ -21,6 +21,8 @@ use crate::mentions::{
     filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
 use crate::navigation::{NavigationState, Pane};
+pub use crate::popup_state::PermissionOptionView;
+use crate::popup_state::{AppPopupState, PopupMode};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
@@ -143,21 +145,6 @@ pub enum AppCommand {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PermissionOptionView {
-    pub option_id: String,
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PopupMode {
-    Mention,
-    Permission,
-    SkillAction,
-    SkillToggle,
-    BusyAction,
-}
-
 pub struct App {
     pub snapshot: Snapshot,
     pub navigation: NavigationState,
@@ -170,10 +157,7 @@ pub struct App {
     mention_items: Vec<String>,
     mention_selected_index: usize,
     slash_selected_index: usize,
-    permission_title: Option<String>,
-    permission_items: Vec<PermissionOptionView>,
-    permission_selected_index: usize,
-    popup_mode: Option<PopupMode>,
+    popup: AppPopupState,
     working_started_at: Option<Instant>,
     needs_replay_context: bool,
     dirty: bool,
@@ -186,7 +170,6 @@ pub struct App {
     skills: Vec<SkillInfo>,
     enabled_skills: BTreeSet<String>,
     skill_context: String,
-    skill_toggle_query: String,
     shell_theme: String,
     pending_actions: Vec<AppCommand>,
 }
@@ -264,10 +247,7 @@ impl App {
             mention_items: Vec::new(),
             mention_selected_index: 0,
             slash_selected_index: 0,
-            permission_title: None,
-            permission_items: Vec::new(),
-            permission_selected_index: 0,
-            popup_mode: None,
+            popup: AppPopupState::default(),
             working_started_at: None,
             needs_replay_context: !thread.rows.is_empty(),
             dirty: false,
@@ -280,7 +260,6 @@ impl App {
             skills: Vec::new(),
             enabled_skills: BTreeSet::new(),
             skill_context: String::new(),
-            skill_toggle_query: String::new(),
             shell_theme: current_shell_theme().to_string(),
             pending_actions: Vec::new(),
         }
@@ -343,10 +322,7 @@ impl App {
         self.mention_bindings.clear();
         self.mention_items.clear();
         self.mention_selected_index = 0;
-        self.permission_title = None;
-        self.permission_items.clear();
-        self.permission_selected_index = 0;
-        self.popup_mode = None;
+        self.popup.close();
         self.working_started_at = None;
         self.needs_replay_context = !self.rows.is_empty();
         self.dirty = false;
@@ -354,7 +330,6 @@ impl App {
         self.pending_review_rows.clear();
         self.last_review_reveal_at = None;
         self.prompt_history_cursor = None;
-        self.skill_toggle_query.clear();
     }
 
     pub fn list_threads(&mut self, threads: &[StoredThread]) {
@@ -639,80 +614,11 @@ impl App {
         title: impl Into<String>,
         items: Vec<PermissionOptionView>,
     ) {
-        self.permission_title = Some(title.into());
-        self.permission_items = items;
-        self.permission_selected_index = 0;
-        self.popup_mode = Some(PopupMode::Permission);
-    }
-
-    fn render_popup_state(&self) -> (Option<String>, Vec<crate::render::PopupItem>, usize) {
-        match self.popup_mode {
-            Some(PopupMode::Permission) => (
-                self.permission_title.clone(),
-                self.permission_items
-                    .iter()
-                    .map(|item| crate::render::PopupItem {
-                        label: item.name.clone(),
-                        description: None,
-                        selectable: true,
-                    })
-                    .collect(),
-                self.permission_selected_index,
-            ),
-            Some(PopupMode::SkillAction) => (
-                Some("Skills - choose an action".to_string()),
-                vec![
-                    crate::render::PopupItem {
-                        label: "1. List skills".to_string(),
-                        description: Some("show installed skills and state".to_string()),
-                        selectable: true,
-                    },
-                    crate::render::PopupItem {
-                        label: "2. Enable/Disable Skills".to_string(),
-                        description: Some("Enable or disable skills.".to_string()),
-                        selectable: true,
-                    },
-                ],
-                self.permission_selected_index,
-            ),
-            Some(PopupMode::SkillToggle) => (
-                Some(if self.skill_toggle_query.is_empty() {
-                    "Enable/Disable Skills - Type to search skills".to_string()
-                } else {
-                    format!(
-                        "Enable/Disable Skills - search: {}",
-                        self.skill_toggle_query
-                    )
-                }),
-                self.filtered_skill_items(),
-                self.permission_selected_index,
-            ),
-            Some(PopupMode::BusyAction) => (
-                Some("Current work is active".to_string()),
-                vec![
-                    crate::render::PopupItem {
-                        label: "1. Queue after current turn".to_string(),
-                        description: Some(
-                            "Run this prompt when the current work finishes.".to_string(),
-                        ),
-                        selectable: true,
-                    },
-                    crate::render::PopupItem {
-                        label: "2. Send as steering guidance".to_string(),
-                        description: Some(
-                            "Send this text to the active turn instead of queueing it.".to_string(),
-                        ),
-                        selectable: true,
-                    },
-                ],
-                self.permission_selected_index,
-            ),
-            _ => (None, Vec::new(), 0),
-        }
+        self.popup.open_permission_prompt(title, items);
     }
 
     pub fn render(&self, width: usize, color: bool) -> String {
-        let popup = self.render_popup_state();
+        let popup = self.popup.render_state(&self.filtered_skill_items());
         let review_mode = current_review_mode();
         let busy = self.working_started_at.is_some();
         render_dashboard(
@@ -783,22 +689,22 @@ impl App {
             return false;
         }
 
-        if self.popup_mode == Some(PopupMode::Permission) {
+        if self.popup.is_mode(PopupMode::Permission) {
             self.handle_permission_key(key);
             return true;
         }
 
-        if self.popup_mode == Some(PopupMode::SkillAction) {
+        if self.popup.is_mode(PopupMode::SkillAction) {
             self.handle_skill_action_key(key);
             return true;
         }
 
-        if self.popup_mode == Some(PopupMode::SkillToggle) {
+        if self.popup.is_mode(PopupMode::SkillToggle) {
             self.handle_skill_toggle_key(key);
             return true;
         }
 
-        if self.popup_mode == Some(PopupMode::BusyAction) {
+        if self.popup.is_mode(PopupMode::BusyAction) {
             self.handle_busy_action_key(key);
             return true;
         }
@@ -842,30 +748,21 @@ impl App {
     }
 
     fn is_mention_popup(&self) -> bool {
-        self.popup_mode == Some(PopupMode::Mention)
+        self.popup.is_mode(PopupMode::Mention)
     }
 
     fn handle_permission_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.permission_selected_index = cycle_index(
-                    self.permission_selected_index,
-                    self.permission_items.len(),
-                    -1,
-                );
+                self.popup
+                    .cycle_selected_index(self.popup.permission_items_len(), -1);
             }
             KeyCode::Down => {
-                self.permission_selected_index = cycle_index(
-                    self.permission_selected_index,
-                    self.permission_items.len(),
-                    1,
-                );
+                self.popup
+                    .cycle_selected_index(self.popup.permission_items_len(), 1);
             }
             KeyCode::Enter => {
-                let option_id = self
-                    .permission_items
-                    .get(self.permission_selected_index)
-                    .map(|item| item.option_id.clone());
+                let option_id = self.popup.permission_option_id();
                 self.pending_actions
                     .push(AppCommand::ResolvePermission { option_id });
                 self.close_permission_prompt();
@@ -880,28 +777,23 @@ impl App {
     }
 
     fn close_permission_prompt(&mut self) {
-        self.permission_title = None;
-        self.permission_items.clear();
-        self.permission_selected_index = 0;
-        self.popup_mode = None;
+        self.popup.close();
     }
 
     fn handle_skill_action_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, -1);
+                self.popup.cycle_selected_index(2, -1);
             }
             KeyCode::Down => {
-                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, 1);
+                self.popup.cycle_selected_index(2, 1);
             }
             KeyCode::Enter => {
-                if self.permission_selected_index == 0 {
+                if self.popup.selected_index() == 0 {
                     self.pending_actions.push(AppCommand::ListSkills);
                     self.close_skill_popup();
                 } else {
-                    self.popup_mode = Some(PopupMode::SkillToggle);
-                    self.skill_toggle_query.clear();
-                    self.permission_selected_index = 0;
+                    self.popup.open_skill_toggle(true);
                     self.sync_skill_toggle_items();
                 }
             }
@@ -914,18 +806,16 @@ impl App {
         match key.code {
             KeyCode::Up => {
                 let len = self.filtered_skill_names().len();
-                self.permission_selected_index =
-                    cycle_index(self.permission_selected_index, len, -1);
+                self.popup.cycle_selected_index(len, -1);
             }
             KeyCode::Down => {
                 let len = self.filtered_skill_names().len();
-                self.permission_selected_index =
-                    cycle_index(self.permission_selected_index, len, 1);
+                self.popup.cycle_selected_index(len, 1);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(name) = self
                     .filtered_skill_names()
-                    .get(self.permission_selected_index)
+                    .get(self.popup.selected_index())
                     .cloned()
                 {
                     let enabled = !self.enabled_skills.contains(&name);
@@ -934,15 +824,15 @@ impl App {
                 }
             }
             KeyCode::Backspace => {
-                self.skill_toggle_query.pop();
+                self.popup.pop_skill_toggle_char();
                 self.sync_skill_toggle_items();
             }
             KeyCode::Char(ch)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
-                self.skill_toggle_query.push(ch);
-                self.permission_selected_index = 0;
+                self.popup.push_skill_toggle_char(ch);
+                self.popup.set_selected_index(0);
                 self.sync_skill_toggle_items();
             }
             KeyCode::Esc => self.close_skill_popup(),
@@ -951,18 +841,16 @@ impl App {
     }
 
     fn close_skill_popup(&mut self) {
-        self.popup_mode = None;
-        self.skill_toggle_query.clear();
-        self.permission_selected_index = 0;
+        self.popup.close();
     }
 
     fn handle_busy_action_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => {
-                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, -1);
+                self.popup.cycle_selected_index(2, -1);
             }
             KeyCode::Down => {
-                self.permission_selected_index = cycle_index(self.permission_selected_index, 2, 1);
+                self.popup.cycle_selected_index(2, 1);
             }
             KeyCode::Enter => {
                 let display_text = self.navigation.command_buffer.trim().to_string();
@@ -971,7 +859,7 @@ impl App {
                     return;
                 }
 
-                match self.permission_selected_index {
+                match self.popup.selected_index() {
                     0 => {
                         let prompt_text = self.build_prompt_text(&display_text);
                         self.pending_actions.push(AppCommand::QueuePrompt {
@@ -1010,12 +898,11 @@ impl App {
     }
 
     fn close_busy_action_popup(&mut self) {
-        self.popup_mode = None;
-        self.permission_selected_index = 0;
+        self.popup.close();
     }
 
     fn filtered_skill_items(&self) -> Vec<crate::render::PopupItem> {
-        let query = self.skill_toggle_query.trim().to_ascii_lowercase();
+        let query = self.popup.skill_toggle_query().trim().to_ascii_lowercase();
         self.skills
             .iter()
             .filter(|skill| {
@@ -1039,7 +926,7 @@ impl App {
     }
 
     fn filtered_skill_names(&self) -> Vec<String> {
-        let query = self.skill_toggle_query.trim().to_ascii_lowercase();
+        let query = self.popup.skill_toggle_query().trim().to_ascii_lowercase();
         self.skills
             .iter()
             .filter(|skill| {
@@ -1053,7 +940,7 @@ impl App {
 
     fn sync_skill_toggle_items(&mut self) {
         let len = self.filtered_skill_names().len();
-        self.permission_selected_index = self.permission_selected_index.min(len.saturating_sub(1));
+        self.popup.clamp_selected_index(len);
     }
 
     fn handle_model_picker_key(&mut self, key: KeyEvent) {
@@ -1127,7 +1014,7 @@ impl App {
                 self.sync_inline_popup();
             }
             KeyCode::Esc => {
-                self.popup_mode = None;
+                self.popup.close();
                 self.mention_items.clear();
                 self.mention_selected_index = 0;
             }
@@ -1141,18 +1028,18 @@ impl App {
             return;
         }
 
-        if self.popup_mode.is_some() {
-            if self.popup_mode == Some(PopupMode::BusyAction) {
+        if self.popup.mode().is_some() {
+            if self.popup.is_mode(PopupMode::BusyAction) {
                 self.close_busy_action_popup();
                 return;
             }
-            if self.popup_mode == Some(PopupMode::SkillAction)
-                || self.popup_mode == Some(PopupMode::SkillToggle)
+            if self.popup.is_mode(PopupMode::SkillAction)
+                || self.popup.is_mode(PopupMode::SkillToggle)
             {
                 self.close_skill_popup();
                 return;
             }
-            self.popup_mode = None;
+            self.popup.close();
             self.mention_items.clear();
             self.mention_selected_index = 0;
             return;
@@ -1240,8 +1127,7 @@ impl App {
             }
 
             if !display_text.is_empty() {
-                self.popup_mode = Some(PopupMode::BusyAction);
-                self.permission_selected_index = 0;
+                self.popup.open_busy_action();
             }
             return;
         }
@@ -1322,7 +1208,7 @@ impl App {
         });
 
         self.navigation.command_buffer.clear();
-        self.popup_mode = None;
+        self.popup.close();
         self.mention_items.clear();
         self.slash_selected_index = 0;
 
@@ -1520,9 +1406,7 @@ impl App {
                 let mut tokens = buffer.split_whitespace().skip(1);
                 match tokens.next() {
                     None => {
-                        self.popup_mode = Some(PopupMode::SkillAction);
-                        self.permission_selected_index = 0;
-                        self.skill_toggle_query.clear();
+                        self.popup.open_skill_action();
                     }
                     Some("list") => self.pending_actions.push(AppCommand::ListSkills),
                     Some("enable") => {
@@ -1561,9 +1445,10 @@ impl App {
                         }
                     }
                     Some("search") => {
-                        self.skill_toggle_query = tokens.collect::<Vec<_>>().join(" ");
-                        self.popup_mode = Some(PopupMode::SkillToggle);
-                        self.permission_selected_index = 0;
+                        self.popup.open_skill_toggle(true);
+                        for ch in tokens.collect::<Vec<_>>().join(" ").chars() {
+                            self.popup.push_skill_toggle_char(ch);
+                        }
                         self.sync_skill_toggle_items();
                     }
                     Some(_) => {
@@ -1671,7 +1556,7 @@ impl App {
             prune_mention_bindings(&self.navigation.command_buffer, &self.mention_bindings);
 
         if let Some(query) = extract_active_mention_query(&self.navigation.command_buffer) {
-            self.popup_mode = Some(PopupMode::Mention);
+            self.popup.open_mention();
             self.mention_items = filter_mention_items(&query, &self.workspace_files);
             self.mention_selected_index = self
                 .mention_selected_index
@@ -1679,7 +1564,7 @@ impl App {
             return;
         }
 
-        self.popup_mode = None;
+        self.popup.close();
         self.mention_items.clear();
         self.mention_selected_index = 0;
     }

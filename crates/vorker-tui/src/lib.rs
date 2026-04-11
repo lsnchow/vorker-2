@@ -6,6 +6,7 @@ mod bridge;
 mod demo;
 mod mentions;
 mod navigation;
+mod popup_state;
 mod project_workspace;
 mod prompt_history;
 mod render;
@@ -29,6 +30,7 @@ pub use navigation::{
     ACTION_ITEMS, ActionItem, NavKey, NavigationState, Pane, apply_navigation_key,
     reconcile_navigation_state,
 };
+pub use popup_state::{AppPopupState, PopupMode};
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
 pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{
