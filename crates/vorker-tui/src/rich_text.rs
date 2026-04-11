@@ -104,24 +104,25 @@ fn highlight_badge(tag: &str, bg: &str) -> String {
 
 fn style_inline_code(line: &str, color: bool) -> String {
     let mut output = String::new();
-    let mut remaining = line;
+    let mut segments = line.split('`').peekable();
     let mut in_code = false;
-    while let Some(index) = remaining.find('`') {
-        let (before, after_tick) = remaining.split_at(index);
-        output.push_str(before);
-        remaining = &after_tick[1..];
+
+    while let Some(segment) = segments.next() {
         if in_code {
-            output.push_str("`\u{1b}[0m");
-            in_code = false;
+            if segments.peek().is_none() {
+                output.push('`');
+                output.push_str(segment);
+            } else {
+                output.push_str("\u{1b}[48;5;238m\u{1b}[38;5;229m");
+                output.push_str(&style_code_tokens(segment, color));
+                output.push_str("\u{1b}[0m");
+            }
         } else {
-            output.push_str("\u{1b}[48;5;238m\u{1b}[38;5;229m`");
-            in_code = true;
+            output.push_str(segment);
         }
+        in_code = !in_code;
     }
-    output.push_str(remaining);
-    if in_code {
-        output.push_str("`\u{1b}[0m");
-    }
+
     if color { output } else { line.to_string() }
 }
 

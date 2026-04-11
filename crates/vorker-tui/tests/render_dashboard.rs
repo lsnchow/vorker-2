@@ -132,6 +132,10 @@ fn render_dashboard_footer_shows_dense_status_when_space_allows() {
         output.contains("t:default"),
         "missing theme status:\n{output}"
     );
+    assert!(
+        output.contains("/model /new /help"),
+        "missing empty-shell footer hint:\n{output}"
+    );
 }
 
 #[test]
@@ -172,6 +176,10 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
     assert!(
         output.contains("Config"),
         "missing Config heading:\n{output}"
+    );
+    assert!(
+        output.contains("enter queue/steer") && output.contains("/stop interrupt"),
+        "missing busy footer hint:\n{output}"
     );
 }
 
@@ -363,8 +371,12 @@ fn review_theme_highlights_findings_paths_and_code_quotes() {
         "missing severity badge:\n{output:?}"
     );
     assert!(
-        output.contains("\u{1b}[48;5;238m") && output.contains("`pod_api.py`\u{1b}[0m"),
+        output.contains("\u{1b}[48;5;238m") && output.contains("pod_api.py\u{1b}[0m"),
         "missing highlighted path:\n{output:?}"
+    );
+    assert!(
+        !output.contains("`pod_api.py`"),
+        "inline code should render without literal backticks:\n{output:?}"
     );
     assert!(
         output.contains("\u{1b}[90m  34 |\u{1b}[0m"),
@@ -377,5 +389,48 @@ fn review_theme_highlights_findings_paths_and_code_quotes() {
     assert!(
         output.contains("\u{1b}[31m- return {\"ok\": true}\u{1b}[0m"),
         "missing removal highlighting:\n{output:?}"
+    );
+}
+
+#[test]
+fn draft_footer_prefers_send_hint() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            command_buffer: "hello".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("enter to send"),
+        "missing draft hint:\n{output}"
+    );
+    assert!(
+        output.contains("gpt-5.4 · 100% left · /workspace"),
+        "missing compact status:\n{output}"
+    );
+}
+
+#[test]
+fn review_footer_uses_review_actions() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            theme_name: "review".to_string(),
+            footer_mode: vorker_tui::FooterMode::Review,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("/model /coach /apply · esc exits review"),
+        "missing review footer hint:\n{output}"
     );
 }

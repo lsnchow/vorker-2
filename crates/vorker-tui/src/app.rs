@@ -23,7 +23,7 @@ use crate::mentions::{
 use crate::navigation::{NavigationState, Pane};
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
-use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
+use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
 use crate::session_event_store::{
     SessionEventStore, apply_events_to_thread, derive_thread_events,
     render_session_event_timeline_with_mode,
@@ -713,6 +713,8 @@ impl App {
 
     pub fn render(&self, width: usize, color: bool) -> String {
         let popup = self.render_popup_state();
+        let review_mode = current_review_mode();
+        let busy = self.working_started_at.is_some();
         render_dashboard(
             &self.snapshot,
             DashboardOptions {
@@ -742,6 +744,8 @@ impl App {
                 queue_label: format!("queue {}", self.prompt_queue.len()),
                 activity_label: if self.working_started_at.is_some() {
                     "working".to_string()
+                } else if review_mode {
+                    "review".to_string()
                 } else {
                     "idle".to_string()
                 },
@@ -749,15 +753,26 @@ impl App {
                     .working_started_at
                     .map(|started_at| started_at.elapsed().as_secs()),
                 transcript_rows: self.rows.clone(),
-                tip_line: Some(if current_review_mode() {
+                tip_line: Some(if review_mode {
                     "Tip: Use /model, /coach, or /apply. Esc exits review mode.".to_string()
                 } else {
                     "Tip: Use /model or /new.".to_string()
                 }),
-                composer_placeholder: if current_review_mode() {
+                composer_placeholder: if review_mode {
                     "Question the current implementation".to_string()
                 } else {
                     "Improve documentation in @filename".to_string()
+                },
+                footer_mode: match (
+                    review_mode,
+                    busy,
+                    self.navigation.command_buffer.trim().is_empty(),
+                ) {
+                    (true, true, _) => FooterMode::ReviewBusy,
+                    (true, false, _) => FooterMode::Review,
+                    (false, true, _) => FooterMode::Busy,
+                    (false, false, true) => FooterMode::Empty,
+                    (false, false, false) => FooterMode::Draft,
                 },
             },
         )

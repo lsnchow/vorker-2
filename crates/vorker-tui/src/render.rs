@@ -27,6 +27,15 @@ pub struct PopupItem {
     pub selectable: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FooterMode {
+    Empty,
+    Draft,
+    Busy,
+    Review,
+    ReviewBusy,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardOptions {
     pub color: bool,
@@ -52,6 +61,7 @@ pub struct DashboardOptions {
     pub transcript_rows: Vec<TranscriptRow>,
     pub tip_line: Option<String>,
     pub composer_placeholder: String,
+    pub footer_mode: FooterMode,
 }
 
 impl Default for DashboardOptions {
@@ -80,6 +90,7 @@ impl Default for DashboardOptions {
             transcript_rows: Vec::new(),
             tip_line: Some("Tip: Use /model or /new.".to_string()),
             composer_placeholder: "Improve documentation in @filename".to_string(),
+            footer_mode: FooterMode::Empty,
         }
     }
 }
@@ -448,35 +459,37 @@ fn render_popup_line(item: &PopupItem, selected: bool, width: usize, color: bool
 
 fn render_footer(options: &DashboardOptions, width: usize) -> String {
     let model = model_label(options);
-    let activity = if options.color {
-        colorize(
-            &options.activity_label,
-            activity_tone(&options.activity_label),
-            true,
-        )
-    } else {
-        options.activity_label.clone()
-    };
-    let theme = if options.color {
-        colorize(&format!("t:{}", options.theme_name), "gray", true)
-    } else {
-        format!("t:{}", options.theme_name)
-    };
-    let queue = if options.color {
-        colorize(&options.queue_label, "gray", true)
-    } else {
-        options.queue_label.clone()
-    };
-    truncate(
-        &format!(
-            "{model} · {} · {} · {} · {} · {queue} · {activity} · {theme}",
-            options.context_left_label,
-            options.workspace_path,
-            options.approval_mode_label,
-            options.thread_duration_label
-        ),
-        width,
-    )
+    let footer_mode = effective_footer_mode(options);
+    let hint = footer_hint(options);
+    let mut status_segments = vec![
+        model.to_string(),
+        options.context_left_label.clone(),
+        options.workspace_path.clone(),
+    ];
+    let optional_segments = footer_optional_segments(options, &footer_mode);
+
+    status_segments.extend(optional_segments.iter().cloned());
+    let mut status = join_footer_segments(&status_segments);
+
+    while visible_length(&status) > width && status_segments.len() > 3 {
+        status_segments.pop();
+        status = join_footer_segments(&status_segments);
+    }
+
+    while !hint.is_empty()
+        && visible_length(&hint) + 2 + visible_length(&status) > width
+        && status_segments.len() > 3
+    {
+        status_segments.pop();
+        status = join_footer_segments(&status_segments);
+    }
+
+    if hint.is_empty() || visible_length(&hint) + 2 + visible_length(&status) > width {
+        return truncate(&status, width);
+    }
+
+    let padding = width.saturating_sub(visible_length(&hint) + visible_length(&status));
+    format!("{hint}{}{}", " ".repeat(padding), status)
 }
 
 fn model_label(options: &DashboardOptions) -> &str {
@@ -498,6 +511,103 @@ fn activity_tone(label: &str) -> &str {
 
 fn is_review_theme(options: &DashboardOptions) -> bool {
     matches!(options.theme_name.as_str(), "review" | "opencode")
+}
+
+fn footer_hint(options: &DashboardOptions) -> String {
+    let hint = match effective_footer_mode(options) {
+        FooterMode::Empty => "/model /new /help",
+        FooterMode::Draft => "enter to send",
+        FooterMode::Busy => "enter queue/steer · /stop interrupt",
+        FooterMode::Review => "/model /coach /apply · esc exits review",
+        FooterMode::ReviewBusy => "/coach /apply · /stop interrupt",
+    };
+
+    if options.color {
+        colorize(hint, "gray", true)
+    } else {
+        hint.to_string()
+    }
+}
+
+fn footer_optional_segments(options: &DashboardOptions, footer_mode: &FooterMode) -> Vec<String> {
+    let mut segments = Vec::new();
+
+    let approval = if options.color {
+        colorize(&options.approval_mode_label, "gray", true)
+    } else {
+        options.approval_mode_label.clone()
+    };
+    let duration = if options.color {
+        colorize(&options.thread_duration_label, "gray", true)
+    } else {
+        options.thread_duration_label.clone()
+    };
+    let queue = if options.color {
+        colorize(&options.queue_label, "gray", true)
+    } else {
+        options.queue_label.clone()
+    };
+    let activity_label = if options.working_seconds.is_some() {
+        "working".to_string()
+    } else if matches!(footer_mode, FooterMode::Review | FooterMode::ReviewBusy) {
+        "review".to_string()
+    } else {
+        options.activity_label.clone()
+    };
+    let activity = if options.color {
+        colorize(&activity_label, activity_tone(&activity_label), true)
+    } else {
+        activity_label
+    };
+    let theme = if options.color {
+        colorize(&format!("t:{}", options.theme_name), "gray", true)
+    } else {
+        format!("t:{}", options.theme_name)
+    };
+
+    match footer_mode {
+        FooterMode::Busy | FooterMode::ReviewBusy => {
+            segments.push(queue);
+            segments.push(activity);
+            segments.push(duration);
+            segments.push(approval);
+            segments.push(theme);
+        }
+        FooterMode::Review => {
+            segments.push(approval);
+            segments.push(duration);
+            segments.push(theme);
+        }
+        FooterMode::Draft | FooterMode::Empty => {
+            segments.push(approval);
+            segments.push(duration);
+            segments.push(queue);
+            segments.push(activity);
+            segments.push(theme);
+        }
+    }
+
+    segments
+}
+
+fn join_footer_segments(segments: &[String]) -> String {
+    segments.join(" · ")
+}
+
+fn effective_footer_mode(options: &DashboardOptions) -> FooterMode {
+    if options.working_seconds.is_some() {
+        if is_review_theme(options) {
+            FooterMode::ReviewBusy
+        } else {
+            FooterMode::Busy
+        }
+    } else if is_review_theme(options) {
+        FooterMode::Review
+    } else if options.command_buffer.trim().is_empty() {
+        options.footer_mode.clone()
+    } else {
+        FooterMode::Draft
+    }
 }
 
 fn wrap_prefixed(

@@ -31,7 +31,9 @@ pub use navigation::{
 };
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
 pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
-pub use render::{DashboardOptions, PopupItem, RowKind, TranscriptRow, render_dashboard};
+pub use render::{
+    DashboardOptions, FooterMode, PopupItem, RowKind, TranscriptRow, render_dashboard,
+};
 pub use session_event_store::{
     SessionEvent, SessionEventKind, SessionEventStore, apply_events_to_thread,
     derive_thread_events, render_session_event_timeline, render_session_event_timeline_with_mode,
