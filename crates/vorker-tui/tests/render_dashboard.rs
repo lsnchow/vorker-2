@@ -196,6 +196,8 @@ fn busy_shell_popup_prefers_commands_that_can_run_while_busy() {
     assert!(output.contains("/stop"), "missing /stop:\n{output}");
     assert!(output.contains("/steer"), "missing /steer:\n{output}");
     assert!(output.contains("/queue"), "missing /queue:\n{output}");
+    assert!(output.contains("/copy"), "missing /copy:\n{output}");
+    assert!(output.contains("/status"), "missing /status:\n{output}");
     assert!(
         !output.contains("/new   start a fresh chat"),
         "busy popup should hide commands that cannot run while busy:\n{output}"

@@ -145,7 +145,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "list Codex side agents",
         aliases: &[],
         category: SlashCommandCategory::Agent,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::AgentStop,
@@ -161,7 +161,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "show side agent result",
         aliases: &[],
         category: SlashCommandCategory::Agent,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::Theme,
@@ -177,7 +177,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "export the current transcript to markdown",
         aliases: &[],
         category: SlashCommandCategory::Session,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::Copy,
@@ -185,7 +185,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "copy the current transcript to the clipboard",
         aliases: &[],
         category: SlashCommandCategory::Session,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::Diff,
@@ -209,7 +209,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "show session, workspace, and agent status",
         aliases: &[],
         category: SlashCommandCategory::Session,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::History,
@@ -217,7 +217,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         description: "show recent prompt history",
         aliases: &[],
         category: SlashCommandCategory::Session,
-        visibility: NORMAL_ONLY,
+        visibility: NORMAL_BUSY,
     },
     SlashCommand {
         id: SlashCommandId::Skills,

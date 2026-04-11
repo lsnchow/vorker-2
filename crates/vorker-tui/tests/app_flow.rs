@@ -634,7 +634,9 @@ fn slash_help_while_busy_uses_the_busy_command_set() {
 
     let output = app.render(160, false);
     assert!(
-        output.contains("Commands: /stop /steer /queue /agent-stop /diff /timeline /model /help"),
+        output.contains(
+            "Commands: /stop /steer /queue /agents /agent-stop /agent-result /export /copy /diff /timeline /status /history /model /help"
+        ),
         "{output}"
     );
     assert!(!output.contains("/new /permissions"), "{output}");
