@@ -1761,6 +1761,9 @@ fn parse_review_markdown(markdown: &str) -> Vec<TranscriptRow> {
         if line.starts_with("- ") {
             if let Some(row) = current.as_mut() {
                 let bullet = line.trim_start_matches("- ").to_string();
+                if bullet.starts_with("Confidence:") {
+                    continue;
+                }
                 row.detail = Some(match row.detail.take() {
                     Some(existing) if !existing.is_empty() => format!("{existing}\n{bullet}"),
                     _ => bullet,
@@ -2307,6 +2310,7 @@ pub fn run_app(
 
     let mut review_job = None;
     let mut side_agent_jobs: Vec<SideAgentJob> = Vec::new();
+    let mut last_frame = String::new();
     if current_review_mode()
         && std::env::var("VORKER_REVIEW_AUTO")
             .ok()
@@ -2331,9 +2335,12 @@ pub fn run_app(
             .map(|(columns, _)| usize::from(columns))
             .unwrap_or(120);
         let frame = normalize_for_raw_terminal(&app.render(width, true));
-        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
-        write!(stdout, "{frame}")?;
-        stdout.flush()?;
+        if should_redraw_frame(&last_frame, &frame) {
+            execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
+            write!(stdout, "{frame}")?;
+            stdout.flush()?;
+            last_frame = frame;
+        }
 
         if poll(std::time::Duration::from_millis(50))?
             && let Event::Key(key) = read()?
@@ -2903,6 +2910,10 @@ fn prompt_history_for_app(store: &PromptHistoryStore) -> Vec<String> {
         .collect::<Vec<_>>();
     prompts.reverse();
     prompts
+}
+
+fn should_redraw_frame(previous: &str, next: &str) -> bool {
+    previous != next
 }
 
 fn refresh_skill_state(app: &mut App, cwd: &Path, store: &crate::SkillStore) -> io::Result<()> {
@@ -3530,7 +3541,7 @@ mod tests {
     use super::{
         copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_status_summary,
         render_thread_timeline, render_thread_timeline_with_mode, render_working_tree_diff,
-        summarize_transcript_rows, tool_update_text, truncate_lines,
+        should_redraw_frame, summarize_transcript_rows, tool_update_text, truncate_lines,
     };
     use crate::{RowKind, StoredThread, TranscriptRow};
     use std::fs;
@@ -3739,5 +3750,11 @@ mod tests {
         assert!(output.contains("events: 5"));
         assert!(output.contains("queued prompts: 3"));
         assert!(output.contains("side agents: 2 total, 1 running"));
+    }
+
+    #[test]
+    fn should_redraw_frame_only_when_frame_changes() {
+        assert!(!should_redraw_frame("same", "same"));
+        assert!(should_redraw_frame("before", "after"));
     }
 }

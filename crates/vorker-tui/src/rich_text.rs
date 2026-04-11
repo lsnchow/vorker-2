@@ -62,7 +62,6 @@ fn style_review_labels(line: &str, context: RichContext, color: bool) -> String 
 
     for label in [
         "Location:",
-        "Confidence:",
         "Recommendation:",
         "Coaching:",
         "Patch direction:",

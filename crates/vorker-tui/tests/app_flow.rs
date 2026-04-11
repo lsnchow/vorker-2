@@ -768,7 +768,7 @@ fn slash_ralph_queues_a_ralph_run_with_flags() {
 fn review_output_is_parsed_into_structured_rows() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_review_output(
-        "# Adversarial Review\n\n## Summary\nBad API.\n\n### [HIGH] Failure path lies\n- Location: `api.py`:10-12\n\n**Recommendation**\nReturn `ok: false`.\n\n```rust\n  10 | return {\"ok\": true}\n```\n",
+        "# Adversarial Review\n\n## Summary\nBad API.\n\n### [HIGH] Failure path lies\n- Location: `api.py`:10-12\n- Confidence: 0.99\n\n**Recommendation**\nReturn `ok: false`.\n\n```rust\n  10 | return {\"ok\": true}\n```\n",
     );
 
     let queued_before = app.pending_review_rows();
@@ -788,6 +788,7 @@ fn review_output_is_parsed_into_structured_rows() {
     app.advance_review_presentation();
     let next_output = app.render(120, false);
     assert!(next_output.contains("[HIGH] Failure path lies"));
+    assert!(!next_output.contains("Confidence:"), "{next_output}");
 }
 
 #[test]
