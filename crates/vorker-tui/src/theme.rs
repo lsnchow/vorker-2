@@ -41,32 +41,6 @@ pub fn emphasize(text: &str, enabled: bool) -> String {
     format!("\u{1b}[1m{text}\u{1b}[0m")
 }
 
-pub fn highlight(text: &str, enabled: bool, background: &str, foreground: &str) -> String {
-    if !enabled {
-        return text.to_string();
-    }
-
-    let background_code = match background {
-        "bgRed" => "41",
-        "bgGreen" => "42",
-        "bgMagenta" => "45",
-        "bgGray" => "100",
-        _ => "49",
-    };
-    let foreground_code = match foreground {
-        "brightRed" => "91",
-        "yellow" => "33",
-        "black" => "30",
-        "brightGreen" => "92",
-        "green" => "32",
-        "gray" => "90",
-        "white" => "97",
-        _ => "39",
-    };
-
-    format!("\u{1b}[1;{background_code};{foreground_code}m{text}\u{1b}[0m")
-}
-
 pub fn strip_ansi(text: &str) -> String {
     let mut result = String::new();
     let mut chars = text.chars().peekable();

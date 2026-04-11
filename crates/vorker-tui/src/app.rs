@@ -1722,7 +1722,11 @@ fn parse_review_markdown(markdown: &str) -> Vec<TranscriptRow> {
         if line.starts_with("```") {
             if in_code_block {
                 if let Some(row) = current.as_mut() {
-                    let snippet = code_lines.join("\n");
+                    let snippet = code_lines
+                        .iter()
+                        .map(|line| format!("    {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     row.detail = Some(match row.detail.take() {
                         Some(existing) if !existing.is_empty() => {
                             format!("{existing}\n\n{snippet}")

@@ -103,6 +103,10 @@ fn slash_popup_groups_commands_by_category() {
         output.contains("Config"),
         "missing Config heading:\n{output}"
     );
+    assert!(
+        output.contains("› /"),
+        "selected popup entry should use a codex-style indicator:\n{output}"
+    );
 }
 
 #[test]
@@ -162,11 +166,11 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
     );
     assert!(output.contains("› /"), "missing composer text:\n{output}");
     assert!(
-        output.contains("/model   choose what model to use"),
+        output.contains("/model  choose what model to use"),
         "missing slash popup:\n{output}"
     );
     assert!(
-        output.contains("/stop   stop the active prompt or review job"),
+        output.contains("/stop  stop the active prompt or review job"),
         "missing busy-safe /stop command in slash popup:\n{output}"
     );
     assert!(
@@ -389,6 +393,38 @@ fn review_theme_highlights_findings_paths_and_code_quotes() {
     assert!(
         output.contains("\u{1b}[31m- return {\"ok\": true}\u{1b}[0m"),
         "missing removal highlighting:\n{output:?}"
+    );
+}
+
+#[test]
+fn review_theme_styles_fenced_code_without_backticks() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("gpt-5.4".to_string()),
+            theme_name: "review".to_string(),
+            transcript_rows: vec![vorker_tui::TranscriptRow {
+                kind: vorker_tui::RowKind::Tool,
+                text: "[MEDIUM] Example finding".to_string(),
+                detail: Some(
+                    "Recommendation:\n    if status == \"ok\" {\n    return true;\n    }"
+                        .to_string(),
+                ),
+            }],
+            color: true,
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("\u{1b}[90m    \u{1b}[0m"),
+        "missing dimmed code-block gutter:\n{output:?}"
+    );
+    assert!(
+        output.contains("status == \"ok\""),
+        "missing fenced code content:\n{output:?}"
     );
 }
 

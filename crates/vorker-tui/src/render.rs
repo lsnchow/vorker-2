@@ -3,7 +3,7 @@ use vorker_core::{Snapshot, TranscriptEntry};
 
 use crate::rich_text::{RichContext, style_line};
 use crate::slash::{category_label, filtered_commands_for_state};
-use crate::theme::{colorize, fit, hard_wrap, highlight, truncate, visible_length};
+use crate::theme::{colorize, fit, hard_wrap, truncate, visible_length};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RowKind {
@@ -436,24 +436,29 @@ fn render_popup_line(item: &PopupItem, selected: bool, width: usize, color: bool
     }
     let description = item.description.as_deref().unwrap_or_default();
     let base = if description.is_empty() {
-        format!("  {}", item.label)
+        format!("{} {}", if selected { "›" } else { " " }, item.label)
     } else {
-        format!("  {}   {}", item.label, description)
+        format!(
+            "{} {}  {}",
+            if selected { "›" } else { " " },
+            item.label,
+            description
+        )
     };
     let fitted = fit(&truncate(&base, width), width);
-    if selected && color {
-        highlight(
-            &fitted,
-            true,
-            if item.label.contains("danger") || item.label.contains("reject") {
-                "bgRed"
-            } else {
-                "bgGray"
-            },
-            "white",
-        )
+    if !color {
+        return fitted;
+    }
+
+    if selected {
+        let tone = if item.label.contains("danger") || item.label.contains("reject") {
+            "red"
+        } else {
+            "magenta"
+        };
+        colorize(&fitted, tone, true)
     } else {
-        fitted
+        colorize(&fitted, "gray", true)
     }
 }
 

@@ -12,6 +12,7 @@ pub fn style_line(line: &str, context: RichContext, color: bool) -> String {
     }
 
     let line = style_code_quote_line(line, context, color);
+    let line = style_fenced_code_line(&line, context, color);
     let line = style_diff_line(&line, color);
     let line = style_review_labels(&line, context, color);
     let line = style_severity(&line, color);
@@ -53,6 +54,31 @@ fn style_diff_line(line: &str, color: bool) -> String {
         return colorize(line, "brightMagenta", color);
     }
     line.to_string()
+}
+
+fn style_fenced_code_line(line: &str, context: RichContext, color: bool) -> String {
+    if context != RichContext::Review {
+        return line.to_string();
+    }
+
+    let trimmed = line.trim_start();
+    if !line.starts_with("    ") && !line.starts_with('\t') {
+        return line.to_string();
+    }
+    let Some(content) = line.get(4..) else {
+        return line.to_string();
+    };
+    if let Some((line_number, _)) = trimmed.split_once('|')
+        && line_number.trim().parse::<usize>().is_ok()
+    {
+        return line.to_string();
+    }
+
+    format!(
+        "{}{}",
+        colorize("    ", "gray", color),
+        style_code_tokens(content, color)
+    )
 }
 
 fn style_review_labels(line: &str, context: RichContext, color: bool) -> String {
