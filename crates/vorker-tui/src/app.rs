@@ -2564,20 +2564,27 @@ pub fn run_app(
                     app.apply_system_notice(format!("Theme changed to {normalized}."));
                 }
                 AppCommand::ExportTranscript => {
-                    let path = write_transcript_export(
+                    match write_transcript_export(
                         &workspace.project_dir().join("exports"),
                         &app.thread_record(),
-                    )?;
-                    app.apply_system_notice(format!("Transcript exported to {}", path.display()));
+                    ) {
+                        Ok(path) => app
+                            .apply_system_notice(format!("Transcript exported to {}", path.display())),
+                        Err(error) => app.apply_system_notice(format!("Export failed: {error}")),
+                    }
                 }
                 AppCommand::CopyTranscript => {
                     let markdown = crate::render_transcript_markdown(&app.thread_record());
-                    copy_to_clipboard(&markdown)?;
-                    app.apply_system_notice("Transcript copied to clipboard.");
+                    match copy_to_clipboard(&markdown) {
+                        Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
+                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+                    }
                 }
                 AppCommand::ShowDiff => {
-                    let diff = render_working_tree_diff(&cwd, 160)?;
-                    app.apply_assistant_text(&diff);
+                    match render_working_tree_diff(&cwd, 160) {
+                        Ok(diff) => app.apply_assistant_text(&diff),
+                        Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
+                    }
                 }
                 AppCommand::CompactTranscript => {
                     app.compact_transcript();
@@ -3246,6 +3253,20 @@ mod tests {
 
         let output = render_working_tree_diff(&root, 20).expect("diff");
         assert_eq!(output, "Working tree is clean.");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_working_tree_diff_errors_outside_git_repo() {
+        let root = unique_temp_dir("not-a-repo");
+        fs::create_dir_all(&root).expect("root");
+
+        let error = render_working_tree_diff(&root, 20).expect_err("expected git failure");
+        assert!(
+            error.to_string().contains("not a git repository")
+                || error.to_string().contains("git command failed")
+        );
 
         let _ = fs::remove_dir_all(root);
     }
