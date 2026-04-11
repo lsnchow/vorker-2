@@ -222,6 +222,7 @@ pub fn derive_thread_events(
 #[must_use]
 pub fn apply_events_to_thread(base: &StoredThread, events: &[SessionEvent]) -> StoredThread {
     let mut thread = base.clone();
+    thread.rows.clear();
     for event in events {
         match &event.kind {
             SessionEventKind::ThreadCreated { thread_name, cwd } => {

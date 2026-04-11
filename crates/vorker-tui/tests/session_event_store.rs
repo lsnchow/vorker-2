@@ -186,3 +186,20 @@ fn apply_events_to_thread_rebuilds_latest_thread_state() {
     assert_eq!(rebuilt.rows.len(), 1);
     assert_eq!(rebuilt.rows[0].text, "done");
 }
+
+#[test]
+fn apply_events_to_thread_does_not_duplicate_rows_from_snapshot_base() {
+    let mut base = StoredThread::ephemeral("/workspace/pod");
+    base.name = "Thread 1".to_string();
+    base.rows.push(TranscriptRow {
+        kind: RowKind::User,
+        text: "hello".to_string(),
+        detail: None,
+    });
+
+    let events = derive_thread_events(None, &base);
+    let rebuilt = apply_events_to_thread(&base, &events);
+
+    assert_eq!(rebuilt.rows.len(), 1);
+    assert_eq!(rebuilt.rows[0].text, "hello");
+}
