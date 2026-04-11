@@ -79,6 +79,33 @@ fn render_dashboard_uses_a_codex_style_shell_layout() {
 }
 
 #[test]
+fn slash_popup_groups_commands_by_category() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("claude-sonnet-4.5".to_string()),
+            command_buffer: "/".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(
+        output.contains("Review"),
+        "missing Review heading:\n{output}"
+    );
+    assert!(
+        output.contains("Session"),
+        "missing Session heading:\n{output}"
+    );
+    assert!(
+        output.contains("Config"),
+        "missing Config heading:\n{output}"
+    );
+}
+
+#[test]
 fn render_dashboard_footer_shows_dense_status_when_space_allows() {
     let output = render_dashboard(
         &sample_snapshot(),
@@ -137,6 +164,14 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
     assert!(
         output.contains("/stop   stop the active prompt or review job"),
         "missing busy-safe /stop command in slash popup:\n{output}"
+    );
+    assert!(
+        output.contains("Workflow"),
+        "missing Workflow heading:\n{output}"
+    );
+    assert!(
+        output.contains("Config"),
+        "missing Config heading:\n{output}"
     );
 }
 

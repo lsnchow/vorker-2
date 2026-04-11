@@ -52,6 +52,17 @@ pub struct SlashCommand {
     pub visibility: SlashCommandVisibility,
 }
 
+#[must_use]
+pub fn category_label(category: SlashCommandCategory) -> &'static str {
+    match category {
+        SlashCommandCategory::Session => "Session",
+        SlashCommandCategory::Review => "Review",
+        SlashCommandCategory::Agent => "Agent",
+        SlashCommandCategory::Workflow => "Workflow",
+        SlashCommandCategory::Config => "Config",
+    }
+}
+
 const NORMAL_ONLY: SlashCommandVisibility = SlashCommandVisibility {
     visible_in_review_mode: false,
     visible_in_normal_mode: true,

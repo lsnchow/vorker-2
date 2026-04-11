@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use vorker_core::{Snapshot, TranscriptEntry};
 
 use crate::rich_text::{RichContext, style_line};
-use crate::slash::filtered_commands_for_state;
+use crate::slash::{category_label, filtered_commands_for_state};
 use crate::theme::{colorize, fit, hard_wrap, highlight, truncate, visible_length};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +24,7 @@ pub struct TranscriptRow {
 pub struct PopupItem {
     pub label: String,
     pub description: Option<String>,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,6 +339,7 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
                     &PopupItem {
                         label: model.clone(),
                         description: None,
+                        selectable: true,
                     },
                     options
                         .selected_model_id
@@ -361,6 +363,7 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
                     &PopupItem {
                         label: item.clone(),
                         description: None,
+                        selectable: true,
                     },
                     index == options.mention_selected_index,
                     width,
@@ -379,24 +382,46 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
         return Vec::new();
     }
 
-    commands
+    let mut items = Vec::new();
+    let mut last_category = None;
+    for command in commands {
+        if last_category != Some(command.category) {
+            items.push(PopupItem {
+                label: category_label(command.category).to_string(),
+                description: None,
+                selectable: false,
+            });
+            last_category = Some(command.category);
+        }
+        items.push(PopupItem {
+            label: command.name.to_string(),
+            description: Some(command.description.to_string()),
+            selectable: true,
+        });
+    }
+
+    let mut selectable_index = 0usize;
+    items
         .iter()
-        .enumerate()
-        .map(|(index, command)| {
-            render_popup_line(
-                &PopupItem {
-                    label: command.name.to_string(),
-                    description: Some(command.description.to_string()),
-                },
-                index == options.slash_menu_selected_index,
-                width,
-                options.color,
-            )
+        .map(|item| {
+            let selected = item.selectable && selectable_index == options.slash_menu_selected_index;
+            if item.selectable {
+                selectable_index += 1;
+            }
+            render_popup_line(item, selected, width, options.color)
         })
         .collect()
 }
 
 fn render_popup_line(item: &PopupItem, selected: bool, width: usize, color: bool) -> String {
+    if !item.selectable {
+        let heading = format!("  {}", item.label);
+        return if color {
+            colorize(&fit(&truncate(&heading, width), width), "gray", true)
+        } else {
+            fit(&truncate(&heading, width), width)
+        };
+    }
     let description = item.description.as_deref().unwrap_or_default();
     let base = if description.is_empty() {
         format!("  {}", item.label)

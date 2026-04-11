@@ -614,6 +614,7 @@ impl App {
                     .map(|item| crate::render::PopupItem {
                         label: item.name.clone(),
                         description: None,
+                        selectable: true,
                     })
                     .collect(),
                 self.permission_selected_index,
@@ -624,10 +625,12 @@ impl App {
                     crate::render::PopupItem {
                         label: "1. List skills".to_string(),
                         description: Some("show installed skills and state".to_string()),
+                        selectable: true,
                     },
                     crate::render::PopupItem {
                         label: "2. Enable/Disable Skills".to_string(),
                         description: Some("Enable or disable skills.".to_string()),
+                        selectable: true,
                     },
                 ],
                 self.permission_selected_index,
@@ -652,12 +655,14 @@ impl App {
                         description: Some(
                             "Run this prompt when the current work finishes.".to_string(),
                         ),
+                        selectable: true,
                     },
                     crate::render::PopupItem {
                         label: "2. Send as steering guidance".to_string(),
                         description: Some(
                             "Send this text to the active turn instead of queueing it.".to_string(),
                         ),
+                        selectable: true,
                     },
                 ],
                 self.permission_selected_index,
@@ -972,6 +977,7 @@ impl App {
                 crate::render::PopupItem {
                     label: format!("{marker} {}", skill.name),
                     description: Some(skill.description.clone()),
+                    selectable: true,
                 }
             })
             .collect()
