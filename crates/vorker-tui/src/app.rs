@@ -2643,17 +2643,7 @@ pub fn run_app(
                     if jobs.is_empty() {
                         app.apply_system_notice("No side agents in this session.");
                     } else {
-                        app.apply_system_notice("Side agents:");
-                        for job in jobs {
-                            app.apply_system_notice(format!(
-                                "{}  {}  {}  {}  {}",
-                                job.id,
-                                job.display_name,
-                                job.status.label(),
-                                job.model,
-                                job.prompt
-                            ));
-                        }
+                        app.apply_assistant_text(&render_agent_roster(&jobs));
                     }
                 }
                 AppCommand::StopAgent { id } => {
@@ -2805,6 +2795,11 @@ pub fn run_app(
                         .iter()
                         .filter(|job| job.status == SideAgentStatus::Running)
                         .count();
+                    let running_agent_names = jobs
+                        .iter()
+                        .filter(|job| job.status == SideAgentStatus::Running)
+                        .map(|job| job.display_name.clone())
+                        .collect::<Vec<_>>();
                     let event_count = session_event_store
                         .events(&app.thread_record().id)
                         .map(|events| events.len())
@@ -2824,6 +2819,7 @@ pub fn run_app(
                         app.queued_prompt_count(),
                         jobs.len(),
                         running_agents,
+                        &running_agent_names,
                     );
                     match copy_to_clipboard(&status) {
                         Ok(()) => app.apply_system_notice("Status copied to clipboard."),
@@ -2872,6 +2868,11 @@ pub fn run_app(
                         .iter()
                         .filter(|job| job.status == SideAgentStatus::Running)
                         .count();
+                    let running_agent_names = jobs
+                        .iter()
+                        .filter(|job| job.status == SideAgentStatus::Running)
+                        .map(|job| job.display_name.clone())
+                        .collect::<Vec<_>>();
                     let event_count = session_event_store
                         .events(&app.thread_record().id)
                         .map(|events| events.len())
@@ -2891,6 +2892,7 @@ pub fn run_app(
                         app.queued_prompt_count(),
                         jobs.len(),
                         running_agents,
+                        &running_agent_names,
                     ));
                 }
                 AppCommand::ListPromptHistory => {
@@ -3295,10 +3297,50 @@ fn render_status_summary(
     queued_prompts: usize,
     total_agents: usize,
     running_agents: usize,
+    running_agent_names: &[String],
 ) -> String {
-    format!(
-        "Status\nmodel: {model}\ncwd: {cwd}\nworkspace: {workspace}\napprovals: {approvals}\nthread: {thread_name} ({thread_duration})\ntranscript rows: {transcript_rows}\nevents: {event_count}\nqueued prompts: {queued_prompts}\nside agents: {total_agents} total, {running_agents} running"
-    )
+    let mut lines = vec![
+        "Status".to_string(),
+        format!("model: {model}"),
+        format!("cwd: {cwd}"),
+        format!("workspace: {workspace}"),
+        format!("approvals: {approvals}"),
+        format!("thread: {thread_name} ({thread_duration})"),
+        format!("transcript rows: {transcript_rows}"),
+        format!("events: {event_count}"),
+        format!("queued prompts: {queued_prompts}"),
+        format!("side agents: {total_agents} total, {running_agents} running"),
+    ];
+    if !running_agent_names.is_empty() {
+        lines.push(format!(
+            "running agents: {}",
+            running_agent_names.join(", ")
+        ));
+    }
+    lines.join("\n")
+}
+
+fn render_agent_roster(jobs: &[crate::StoredSideAgentJob]) -> String {
+    if jobs.is_empty() {
+        return "No side agents in this session.".to_string();
+    }
+
+    let mut lines = vec![
+        "## Side agents".to_string(),
+        format!("{} tracked", jobs.len()),
+    ];
+    for job in jobs {
+        lines.push(String::new());
+        lines.push(format!(
+            "- {} [{}]",
+            job.display_name,
+            job.status.label().to_ascii_lowercase()
+        ));
+        lines.push(format!("  id: {}", job.id));
+        lines.push(format!("  model: {}", job.model));
+        lines.push(format!("  prompt: {}", job.prompt));
+    }
+    lines.join("\n")
 }
 
 fn copy_to_clipboard(text: &str) -> io::Result<()> {
@@ -3617,11 +3659,11 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 mod tests {
     use super::{
         SideAgentJob, copy_to_clipboard, format_agent_result, normalize_for_raw_terminal,
-        render_staged_diff, render_status_summary, render_thread_timeline,
+        render_agent_roster, render_staged_diff, render_status_summary, render_thread_timeline,
         render_thread_timeline_with_mode, render_working_tree_diff, resolve_agent_identifier,
         should_redraw_frame, summarize_transcript_rows, tool_update_text, truncate_lines,
     };
-    use crate::{RowKind, SideAgentStore, StoredThread, TranscriptRow};
+    use crate::{RowKind, SideAgentStatus, SideAgentStore, StoredThread, TranscriptRow};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3822,12 +3864,37 @@ mod tests {
             3,
             2,
             1,
+            &["Auth Inspector".to_string()],
         );
 
         assert!(output.contains("transcript rows: 12"));
         assert!(output.contains("events: 5"));
         assert!(output.contains("queued prompts: 3"));
         assert!(output.contains("side agents: 2 total, 1 running"));
+        assert!(output.contains("running agents: Auth Inspector"));
+    }
+
+    #[test]
+    fn render_agent_roster_prefers_display_names_and_status() {
+        let job = crate::StoredSideAgentJob {
+            id: "agent-1".to_string(),
+            display_name: "Auth Inspector".to_string(),
+            prompt: "inspect auth".to_string(),
+            cwd: "/workspace".to_string(),
+            model: "gpt-5.4".to_string(),
+            status: SideAgentStatus::Running,
+            created_at_epoch_seconds: 1,
+            finished_at_epoch_seconds: None,
+            output_path: "/tmp/out".to_string(),
+            stderr_path: "/tmp/err".to_string(),
+            events_path: "/tmp/events".to_string(),
+        };
+
+        let output = render_agent_roster(&[job]);
+        assert!(output.contains("## Side agents"));
+        assert!(output.contains("Auth Inspector [running]"));
+        assert!(output.contains("id: agent-1"));
+        assert!(output.contains("prompt: inspect auth"));
     }
 
     #[test]
