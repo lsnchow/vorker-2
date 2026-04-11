@@ -135,8 +135,35 @@ fn render_dashboard_shows_working_rows_and_inline_slash_popup() {
         "missing slash popup:\n{output}"
     );
     assert!(
-        output.contains("/review   run adversarial review"),
-        "missing /review command in slash popup:\n{output}"
+        output.contains("/stop   stop the active prompt or review job"),
+        "missing busy-safe /stop command in slash popup:\n{output}"
+    );
+}
+
+#[test]
+fn busy_shell_popup_prefers_commands_that_can_run_while_busy() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 100,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("claude-sonnet-4.5".to_string()),
+            context_left_label: "100% left".to_string(),
+            approval_mode_label: "manual approvals".to_string(),
+            thread_duration_label: "4s thread".to_string(),
+            command_buffer: "/".to_string(),
+            slash_menu_selected_index: 0,
+            working_seconds: Some(4),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(output.contains("/stop"), "missing /stop:\n{output}");
+    assert!(output.contains("/steer"), "missing /steer:\n{output}");
+    assert!(output.contains("/queue"), "missing /queue:\n{output}");
+    assert!(
+        !output.contains("/new   start a fresh chat"),
+        "busy popup should hide commands that cannot run while busy:\n{output}"
     );
 }
 

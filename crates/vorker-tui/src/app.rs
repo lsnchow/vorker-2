@@ -26,7 +26,7 @@ use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
-use crate::slash::{SlashCommandId, filtered_commands, is_slash_mode};
+use crate::slash::{SlashCommandId, filtered_commands_for_state, help_summary, is_slash_mode};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
 
@@ -1113,7 +1113,11 @@ impl App {
             return;
         }
 
-        let commands = filtered_commands(&self.navigation.command_buffer, current_review_mode());
+        let commands = filtered_commands_for_state(
+            &self.navigation.command_buffer,
+            current_review_mode(),
+            self.working_started_at.is_some(),
+        );
         if let Some(command) = commands.get(self.slash_selected_index) {
             self.navigation.command_buffer = format!("{} ", command.name);
         }
@@ -1125,7 +1129,11 @@ impl App {
             return;
         }
 
-        let commands = filtered_commands(&self.navigation.command_buffer, current_review_mode());
+        let commands = filtered_commands_for_state(
+            &self.navigation.command_buffer,
+            current_review_mode(),
+            self.working_started_at.is_some(),
+        );
         if commands.is_empty() {
             return;
         }
@@ -1240,9 +1248,13 @@ impl App {
 
     fn execute_slash_command(&mut self, buffer: &str) {
         let command = parse_exact_slash_command(buffer).or_else(|| {
-            filtered_commands(buffer, current_review_mode())
-                .get(self.slash_selected_index)
-                .copied()
+            filtered_commands_for_state(
+                buffer,
+                current_review_mode(),
+                self.working_started_at.is_some(),
+            )
+            .get(self.slash_selected_index)
+            .copied()
         });
 
         self.navigation.command_buffer.clear();
@@ -1454,11 +1466,10 @@ impl App {
                 self.pending_actions.push(AppCommand::NewThread);
             }
             SlashCommandId::Help => {
-                self.apply_system_notice(if current_review_mode() {
-                    "Commands: /stop /model /coach /apply /exit-review"
-                } else {
-                    "Commands: /review /ralph /export /status /history /skills /stop /steer /queue /agent /agents /agent-stop /agent-result /theme /model /new /permissions /rename /list /cd /help"
-                });
+                self.apply_system_notice(help_summary(
+                    current_review_mode(),
+                    self.working_started_at.is_some(),
+                ));
             }
             SlashCommandId::Permissions => {
                 self.current_thread.approval_mode = self.current_thread.approval_mode.toggled();

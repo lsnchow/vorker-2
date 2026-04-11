@@ -585,6 +585,29 @@ fn slash_stop_runs_even_when_work_is_active() {
 }
 
 #[test]
+fn slash_help_while_busy_uses_the_busy_command_set() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+
+    for ch in "hello".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    let _ = app.take_actions();
+
+    for ch in "/help".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(160, false);
+    assert!(
+        output.contains("Commands: /stop /steer /queue /agent-stop /model /help"),
+        "{output}"
+    );
+    assert!(!output.contains("/new /permissions"), "{output}");
+}
+
+#[test]
 fn enter_while_busy_opens_queue_or_steer_prompt_instead_of_queueing_immediately() {
     let mut app = App::new(vorker_core::Snapshot::default());
 

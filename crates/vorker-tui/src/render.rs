@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use vorker_core::{Snapshot, TranscriptEntry};
 
 use crate::rich_text::{RichContext, style_line};
-use crate::slash::filtered_commands;
+use crate::slash::filtered_commands_for_state;
 use crate::theme::{colorize, fit, hard_wrap, highlight, truncate, visible_length};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -370,7 +370,11 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
             .collect();
     }
 
-    let commands = filtered_commands(&options.command_buffer, is_review_theme(options));
+    let commands = filtered_commands_for_state(
+        &options.command_buffer,
+        is_review_theme(options),
+        options.working_seconds.is_some(),
+    );
     if commands.is_empty() {
         return Vec::new();
     }
