@@ -26,7 +26,9 @@ use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
-use crate::slash::{SlashCommandId, filtered_commands_for_state, help_summary, is_slash_mode};
+use crate::slash::{
+    SlashCommandId, filtered_commands_for_state, help_summary_for_state, is_slash_mode,
+};
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
 
@@ -1143,6 +1145,7 @@ impl App {
             &self.navigation.command_buffer,
             current_review_mode(),
             self.working_started_at.is_some(),
+            !self.rows.is_empty(),
         );
         if let Some(command) = commands.get(self.slash_selected_index) {
             self.navigation.command_buffer = format!("{} ", command.name);
@@ -1159,6 +1162,7 @@ impl App {
             &self.navigation.command_buffer,
             current_review_mode(),
             self.working_started_at.is_some(),
+            !self.rows.is_empty(),
         );
         if commands.is_empty() {
             return;
@@ -1278,6 +1282,7 @@ impl App {
                 buffer,
                 current_review_mode(),
                 self.working_started_at.is_some(),
+                !self.rows.is_empty(),
             )
             .get(self.slash_selected_index)
             .copied()
@@ -1504,9 +1509,10 @@ impl App {
                 self.pending_actions.push(AppCommand::NewThread);
             }
             SlashCommandId::Help => {
-                self.apply_system_notice(help_summary(
+                self.apply_system_notice(help_summary_for_state(
                     current_review_mode(),
                     self.working_started_at.is_some(),
+                    !self.rows.is_empty(),
                 ));
             }
             SlashCommandId::Permissions => {
@@ -2568,8 +2574,10 @@ pub fn run_app(
                         &workspace.project_dir().join("exports"),
                         &app.thread_record(),
                     ) {
-                        Ok(path) => app
-                            .apply_system_notice(format!("Transcript exported to {}", path.display())),
+                        Ok(path) => app.apply_system_notice(format!(
+                            "Transcript exported to {}",
+                            path.display()
+                        )),
                         Err(error) => app.apply_system_notice(format!("Export failed: {error}")),
                     }
                 }
@@ -2580,12 +2588,10 @@ pub fn run_app(
                         Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
                     }
                 }
-                AppCommand::ShowDiff => {
-                    match render_working_tree_diff(&cwd, 160) {
-                        Ok(diff) => app.apply_assistant_text(&diff),
-                        Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
-                    }
-                }
+                AppCommand::ShowDiff => match render_working_tree_diff(&cwd, 160) {
+                    Ok(diff) => app.apply_assistant_text(&diff),
+                    Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
+                },
                 AppCommand::CompactTranscript => {
                     app.compact_transcript();
                 }

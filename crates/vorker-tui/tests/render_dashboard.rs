@@ -196,12 +196,53 @@ fn busy_shell_popup_prefers_commands_that_can_run_while_busy() {
     assert!(output.contains("/stop"), "missing /stop:\n{output}");
     assert!(output.contains("/steer"), "missing /steer:\n{output}");
     assert!(output.contains("/queue"), "missing /queue:\n{output}");
-    assert!(output.contains("/copy"), "missing /copy:\n{output}");
     assert!(output.contains("/status"), "missing /status:\n{output}");
+    assert!(
+        !output.contains("/copy"),
+        "transcript-only /copy should be hidden:\n{output}"
+    );
     assert!(
         !output.contains("/new   start a fresh chat"),
         "busy popup should hide commands that cannot run while busy:\n{output}"
     );
+}
+
+#[test]
+fn slash_popup_hides_transcript_commands_when_transcript_is_empty() {
+    let output = render_dashboard(
+        &Snapshot::default(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("claude-sonnet-4.5".to_string()),
+            command_buffer: "/".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(!output.contains("/copy"), "{output}");
+    assert!(!output.contains("/export"), "{output}");
+    assert!(!output.contains("/compact"), "{output}");
+    assert!(!output.contains("/timeline"), "{output}");
+}
+
+#[test]
+fn slash_popup_shows_transcript_commands_when_transcript_exists() {
+    let output = render_dashboard(
+        &sample_snapshot(),
+        DashboardOptions {
+            width: 120,
+            workspace_path: "/workspace".to_string(),
+            selected_model_id: Some("claude-sonnet-4.5".to_string()),
+            command_buffer: "/".to_string(),
+            ..DashboardOptions::default()
+        },
+    );
+
+    assert!(output.contains("/copy"), "{output}");
+    assert!(output.contains("/export"), "{output}");
+    assert!(output.contains("/compact"), "{output}");
+    assert!(output.contains("/timeline"), "{output}");
 }
 
 #[test]

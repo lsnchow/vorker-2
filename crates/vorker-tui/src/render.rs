@@ -103,7 +103,7 @@ pub fn render_dashboard(snapshot: &Snapshot, options: DashboardOptions) -> Strin
     lines.push(String::new());
     lines.push(render_composer(&options, width));
 
-    let popup = render_popup(&options, width);
+    let popup = render_popup(snapshot, &options, width);
     if !popup.is_empty() {
         lines.extend(popup);
     }
@@ -315,7 +315,7 @@ fn render_composer(options: &DashboardOptions, width: usize) -> String {
     format!("{background}{accent}›\u{1b}[39m{text_foreground}{rest}\u{1b}[0m")
 }
 
-fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
+fn render_popup(snapshot: &Snapshot, options: &DashboardOptions, width: usize) -> Vec<String> {
     if let Some(title) = &options.permission_title {
         let mut lines = vec![truncate(&format!("  {title}"), width)];
         for (index, item) in options.permission_items.iter().enumerate() {
@@ -377,6 +377,7 @@ fn render_popup(options: &DashboardOptions, width: usize) -> Vec<String> {
         &options.command_buffer,
         is_review_theme(options),
         options.working_seconds.is_some(),
+        !transcript_rows(snapshot, options).is_empty(),
     );
     if commands.is_empty() {
         return Vec::new();

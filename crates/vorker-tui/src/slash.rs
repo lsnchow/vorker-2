@@ -47,6 +47,12 @@ pub struct SlashCommandVisibility {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlashCommandAvailability {
+    Always,
+    TranscriptRequired,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlashCommand {
     pub id: SlashCommandId,
     pub name: &'static str,
@@ -54,6 +60,7 @@ pub struct SlashCommand {
     pub aliases: &'static [&'static str],
     pub category: SlashCommandCategory,
     pub visibility: SlashCommandVisibility,
+    pub availability: SlashCommandAvailability,
 }
 
 #[must_use]
@@ -99,6 +106,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Review,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Ralph,
@@ -107,6 +115,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Workflow,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Stop,
@@ -115,6 +124,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &["/clean"],
         category: SlashCommandCategory::Workflow,
         visibility: SHARED,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Steer,
@@ -123,6 +133,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Workflow,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Queue,
@@ -131,6 +142,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Workflow,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Agent,
@@ -139,6 +151,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Agents,
@@ -147,6 +160,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::AgentStop,
@@ -155,6 +169,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::AgentResult,
@@ -163,6 +178,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Theme,
@@ -171,6 +187,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Config,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Export,
@@ -179,6 +196,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::TranscriptRequired,
     },
     SlashCommand {
         id: SlashCommandId::Copy,
@@ -187,6 +205,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::TranscriptRequired,
     },
     SlashCommand {
         id: SlashCommandId::Diff,
@@ -195,6 +214,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Compact,
@@ -203,6 +223,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::TranscriptRequired,
     },
     SlashCommand {
         id: SlashCommandId::Timeline,
@@ -211,6 +232,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::TranscriptRequired,
     },
     SlashCommand {
         id: SlashCommandId::Status,
@@ -219,6 +241,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::History,
@@ -227,6 +250,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Skills,
@@ -235,6 +259,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &["/$"],
         category: SlashCommandCategory::Config,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Coach,
@@ -243,6 +268,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Review,
         visibility: REVIEW_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Apply,
@@ -251,6 +277,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Review,
         visibility: REVIEW_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::ExitReview,
@@ -259,6 +286,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Review,
         visibility: REVIEW_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Model,
@@ -267,6 +295,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Config,
         visibility: SHARED,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::New,
@@ -275,6 +304,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Help,
@@ -283,6 +313,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &["/?"],
         category: SlashCommandCategory::Session,
         visibility: SHARED,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Permissions,
@@ -291,6 +322,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &["/approvals"],
         category: SlashCommandCategory::Config,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Rename,
@@ -299,6 +331,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::List,
@@ -307,6 +340,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
     SlashCommand {
         id: SlashCommandId::Cd,
@@ -315,6 +349,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_ONLY,
+        availability: SlashCommandAvailability::Always,
     },
 ];
 
@@ -347,7 +382,7 @@ pub fn is_slash_mode(buffer: &str) -> bool {
 
 #[must_use]
 pub fn filtered_commands(buffer: &str, review_mode: bool) -> Vec<SlashCommand> {
-    filtered_commands_for_state(buffer, review_mode, false)
+    filtered_commands_for_state(buffer, review_mode, false, true)
 }
 
 #[must_use]
@@ -355,6 +390,7 @@ pub fn filtered_commands_for_state(
     buffer: &str,
     review_mode: bool,
     busy: bool,
+    transcript_available: bool,
 ) -> Vec<SlashCommand> {
     if !is_slash_mode(buffer) {
         return Vec::new();
@@ -377,6 +413,10 @@ pub fn filtered_commands_for_state(
             }
         })
         .filter(|command| !busy || command.visibility.allow_while_busy)
+        .filter(|command| match command.availability {
+            SlashCommandAvailability::Always => true,
+            SlashCommandAvailability::TranscriptRequired => transcript_available,
+        })
         .collect::<Vec<_>>();
 
     if query.is_empty() {
@@ -392,6 +432,11 @@ pub fn filtered_commands_for_state(
 
 #[must_use]
 pub fn help_summary(review_mode: bool, busy: bool) -> String {
+    help_summary_for_state(review_mode, busy, true)
+}
+
+#[must_use]
+pub fn help_summary_for_state(review_mode: bool, busy: bool, transcript_available: bool) -> String {
     let commands = SLASH_COMMANDS
         .into_iter()
         .filter(|command| {
@@ -402,6 +447,10 @@ pub fn help_summary(review_mode: bool, busy: bool) -> String {
             }
         })
         .filter(|command| !busy || command.visibility.allow_while_busy)
+        .filter(|command| match command.availability {
+            SlashCommandAvailability::Always => true,
+            SlashCommandAvailability::TranscriptRequired => transcript_available,
+        })
         .map(|command| command.name)
         .collect::<Vec<_>>();
 
