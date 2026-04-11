@@ -105,7 +105,9 @@ pub enum AppCommand {
     SetTheme {
         theme: String,
     },
-    ExportTranscript,
+    ExportTranscript {
+        mode: String,
+    },
     CopyTranscript,
     CopyDiff,
     CopyTimeline,
@@ -1420,7 +1422,14 @@ impl App {
                 }
             }
             SlashCommandId::Export => {
-                self.pending_actions.push(AppCommand::ExportTranscript);
+                let mode = command_tail(buffer);
+                let mode = if mode.is_empty() {
+                    "auto".to_string()
+                } else {
+                    mode
+                };
+                self.pending_actions
+                    .push(AppCommand::ExportTranscript { mode });
             }
             SlashCommandId::Copy => {
                 let scope = command_tail(buffer);
@@ -2630,13 +2639,14 @@ pub fn run_app(
                     app.shell_theme = normalized.to_string();
                     app.apply_system_notice(format!("Theme changed to {normalized}."));
                 }
-                AppCommand::ExportTranscript => {
+                AppCommand::ExportTranscript { mode } => {
                     let thread = app.thread_record();
                     let events = session_event_store.events(&thread.id)?;
                     match write_transcript_export(
                         &workspace.project_dir().join("exports"),
                         &thread,
                         Some(&events),
+                        &mode,
                     ) {
                         Ok(path) => app.apply_system_notice(format!(
                             "Transcript exported to {}",

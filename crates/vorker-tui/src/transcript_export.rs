@@ -4,20 +4,38 @@ use std::path::{Path, PathBuf};
 
 use crate::{RowKind, SessionEvent, SessionEventKind, StoredThread, TranscriptRow};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TranscriptExportMode {
+    Auto,
+    Events,
+    Rows,
+    Brief,
+}
+
 #[must_use]
 pub fn render_transcript_markdown(thread: &StoredThread) -> String {
-    let mut lines = vec![
-        format!("# {}", thread.name),
-        String::new(),
-        format!("- thread: {}", thread.id),
-        format!("- cwd: {}", thread.cwd),
-        format!("- model: {}", thread.model.as_deref().unwrap_or("unknown")),
-        format!("- duration: {}s", thread.total_active_seconds),
-        String::new(),
-    ];
+    render_transcript_markdown_with_options(thread, true, true)
+}
+
+#[must_use]
+pub fn render_transcript_markdown_with_options(
+    thread: &StoredThread,
+    include_metadata: bool,
+    include_details: bool,
+) -> String {
+    let mut lines = vec![format!("# {}", thread.name), String::new()];
+    if include_metadata {
+        lines.extend([
+            format!("- thread: {}", thread.id),
+            format!("- cwd: {}", thread.cwd),
+            format!("- model: {}", thread.model.as_deref().unwrap_or("unknown")),
+            format!("- duration: {}s", thread.total_active_seconds),
+            String::new(),
+        ]);
+    }
 
     for row in &thread.rows {
-        append_row(&mut lines, row);
+        append_row(&mut lines, row, include_details);
     }
 
     lines.join("\n")
@@ -28,19 +46,30 @@ pub fn render_transcript_markdown_from_events(
     thread: &StoredThread,
     events: &[SessionEvent],
 ) -> String {
-    let mut lines = vec![
-        format!("# {}", thread.name),
-        String::new(),
-        format!("- thread: {}", thread.id),
-        format!("- cwd: {}", thread.cwd),
-        format!("- model: {}", thread.model.as_deref().unwrap_or("unknown")),
-        format!("- duration: {}s", thread.total_active_seconds),
-        format!("- events: {}", events.len()),
-        String::new(),
-    ];
+    render_transcript_markdown_from_events_with_options(thread, events, true, true)
+}
+
+#[must_use]
+pub fn render_transcript_markdown_from_events_with_options(
+    thread: &StoredThread,
+    events: &[SessionEvent],
+    include_metadata: bool,
+    include_details: bool,
+) -> String {
+    let mut lines = vec![format!("# {}", thread.name), String::new()];
+    if include_metadata {
+        lines.extend([
+            format!("- thread: {}", thread.id),
+            format!("- cwd: {}", thread.cwd),
+            format!("- model: {}", thread.model.as_deref().unwrap_or("unknown")),
+            format!("- duration: {}s", thread.total_active_seconds),
+            format!("- events: {}", events.len()),
+            String::new(),
+        ]);
+    }
 
     for event in events {
-        append_event(lines.as_mut(), event);
+        append_event(lines.as_mut(), event, include_details);
     }
 
     lines.join("\n")
@@ -50,23 +79,38 @@ pub fn write_transcript_export(
     root: &Path,
     thread: &StoredThread,
     events: Option<&[SessionEvent]>,
+    mode: &str,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(root)?;
     let filename = format!("{}-{}.md", slugify(&thread.name), slugify(&thread.id));
     let path = root.join(filename);
-    let markdown = match events.filter(|events| !events.is_empty()) {
-        Some(events) => render_transcript_markdown_from_events(thread, events),
-        None => render_transcript_markdown(thread),
+    let mode = parse_export_mode(mode);
+    let markdown = match (mode, events.filter(|events| !events.is_empty())) {
+        (TranscriptExportMode::Events, Some(events)) => {
+            render_transcript_markdown_from_events(thread, events)
+        }
+        (TranscriptExportMode::Rows, _) => render_transcript_markdown(thread),
+        (TranscriptExportMode::Brief, Some(events)) => {
+            render_transcript_markdown_from_events_with_options(thread, events, false, false)
+        }
+        (TranscriptExportMode::Brief, None) => {
+            render_transcript_markdown_with_options(thread, false, false)
+        }
+        (TranscriptExportMode::Auto, Some(events)) => {
+            render_transcript_markdown_from_events(thread, events)
+        }
+        (_, None) => render_transcript_markdown(thread),
     };
     fs::write(&path, markdown)?;
     Ok(path)
 }
 
-fn append_row(lines: &mut Vec<String>, row: &TranscriptRow) {
+fn append_row(lines: &mut Vec<String>, row: &TranscriptRow, include_details: bool) {
     lines.push(format!("## {}", row_heading(row.kind.clone())));
     lines.push(String::new());
     lines.push(row.text.clone());
-    if let Some(detail) = &row.detail
+    if include_details
+        && let Some(detail) = &row.detail
         && !detail.trim().is_empty()
     {
         lines.push(String::new());
@@ -77,7 +121,7 @@ fn append_row(lines: &mut Vec<String>, row: &TranscriptRow) {
     lines.push(String::new());
 }
 
-fn append_event(lines: &mut Vec<String>, event: &SessionEvent) {
+fn append_event(lines: &mut Vec<String>, event: &SessionEvent, include_details: bool) {
     lines.push(format!("## {}", event_heading(&event.kind)));
     lines.push(String::new());
     match &event.kind {
@@ -112,7 +156,8 @@ fn append_event(lines: &mut Vec<String>, event: &SessionEvent) {
             detail,
         } => {
             lines.push(format!("{}: {}", row_heading(row_kind.clone()), text));
-            if let Some(detail) = detail
+            if include_details
+                && let Some(detail) = detail
                 && !detail.trim().is_empty()
             {
                 lines.push(String::new());
@@ -126,6 +171,15 @@ fn append_event(lines: &mut Vec<String>, event: &SessionEvent) {
         }
     }
     lines.push(String::new());
+}
+
+fn parse_export_mode(mode: &str) -> TranscriptExportMode {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "events" => TranscriptExportMode::Events,
+        "rows" => TranscriptExportMode::Rows,
+        "brief" => TranscriptExportMode::Brief,
+        _ => TranscriptExportMode::Auto,
+    }
 }
 
 fn row_heading(kind: RowKind) -> &'static str {

@@ -47,5 +47,7 @@ pub use slash::{
 };
 pub use thread_store::{ApprovalMode, StoredThread, ThreadStore};
 pub use transcript_export::{
-    render_transcript_markdown, render_transcript_markdown_from_events, write_transcript_export,
+    TranscriptExportMode, render_transcript_markdown, render_transcript_markdown_from_events,
+    render_transcript_markdown_from_events_with_options, render_transcript_markdown_with_options,
+    write_transcript_export,
 };

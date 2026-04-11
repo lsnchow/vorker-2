@@ -3,7 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
     ApprovalMode, RowKind, SessionEvent, SessionEventKind, StoredThread, TranscriptRow,
-    render_transcript_markdown, render_transcript_markdown_from_events, write_transcript_export,
+    render_transcript_markdown, render_transcript_markdown_from_events,
+    render_transcript_markdown_from_events_with_options, render_transcript_markdown_with_options,
+    write_transcript_export,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -63,7 +65,7 @@ fn transcript_export_writes_a_safe_filename() {
     thread.id = "thread/unsafe".to_string();
     thread.name = "Hyperloop: Controls?".to_string();
 
-    let path = write_transcript_export(&root, &thread, None).expect("write export");
+    let path = write_transcript_export(&root, &thread, None, "auto").expect("write export");
 
     assert!(path.starts_with(&root));
     assert!(path.ends_with("hyperloop-controls-thread-unsafe.md"));
@@ -107,4 +109,41 @@ fn transcript_export_can_render_from_events() {
     assert!(markdown.contains("Created thread"));
     assert!(markdown.contains("## User"));
     assert!(markdown.contains("build the controller"));
+}
+
+#[test]
+fn transcript_export_brief_mode_omits_metadata_and_details() {
+    let thread = StoredThread {
+        id: "thread-1".to_string(),
+        name: "Hyperloop controls".to_string(),
+        cwd: "/workspace/pod".to_string(),
+        rows: vec![TranscriptRow {
+            kind: RowKind::Tool,
+            text: "Explored".to_string(),
+            detail: Some("Read src/controller.rs".to_string()),
+        }],
+        model: Some("gpt-5.4".to_string()),
+        approval_mode: ApprovalMode::Manual,
+        created_at_epoch_seconds: 1,
+        updated_at_epoch_seconds: 2,
+        total_active_seconds: 42,
+    };
+
+    let rows_markdown = render_transcript_markdown_with_options(&thread, false, false);
+    assert!(!rows_markdown.contains("- model:"));
+    assert!(!rows_markdown.contains("```text"));
+
+    let events = vec![SessionEvent {
+        timestamp_epoch_seconds: 2,
+        thread_id: thread.id.clone(),
+        kind: SessionEventKind::RowAppended {
+            row_kind: RowKind::Tool,
+            text: "Explored".to_string(),
+            detail: Some("Read src/controller.rs".to_string()),
+        },
+    }];
+    let events_markdown =
+        render_transcript_markdown_from_events_with_options(&thread, &events, false, false);
+    assert!(!events_markdown.contains("- events:"));
+    assert!(!events_markdown.contains("```text"));
 }

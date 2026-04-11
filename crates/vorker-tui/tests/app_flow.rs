@@ -331,7 +331,46 @@ fn slash_export_queues_transcript_export() {
     }
     assert!(app.handle_key(key(KeyCode::Enter)));
 
-    assert_eq!(app.take_actions(), vec![AppCommand::ExportTranscript]);
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ExportTranscript {
+            mode: "auto".to_string()
+        }]
+    );
+}
+
+#[test]
+fn slash_export_events_queues_event_export() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/export events".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ExportTranscript {
+            mode: "events".to_string()
+        }]
+    );
+}
+
+#[test]
+fn slash_export_brief_queues_brief_export() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
+    for ch in "/export brief".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ExportTranscript {
+            mode: "brief".to_string()
+        }]
+    );
 }
 
 #[test]
