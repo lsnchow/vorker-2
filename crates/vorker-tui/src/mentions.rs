@@ -86,8 +86,11 @@ pub fn prune_mention_bindings(
 ) -> Vec<ComposerMentionBinding> {
     bindings
         .iter()
-        .filter(|binding| buffer.contains(&binding.token))
-        .cloned()
+        .filter_map(|binding| current_token_for_binding(buffer, &binding.token))
+        .map(|token| ComposerMentionBinding {
+            path: token.trim_start_matches('@').to_string(),
+            token,
+        })
         .collect()
 }
 
@@ -97,7 +100,8 @@ pub fn resolve_mention_context(cwd: &Path, bindings: &[ComposerMentionBinding]) 
     let mut errors = Vec::new();
 
     for binding in bindings {
-        let path = cwd.join(&binding.path);
+        let (relative_path, line_range) = parse_mention_target(&binding.path);
+        let path = cwd.join(relative_path);
         match fs::read(&path) {
             Ok(bytes) => {
                 if bytes.contains(&0) {
@@ -110,10 +114,23 @@ pub fn resolve_mention_context(cwd: &Path, bindings: &[ComposerMentionBinding]) 
 
                 match String::from_utf8(bytes) {
                     Ok(text) => {
+                        let rendered = if let Some((start, end)) = line_range {
+                            match slice_lines(&text, start, end) {
+                                Some(excerpt) => excerpt,
+                                None => {
+                                    errors.push(format!(
+                                        "{} requested an invalid line range and was skipped.",
+                                        binding.path
+                                    ));
+                                    continue;
+                                }
+                            }
+                        } else {
+                            text.trim_end().to_string()
+                        };
                         sections.push(format!(
                             "Attached file: {}\n```text\n{}\n```",
-                            binding.path,
-                            text.trim_end()
+                            binding.path, rendered
                         ));
                     }
                     Err(_) => {
@@ -131,4 +148,69 @@ pub fn resolve_mention_context(cwd: &Path, bindings: &[ComposerMentionBinding]) 
     }
 
     MentionContext { sections, errors }
+}
+
+fn current_token_for_binding(buffer: &str, token_prefix: &str) -> Option<String> {
+    let mut search = buffer;
+    let mut offset = 0usize;
+    while let Some(index) = search.find(token_prefix) {
+        let absolute = offset + index;
+        let before_ok = absolute == 0
+            || buffer[..absolute]
+                .chars()
+                .last()
+                .is_some_and(char::is_whitespace);
+        if before_ok {
+            let rest = &buffer[absolute..];
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            return Some(rest[..end].to_string());
+        }
+        let next_start = index + token_prefix.len();
+        offset += next_start;
+        search = &search[next_start..];
+    }
+    None
+}
+
+fn parse_mention_target(path: &str) -> (&str, Option<(usize, usize)>) {
+    let Some((relative_path, range)) = path.rsplit_once('#') else {
+        return (path, None);
+    };
+
+    let parsed = if let Some((start, end)) = range.split_once('-') {
+        match (
+            normalize_line_number(start).parse::<usize>(),
+            normalize_line_number(end).parse::<usize>(),
+        ) {
+            (Ok(start), Ok(end)) => Some((start, end)),
+            _ => None,
+        }
+    } else {
+        match normalize_line_number(range).parse::<usize>() {
+            Ok(line) => Some((line, line)),
+            Err(_) => None,
+        }
+    };
+
+    (relative_path, parsed)
+}
+
+fn normalize_line_number(value: &str) -> &str {
+    value
+        .strip_prefix('L')
+        .or_else(|| value.strip_prefix('l'))
+        .unwrap_or(value)
+}
+
+fn slice_lines(text: &str, start: usize, end: usize) -> Option<String> {
+    if start == 0 || end == 0 || start > end {
+        return None;
+    }
+
+    let lines = text.lines().collect::<Vec<_>>();
+    if start > lines.len() || end > lines.len() {
+        return None;
+    }
+
+    Some(lines[start - 1..end].join("\n"))
 }

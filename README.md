@@ -113,9 +113,12 @@ Use `@` in the composer to attach workspace files:
 
 ```text
 › Improve the README in @README.md
+› Review @src/main.rs#L10-L40
 ```
 
 Selected mentions are resolved into file context before the prompt is sent. Binary files are rejected inline instead of silently expanded.
+
+Line ranges are supported with `#Lstart-Lend`, `#start-end`, `#Lline`, or `#line`.
 
 ## Skills
 
