@@ -2629,17 +2629,18 @@ pub fn run_app(
                         .iter()
                         .filter(|job| job.status == SideAgentStatus::Running)
                         .count();
-                    app.apply_system_notice(format!(
-                        "Status\nmodel: {}\ncwd: {}\nworkspace: {}\napprovals: {}\nthread: {} ({})\nside agents: {} total, {} running",
+                    app.apply_system_notice(render_status_summary(
                         app.navigation
                             .selected_model_id
                             .as_deref()
                             .unwrap_or("detecting..."),
-                        cwd.display(),
-                        workspace.project_dir().display(),
+                        &cwd.display().to_string(),
+                        &workspace.project_dir().display().to_string(),
                         app.approval_mode().label(),
                         app.thread_name(),
-                        format_thread_duration(app.thread_duration_seconds()),
+                        &format_thread_duration(app.thread_duration_seconds()),
+                        app.rows.len(),
+                        app.queued_prompt_count(),
                         jobs.len(),
                         running_agents,
                     ));
@@ -3011,6 +3012,23 @@ fn format_path_for_humans(path: &Path) -> String {
     raw
 }
 
+fn render_status_summary(
+    model: &str,
+    cwd: &str,
+    workspace: &str,
+    approvals: &str,
+    thread_name: &str,
+    thread_duration: &str,
+    transcript_rows: usize,
+    queued_prompts: usize,
+    total_agents: usize,
+    running_agents: usize,
+) -> String {
+    format!(
+        "Status\nmodel: {model}\ncwd: {cwd}\nworkspace: {workspace}\napprovals: {approvals}\nthread: {thread_name} ({thread_duration})\ntranscript rows: {transcript_rows}\nqueued prompts: {queued_prompts}\nside agents: {total_agents} total, {running_agents} running"
+    )
+}
+
 fn copy_to_clipboard(text: &str) -> io::Result<()> {
     let mut child = std::process::Command::new("pbcopy")
         .stdin(Stdio::piped())
@@ -3242,8 +3260,9 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_thread_timeline,
-        render_working_tree_diff, summarize_transcript_rows, tool_update_text, truncate_lines,
+        copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_status_summary,
+        render_thread_timeline, render_working_tree_diff, summarize_transcript_rows,
+        tool_update_text, truncate_lines,
     };
     use crate::{RowKind, StoredThread, TranscriptRow};
     use std::fs;
@@ -3387,5 +3406,25 @@ mod tests {
         assert!(summary.contains("Compacted 2 row(s)."));
         assert!(summary.contains("1. [user] first"));
         assert!(summary.contains("2. [assistant] second"));
+    }
+
+    #[test]
+    fn render_status_summary_includes_queue_and_transcript_counts() {
+        let output = render_status_summary(
+            "claude-sonnet-4.5",
+            "/workspace",
+            "/workspace/.vorker",
+            "manual approvals",
+            "Thread 1",
+            "4s",
+            12,
+            3,
+            2,
+            1,
+        );
+
+        assert!(output.contains("transcript rows: 12"));
+        assert!(output.contains("queued prompts: 3"));
+        assert!(output.contains("side agents: 2 total, 1 running"));
     }
 }
