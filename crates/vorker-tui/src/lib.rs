@@ -6,6 +6,7 @@ mod bridge;
 mod composer_state;
 mod demo;
 mod mentions;
+mod model_picker_state;
 mod navigation;
 mod popup_state;
 mod project_workspace;
@@ -28,6 +29,7 @@ pub use mentions::{
     ComposerMentionBinding, MentionContext, collect_buffer_mentions, extract_active_mention_query,
     filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
+pub use model_picker_state::ModelPickerState;
 pub use navigation::{
     ACTION_ITEMS, ActionItem, NavKey, NavigationState, Pane, apply_navigation_key,
     reconcile_navigation_state,

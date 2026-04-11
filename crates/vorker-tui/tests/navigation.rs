@@ -52,7 +52,6 @@ fn reconcile_navigation_state_defaults_to_input_and_active_records() {
     assert_eq!(next.active_session_id.as_deref(), Some("agent-1"));
     assert_eq!(next.active_run_id.as_deref(), Some("run-1"));
     assert_eq!(next.selected_task_id.as_deref(), Some("task-1"));
-    assert_eq!(next.selected_model_id.as_deref(), Some("gpt-5.4"));
 }
 
 #[test]

@@ -39,9 +39,6 @@ pub struct NavigationState {
     pub active_session_id: Option<String>,
     pub active_run_id: Option<String>,
     pub selected_task_id: Option<String>,
-    pub selected_model_id: Option<String>,
-    pub model_choices: Vec<String>,
-    pub model_picker_open: bool,
 }
 
 impl Default for NavigationState {
@@ -52,9 +49,6 @@ impl Default for NavigationState {
             active_session_id: None,
             active_run_id: None,
             selected_task_id: None,
-            selected_model_id: None,
-            model_choices: Vec::new(),
-            model_picker_open: false,
         }
     }
 }
@@ -96,8 +90,6 @@ impl std::str::FromStr for ActionItem {
 }
 
 const PANE_ORDER: [Pane; 4] = [Pane::Input, Pane::Sessions, Pane::Runs, Pane::Tasks];
-const FALLBACK_MODELS: [&str; 3] = ["gpt-5.4", "gpt-5", "gpt-4.1"];
-
 #[must_use]
 pub fn reconcile_navigation_state(snapshot: &Snapshot, state: NavigationState) -> NavigationState {
     let mut next = state;
@@ -108,14 +100,6 @@ pub fn reconcile_navigation_state(snapshot: &Snapshot, state: NavigationState) -
     if !ACTION_ITEMS.contains(&next.selected_action_id) {
         next.selected_action_id = ActionItem::NewAgent;
     }
-
-    next.model_choices = collect_model_choices(snapshot, &next);
-    next.selected_model_id = if contains_id(&next.model_choices, next.selected_model_id.as_deref())
-    {
-        next.selected_model_id
-    } else {
-        next.model_choices.first().cloned()
-    };
 
     let session_ids = session_ids(snapshot);
     next.active_session_id = if contains_id(&session_ids, next.active_session_id.as_deref()) {
@@ -148,20 +132,6 @@ pub fn apply_navigation_key(
     key: NavKey,
 ) -> NavigationState {
     let mut next = reconcile_navigation_state(snapshot, state);
-
-    if next.model_picker_open {
-        match key {
-            NavKey::Left | NavKey::Up | NavKey::ShiftTab => {
-                next.selected_model_id =
-                    move_wrapped(&next.model_choices, next.selected_model_id.as_deref(), -1);
-            }
-            NavKey::Right | NavKey::Down | NavKey::Tab => {
-                next.selected_model_id =
-                    move_wrapped(&next.model_choices, next.selected_model_id.as_deref(), 1);
-            }
-        }
-        return reconcile_navigation_state(snapshot, next);
-    }
 
     match key {
         NavKey::Left => match next.focused_pane {
@@ -222,33 +192,6 @@ pub fn apply_navigation_key(
     reconcile_navigation_state(snapshot, next)
 }
 
-fn collect_model_choices(snapshot: &Snapshot, state: &NavigationState) -> Vec<String> {
-    let mut choices = Vec::new();
-    for value in &state.model_choices {
-        push_unique(&mut choices, value);
-    }
-    for session in &snapshot.sessions {
-        if let Some(model) = &session.model {
-            push_unique(&mut choices, model);
-        }
-    }
-    for value in FALLBACK_MODELS {
-        push_unique(&mut choices, value);
-    }
-    if let Some(model) = &state.selected_model_id {
-        push_unique(&mut choices, model);
-    }
-    choices
-}
-
-fn push_unique(values: &mut Vec<String>, value: impl AsRef<str>) {
-    let normalized = value.as_ref().trim();
-    if normalized.is_empty() || values.iter().any(|entry| entry == normalized) {
-        return;
-    }
-    values.push(normalized.to_string());
-}
-
 fn contains_id(ids: &[String], current: Option<&str>) -> bool {
     current.is_some_and(|value| ids.iter().any(|entry| entry == value))
 }
@@ -261,18 +204,6 @@ fn move_selection(ids: &[String], current: Option<&str>, delta: isize) -> Option
         .and_then(|value| ids.iter().position(|entry| entry == value))
         .unwrap_or(0) as isize;
     let next_index = (current_index + delta).clamp(0, ids.len() as isize - 1) as usize;
-    ids.get(next_index).cloned()
-}
-
-fn move_wrapped(ids: &[String], current: Option<&str>, delta: isize) -> Option<String> {
-    if ids.is_empty() {
-        return None;
-    }
-    let current_index = current
-        .and_then(|value| ids.iter().position(|entry| entry == value))
-        .unwrap_or(0) as isize;
-    let len = ids.len() as isize;
-    let next_index = (current_index + delta).rem_euclid(len) as usize;
     ids.get(next_index).cloned()
 }
 

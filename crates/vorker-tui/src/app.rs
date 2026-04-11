@@ -21,6 +21,7 @@ use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
     insert_selected_mention, prune_mention_bindings, resolve_mention_context,
 };
+use crate::model_picker_state::ModelPickerState;
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
 use crate::popup_state::{AppPopupState, PopupMode};
@@ -156,6 +157,7 @@ pub struct App {
     composer: ComposerState,
     workspace_files: Vec<String>,
     popup: AppPopupState,
+    model_picker: ModelPickerState,
     working_started_at: Option<Instant>,
     needs_replay_context: bool,
     dirty: bool,
@@ -195,8 +197,6 @@ impl App {
 
         let mut navigation = NavigationState::default();
         navigation.focused_pane = Pane::Input;
-        navigation.selected_model_id = selected_model.clone();
-        navigation.model_choices = selected_model.into_iter().collect();
 
         let rows: Vec<TranscriptRow> = snapshot
             .sessions
@@ -230,8 +230,6 @@ impl App {
 
         let mut navigation = NavigationState::default();
         navigation.focused_pane = Pane::Input;
-        navigation.selected_model_id = selected_model.clone();
-        navigation.model_choices = selected_model.into_iter().collect();
 
         Self {
             snapshot,
@@ -243,6 +241,12 @@ impl App {
             composer: ComposerState::default(),
             workspace_files: Vec::new(),
             popup: AppPopupState::default(),
+            model_picker: {
+                let mut state = ModelPickerState::default();
+                state.set_selected_model_id(selected_model.clone());
+                state.set_model_choices(selected_model.into_iter().collect());
+                state
+            },
             working_started_at: None,
             needs_replay_context: !thread.rows.is_empty(),
             dirty: false,
@@ -276,6 +280,16 @@ impl App {
     }
 
     #[must_use]
+    pub fn selected_model_id(&self) -> Option<&str> {
+        self.model_picker.selected_model_id()
+    }
+
+    #[must_use]
+    pub fn model_choices(&self) -> &[String] {
+        self.model_picker.model_choices()
+    }
+
+    #[must_use]
     pub fn approval_mode(&self) -> ApprovalMode {
         self.current_thread.approval_mode
     }
@@ -294,7 +308,7 @@ impl App {
         let mut thread = self.current_thread.clone();
         thread.cwd = self.workspace_path.clone();
         thread.rows = self.rows.clone();
-        thread.model = self.navigation.selected_model_id.clone();
+        thread.model = self.model_picker.selected_model_id().map(str::to_string);
         thread.total_active_seconds = self.thread_duration_seconds();
         thread
     }
@@ -316,9 +330,11 @@ impl App {
         self.current_thread = thread.clone();
         self.rows = thread.rows.clone();
         self.composer.clear_buffer();
-        self.navigation.selected_model_id = thread.model.clone();
-        self.navigation.model_choices = thread.model.into_iter().collect();
-        self.navigation.model_picker_open = false;
+        self.model_picker
+            .set_selected_model_id(thread.model.clone());
+        self.model_picker
+            .set_model_choices(thread.model.into_iter().collect());
+        self.model_picker.close();
         self.composer.clear_mentions();
         self.popup.close();
         self.working_started_at = None;
@@ -355,22 +371,7 @@ impl App {
     }
 
     pub fn set_model_choices(&mut self, model_choices: Vec<String>) {
-        self.navigation.model_choices = model_choices;
-        if self
-            .navigation
-            .selected_model_id
-            .as_deref()
-            .is_none_or(|selected| {
-                !self
-                    .navigation
-                    .model_choices
-                    .iter()
-                    .any(|item| item == selected)
-            })
-            && let Some(first) = self.navigation.model_choices.first()
-        {
-            self.navigation.selected_model_id = Some(first.clone());
-        }
+        self.model_picker.set_model_choices(model_choices);
     }
 
     pub fn set_workspace_files(&mut self, workspace_files: Vec<String>) {
@@ -488,22 +489,15 @@ impl App {
             available_models.insert(0, current_model.clone());
         }
 
-        self.navigation.selected_model_id = Some(current_model);
+        self.model_picker.set_selected_model_id(Some(current_model));
         self.set_model_choices(available_models);
         self.dirty = true;
     }
 
     pub fn apply_model_changed(&mut self, model: impl Into<String>) {
         let model = model.into();
-        if !self
-            .navigation
-            .model_choices
-            .iter()
-            .any(|item| item == &model)
-        {
-            self.navigation.model_choices.push(model.clone());
-        }
-        self.navigation.selected_model_id = Some(model.clone());
+        self.model_picker.ensure_choice(model.clone());
+        self.model_picker.set_selected_model_id(Some(model.clone()));
         self.apply_system_notice(format!("Model changed to {model}"));
     }
 
@@ -626,9 +620,9 @@ impl App {
                 width,
                 theme_name: self.shell_theme.clone(),
                 workspace_path: self.workspace_path.clone(),
-                selected_model_id: self.navigation.selected_model_id.clone(),
-                model_choices: self.navigation.model_choices.clone(),
-                model_picker_open: self.navigation.model_picker_open,
+                selected_model_id: self.selected_model_id().map(str::to_string),
+                model_choices: self.model_picker.model_choices().to_vec(),
+                model_picker_open: self.model_picker.is_open(),
                 command_buffer: self.composer.buffer().to_string(),
                 slash_menu_selected_index: self.composer.slash_selected_index(),
                 mention_items: self
@@ -703,7 +697,7 @@ impl App {
             return true;
         }
 
-        if self.navigation.model_picker_open {
+        if self.model_picker.is_open() {
             self.handle_model_picker_key(key);
             return true;
         }
@@ -947,44 +941,42 @@ impl App {
         match key.code {
             KeyCode::Up => {
                 let current = self
-                    .navigation
-                    .selected_model_id
-                    .as_deref()
+                    .model_picker
+                    .selected_model_id()
                     .and_then(|selected| {
-                        self.navigation
-                            .model_choices
+                        self.model_picker
+                            .model_choices()
                             .iter()
                             .position(|item| item == selected)
                     })
                     .unwrap_or(0);
-                let index = cycle_index(current, self.navigation.model_choices.len(), -1);
-                self.navigation.selected_model_id =
-                    self.navigation.model_choices.get(index).cloned();
+                let index = cycle_index(current, self.model_picker.model_choices().len(), -1);
+                self.model_picker
+                    .set_selected_model_id(self.model_picker.model_choices().get(index).cloned());
             }
             KeyCode::Down => {
                 let current = self
-                    .navigation
-                    .selected_model_id
-                    .as_deref()
+                    .model_picker
+                    .selected_model_id()
                     .and_then(|selected| {
-                        self.navigation
-                            .model_choices
+                        self.model_picker
+                            .model_choices()
                             .iter()
                             .position(|item| item == selected)
                     })
                     .unwrap_or(0);
-                let index = cycle_index(current, self.navigation.model_choices.len(), 1);
-                self.navigation.selected_model_id =
-                    self.navigation.model_choices.get(index).cloned();
+                let index = cycle_index(current, self.model_picker.model_choices().len(), 1);
+                self.model_picker
+                    .set_selected_model_id(self.model_picker.model_choices().get(index).cloned());
             }
             KeyCode::Enter => {
-                if let Some(model) = self.navigation.selected_model_id.clone() {
+                if let Some(model) = self.selected_model_id().map(str::to_string) {
                     self.pending_actions.push(AppCommand::SetModel { model });
                 }
-                self.navigation.model_picker_open = false;
+                self.model_picker.close();
             }
             KeyCode::Esc => {
-                self.navigation.model_picker_open = false;
+                self.model_picker.close();
             }
             _ => {}
         }
@@ -1025,8 +1017,8 @@ impl App {
     }
 
     fn handle_escape(&mut self) {
-        if self.navigation.model_picker_open {
-            self.navigation.model_picker_open = false;
+        if self.model_picker.is_open() {
+            self.model_picker.close();
             return;
         }
 
@@ -1137,7 +1129,7 @@ impl App {
             return;
         }
 
-        if self.navigation.model_picker_open {
+        if self.model_picker.is_open() {
             self.handle_model_picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             return;
         }
@@ -1488,7 +1480,7 @@ impl App {
                 if let Some(model) = requested {
                     self.pending_actions.push(AppCommand::SetModel { model });
                 } else {
-                    self.navigation.model_picker_open = true;
+                    self.model_picker.open();
                 }
             }
             SlashCommandId::New => {
@@ -2451,7 +2443,8 @@ pub fn run_app(
                     no_deslop,
                     xhigh,
                 } => {
-                    let selected_model = model.or_else(|| app.navigation.selected_model_id.clone());
+                    let selected_model =
+                        model.or_else(|| app.selected_model_id().map(str::to_string));
                     open_ralph_window(&cwd, &task, selected_model.as_deref(), no_deslop, xhigh)?;
                     app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
                 }
@@ -2692,10 +2685,7 @@ pub fn run_app(
                         .map(|events| events.len())
                         .unwrap_or(0);
                     let status = render_status_summary(
-                        app.navigation
-                            .selected_model_id
-                            .as_deref()
-                            .unwrap_or("detecting..."),
+                        app.selected_model_id().unwrap_or("detecting..."),
                         &cwd.display().to_string(),
                         &workspace.project_dir().display().to_string(),
                         app.approval_mode().label(),
@@ -2765,10 +2755,7 @@ pub fn run_app(
                         .map(|events| events.len())
                         .unwrap_or(0);
                     app.apply_system_notice(render_status_summary(
-                        app.navigation
-                            .selected_model_id
-                            .as_deref()
-                            .unwrap_or("detecting..."),
+                        app.selected_model_id().unwrap_or("detecting..."),
                         &cwd.display().to_string(),
                         &workspace.project_dir().display().to_string(),
                         app.approval_mode().label(),
@@ -3040,7 +3027,7 @@ fn run_boot_sequence(
     loop {
         drain_bridge_events(app, bridge, pending_permission_reply);
 
-        let model = app.navigation.selected_model_id.clone();
+        let model = app.selected_model_id().map(str::to_string);
         let ready = model.is_some();
         let detail = model
             .map(|model| format!("ready on {model}"))

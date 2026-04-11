@@ -14,7 +14,7 @@ fn wrapped_prompt(text: &str) -> String {
 #[test]
 fn app_does_not_force_a_model_before_session_ready() {
     let app = App::new(vorker_core::Snapshot::default());
-    assert_eq!(app.navigation.selected_model_id, None);
+    assert_eq!(app.selected_model_id(), None);
 
     let output = app.render(100, false);
     assert!(
@@ -30,10 +30,7 @@ fn app_can_start_with_a_configured_default_model() {
         Some("claude-opus-4.5".to_string()),
     );
 
-    assert_eq!(
-        app.navigation.selected_model_id.as_deref(),
-        Some("claude-opus-4.5")
-    );
+    assert_eq!(app.selected_model_id(), Some("claude-opus-4.5"));
     let output = app.render(100, false);
     assert!(
         output.contains("model:     claude-opus-4.5   /model to change"),
@@ -49,12 +46,9 @@ fn session_ready_updates_the_visible_model_and_choices() {
         vec!["claude-sonnet-4.5".to_string(), "gpt-5.3-codex".to_string()],
     );
 
+    assert_eq!(app.selected_model_id(), Some("claude-sonnet-4.5"));
     assert_eq!(
-        app.navigation.selected_model_id.as_deref(),
-        Some("claude-sonnet-4.5")
-    );
-    assert_eq!(
-        app.navigation.model_choices,
+        app.model_choices(),
         vec!["claude-sonnet-4.5".to_string(), "gpt-5.3-codex".to_string()]
     );
 }
