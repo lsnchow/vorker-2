@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
-use crate::bottom_pane_state::BottomPaneState;
+use crate::bottom_pane_state::{BottomPaneState, BottomPaneSurface};
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
@@ -651,7 +651,9 @@ impl App {
                 command_buffer: self.composer().buffer().to_string(),
                 slash_menu_selected_index: self.composer().slash_selected_index(),
                 mention_items: self
-                    .is_mention_popup()
+                    .bottom_pane
+                    .active_surface()
+                    .eq(&BottomPaneSurface::Mention)
                     .then(|| self.popup().mention_items().to_vec())
                     .unwrap_or_default(),
                 mention_selected_index: self.popup().selected_index(),
@@ -706,69 +708,43 @@ impl App {
             return false;
         }
 
-        if self.popup().is_mode(PopupMode::Permission) {
-            self.handle_permission_key(key);
-            return true;
-        }
-
-        if self.popup().is_mode(PopupMode::SkillAction) {
-            self.handle_skill_action_key(key);
-            return true;
-        }
-
-        if self.popup().is_mode(PopupMode::SkillToggle) {
-            self.handle_skill_toggle_key(key);
-            return true;
-        }
-
-        if self.popup().is_mode(PopupMode::BusyAction) {
-            self.handle_busy_action_key(key);
-            return true;
-        }
-
-        if self.model_picker().is_open() {
-            self.handle_model_picker_key(key);
-            return true;
-        }
-
-        if self.is_mention_popup() {
-            self.handle_mention_key(key);
-            return true;
-        }
-
-        match key.code {
-            KeyCode::Esc => self.handle_escape(),
-            KeyCode::Tab => self.autocomplete_slash_command(),
-            KeyCode::Up => self.navigate_slash(-1),
-            KeyCode::Down => self.navigate_slash(1),
-            KeyCode::Enter => self.submit_current_input(),
-            KeyCode::Backspace => {
-                let _ = self.composer_mut().pop_char();
-                self.prompt_history_cursor = None;
-                let bindings = prune_mention_bindings(
-                    self.composer().buffer(),
-                    self.composer().mention_bindings(),
-                );
-                self.composer_mut().set_mention_bindings(bindings);
-                self.sync_inline_popup();
-            }
-            KeyCode::Char(ch)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                self.navigation.focused_pane = Pane::Input;
-                self.composer_mut().push_char(ch);
-                self.prompt_history_cursor = None;
-                self.sync_inline_popup();
-            }
-            _ => {}
+        match self.bottom_pane.active_surface() {
+            BottomPaneSurface::Permission => self.handle_permission_key(key),
+            BottomPaneSurface::SkillAction => self.handle_skill_action_key(key),
+            BottomPaneSurface::SkillToggle => self.handle_skill_toggle_key(key),
+            BottomPaneSurface::BusyAction => self.handle_busy_action_key(key),
+            BottomPaneSurface::ModelPicker => self.handle_model_picker_key(key),
+            BottomPaneSurface::Mention => self.handle_mention_key(key),
+            BottomPaneSurface::Composer => match key.code {
+                KeyCode::Esc => self.handle_escape(),
+                KeyCode::Tab => self.autocomplete_slash_command(),
+                KeyCode::Up => self.navigate_slash(-1),
+                KeyCode::Down => self.navigate_slash(1),
+                KeyCode::Enter => self.submit_current_input(),
+                KeyCode::Backspace => {
+                    let _ = self.composer_mut().pop_char();
+                    self.prompt_history_cursor = None;
+                    let bindings = prune_mention_bindings(
+                        self.composer().buffer(),
+                        self.composer().mention_bindings(),
+                    );
+                    self.composer_mut().set_mention_bindings(bindings);
+                    self.sync_inline_popup();
+                }
+                KeyCode::Char(ch)
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    self.navigation.focused_pane = Pane::Input;
+                    self.composer_mut().push_char(ch);
+                    self.prompt_history_cursor = None;
+                    self.sync_inline_popup();
+                }
+                _ => {}
+            },
         }
 
         true
-    }
-
-    fn is_mention_popup(&self) -> bool {
-        self.popup().is_mode(PopupMode::Mention)
     }
 
     fn handle_permission_key(&mut self, key: KeyEvent) {
