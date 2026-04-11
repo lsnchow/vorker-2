@@ -101,6 +101,7 @@ pub enum AppCommand {
     ExportTranscript,
     CopyTranscript,
     ShowDiff,
+    CompactTranscript,
     ShowTimeline,
     ShowStatus,
     ListPromptHistory,
@@ -540,6 +541,22 @@ impl App {
             text: "Tool".to_string(),
             detail: Some(detail),
         });
+    }
+
+    pub fn compact_transcript(&mut self) {
+        if self.rows.is_empty() {
+            self.apply_system_notice("Transcript is already empty.");
+            return;
+        }
+
+        let summary = summarize_transcript_rows(&self.rows);
+        self.rows = vec![TranscriptRow {
+            kind: RowKind::System,
+            text: "Conversation compacted.".to_string(),
+            detail: Some(summary),
+        }];
+        self.needs_replay_context = true;
+        self.dirty = true;
     }
 
     pub fn finish_prompt(&mut self) {
@@ -1380,6 +1397,9 @@ impl App {
             }
             SlashCommandId::Diff => {
                 self.pending_actions.push(AppCommand::ShowDiff);
+            }
+            SlashCommandId::Compact => {
+                self.pending_actions.push(AppCommand::CompactTranscript);
             }
             SlashCommandId::Timeline => {
                 self.pending_actions.push(AppCommand::ShowTimeline);
@@ -2559,6 +2579,9 @@ pub fn run_app(
                     let diff = render_working_tree_diff(&cwd, 160)?;
                     app.apply_assistant_text(&diff);
                 }
+                AppCommand::CompactTranscript => {
+                    app.compact_transcript();
+                }
                 AppCommand::ShowTimeline => {
                     let timeline = render_thread_timeline(&app.thread_record());
                     app.apply_assistant_text(&timeline);
@@ -3036,6 +3059,32 @@ fn render_thread_timeline(thread: &StoredThread) -> String {
     lines.join("\n")
 }
 
+fn summarize_transcript_rows(rows: &[TranscriptRow]) -> String {
+    let mut lines = vec![format!("Compacted {} row(s).", rows.len())];
+    for (index, row) in rows.iter().take(8).enumerate() {
+        let kind = match row.kind {
+            RowKind::System => "system",
+            RowKind::User => "user",
+            RowKind::Assistant => "assistant",
+            RowKind::Tool => "tool",
+        };
+        let summary = row
+            .text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(100)
+            .collect::<String>();
+        lines.push(format!("{}. [{}] {}", index + 1, kind, summary));
+    }
+    if rows.len() > 8 {
+        lines.push(format!("… {} more row(s) omitted", rows.len() - 8));
+    }
+    lines.join("\n")
+}
+
 fn truncate_lines(text: &str, max_lines: usize) -> String {
     let lines = text.lines().collect::<Vec<_>>();
     if lines.len() <= max_lines {
@@ -3135,7 +3184,7 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 mod tests {
     use super::{
         copy_to_clipboard, normalize_for_raw_terminal, render_thread_timeline,
-        render_working_tree_diff, tool_update_text, truncate_lines,
+        render_working_tree_diff, summarize_transcript_rows, tool_update_text, truncate_lines,
     };
     use crate::{RowKind, StoredThread, TranscriptRow};
     use std::fs;
@@ -3228,5 +3277,26 @@ mod tests {
         assert!(timeline.contains("## Timeline"));
         assert!(timeline.contains("1. [user] build the controller"));
         assert!(timeline.contains("2. [tool] Explored"));
+    }
+
+    #[test]
+    fn summarize_transcript_rows_compacts_and_limits_output() {
+        let rows = vec![
+            TranscriptRow {
+                kind: RowKind::User,
+                text: "first".to_string(),
+                detail: None,
+            },
+            TranscriptRow {
+                kind: RowKind::Assistant,
+                text: "second".to_string(),
+                detail: None,
+            },
+        ];
+
+        let summary = summarize_transcript_rows(&rows);
+        assert!(summary.contains("Compacted 2 row(s)."));
+        assert!(summary.contains("1. [user] first"));
+        assert!(summary.contains("2. [assistant] second"));
     }
 }

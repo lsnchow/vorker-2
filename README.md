@@ -91,6 +91,7 @@ Inside the shell, type `/` to open the command list.
 /status                show shell/session status
 /export                export the current transcript
 /copy                  copy the current transcript to the clipboard
+/compact               compact the current transcript into a short summary
 /permissions           toggle manual vs auto approvals
 /rename <name>         rename the current thread
 /list                  list saved threads

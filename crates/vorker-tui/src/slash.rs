@@ -13,6 +13,7 @@ pub enum SlashCommandId {
     Export,
     Copy,
     Diff,
+    Compact,
     Timeline,
     Status,
     History,
@@ -90,7 +91,7 @@ const SHARED: SlashCommandVisibility = SlashCommandVisibility {
     allow_while_busy: true,
 };
 
-pub const SLASH_COMMANDS: [SlashCommand; 27] = [
+pub const SLASH_COMMANDS: [SlashCommand; 28] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -194,6 +195,14 @@ pub const SLASH_COMMANDS: [SlashCommand; 27] = [
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
+    },
+    SlashCommand {
+        id: SlashCommandId::Compact,
+        name: "/compact",
+        description: "compact the current transcript into a short summary",
+        aliases: &[],
+        category: SlashCommandCategory::Session,
+        visibility: NORMAL_ONLY,
     },
     SlashCommand {
         id: SlashCommandId::Timeline,

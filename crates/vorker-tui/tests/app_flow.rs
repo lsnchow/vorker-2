@@ -347,6 +347,17 @@ fn slash_copy_queues_transcript_copy() {
 }
 
 #[test]
+fn slash_compact_queues_transcript_compaction() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/compact".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::CompactTranscript]);
+}
+
+#[test]
 fn slash_diff_queues_working_tree_diff() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/diff".chars() {
