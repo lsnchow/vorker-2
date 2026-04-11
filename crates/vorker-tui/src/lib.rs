@@ -46,4 +46,6 @@ pub use slash::{
     filtered_commands, filtered_commands_for_state, help_summary, is_slash_mode,
 };
 pub use thread_store::{ApprovalMode, StoredThread, ThreadStore};
-pub use transcript_export::{render_transcript_markdown, write_transcript_export};
+pub use transcript_export::{
+    render_transcript_markdown, render_transcript_markdown_from_events, write_transcript_export,
+};

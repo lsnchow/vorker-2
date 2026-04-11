@@ -2,8 +2,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vorker_tui::{
-    ApprovalMode, RowKind, StoredThread, TranscriptRow, render_transcript_markdown,
-    write_transcript_export,
+    ApprovalMode, RowKind, SessionEvent, SessionEventKind, StoredThread, TranscriptRow,
+    render_transcript_markdown, render_transcript_markdown_from_events, write_transcript_export,
 };
 
 fn unique_temp_dir(name: &str) -> std::path::PathBuf {
@@ -63,7 +63,7 @@ fn transcript_export_writes_a_safe_filename() {
     thread.id = "thread/unsafe".to_string();
     thread.name = "Hyperloop: Controls?".to_string();
 
-    let path = write_transcript_export(&root, &thread).expect("write export");
+    let path = write_transcript_export(&root, &thread, None).expect("write export");
 
     assert!(path.starts_with(&root));
     assert!(path.ends_with("hyperloop-controls-thread-unsafe.md"));
@@ -74,4 +74,37 @@ fn transcript_export_writes_a_safe_filename() {
     );
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn transcript_export_can_render_from_events() {
+    let mut thread = StoredThread::ephemeral("/workspace/pod");
+    thread.name = "Hyperloop controls".to_string();
+    let events = vec![
+        SessionEvent {
+            timestamp_epoch_seconds: 1,
+            thread_id: thread.id.clone(),
+            kind: SessionEventKind::ThreadCreated {
+                thread_name: thread.name.clone(),
+                cwd: thread.cwd.clone(),
+            },
+        },
+        SessionEvent {
+            timestamp_epoch_seconds: 2,
+            thread_id: thread.id.clone(),
+            kind: SessionEventKind::RowAppended {
+                row_kind: RowKind::User,
+                text: "build the controller".to_string(),
+                detail: None,
+            },
+        },
+    ];
+
+    let markdown = render_transcript_markdown_from_events(&thread, &events);
+
+    assert!(markdown.contains("- events: 2"));
+    assert!(markdown.contains("## Thread"));
+    assert!(markdown.contains("Created thread"));
+    assert!(markdown.contains("## User"));
+    assert!(markdown.contains("build the controller"));
 }

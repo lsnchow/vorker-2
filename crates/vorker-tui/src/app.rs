@@ -2606,9 +2606,12 @@ pub fn run_app(
                     app.apply_system_notice(format!("Theme changed to {normalized}."));
                 }
                 AppCommand::ExportTranscript => {
+                    let thread = app.thread_record();
+                    let events = session_event_store.events(&thread.id)?;
                     match write_transcript_export(
                         &workspace.project_dir().join("exports"),
-                        &app.thread_record(),
+                        &thread,
+                        Some(&events),
                     ) {
                         Ok(path) => app.apply_system_notice(format!(
                             "Transcript exported to {}",
