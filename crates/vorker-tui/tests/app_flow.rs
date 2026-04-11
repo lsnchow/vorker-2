@@ -572,6 +572,25 @@ fn slash_timeline_recent_with_limit_queues_limited_recent_timeline() {
 }
 
 #[test]
+fn row_timeline_modes_do_not_require_event_log() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("assistant row");
+    for ch in "/timeline filter assistant".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowTimelineMode {
+            mode: "filter".to_string(),
+            filter: Some("assistant".to_string()),
+            limit: None,
+        }]
+    );
+}
+
+#[test]
 fn slash_timeline_filter_queues_filtered_timeline() {
     let mut app = App::new(vorker_core::Snapshot::default());
     app.apply_assistant_text("hello");

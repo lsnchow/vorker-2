@@ -3256,16 +3256,49 @@ fn render_staged_diff(cwd: &Path, max_lines: usize) -> io::Result<String> {
 }
 
 fn render_thread_timeline(thread: &StoredThread) -> String {
+    render_thread_timeline_with_mode(thread, "full", None, None)
+}
+
+fn render_thread_timeline_with_mode(
+    thread: &StoredThread,
+    mode: &str,
+    filter: Option<&str>,
+    limit: Option<usize>,
+) -> String {
     if thread.rows.is_empty() {
         return "Timeline is empty.".to_string();
     }
 
+    let filtered = filter
+        .map(|filter| {
+            thread
+                .rows
+                .iter()
+                .filter(|row| row_matches_filter(row, filter))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| thread.rows.clone());
+
+    let visible = if mode.eq_ignore_ascii_case("recent") {
+        let window = limit.unwrap_or(10);
+        let start = filtered.len().saturating_sub(window);
+        filtered[start..].to_vec()
+    } else {
+        filtered
+    };
+
+    if visible.is_empty() {
+        return "Timeline is empty.".to_string();
+    }
+
     let mut lines = vec![format!(
-        "## Timeline\n- thread: {}\n- rows: {}",
+        "## Timeline\n- thread: {}\n- rows: {}\n- mode: {}",
         thread.name,
-        thread.rows.len()
+        visible.len(),
+        mode
     )];
-    for (index, row) in thread.rows.iter().enumerate() {
+    for (index, row) in visible.iter().enumerate() {
         let kind = match row.kind {
             RowKind::System => "system",
             RowKind::User => "user",
@@ -3286,11 +3319,32 @@ fn render_thread_timeline(thread: &StoredThread) -> String {
     lines.join("\n")
 }
 
+fn row_matches_filter(row: &TranscriptRow, filter: &str) -> bool {
+    match filter.to_ascii_lowercase().as_str() {
+        "system" => row.kind == RowKind::System,
+        "user" => row.kind == RowKind::User,
+        "assistant" => row.kind == RowKind::Assistant,
+        "tool" => row.kind == RowKind::Tool,
+        _ => false,
+    }
+}
+
 fn load_timeline_text(
     session_event_store: &SessionEventStore,
     thread: &StoredThread,
 ) -> io::Result<String> {
-    load_timeline_text_with_mode(session_event_store, thread, "full", None, None)
+    let events = session_event_store.events(&thread.id)?;
+    if events.is_empty() {
+        Ok(render_thread_timeline(thread))
+    } else {
+        Ok(render_session_event_timeline_with_mode(
+            &thread.name,
+            &events,
+            "full",
+            None,
+            None,
+        ))
+    }
 }
 
 fn load_timeline_text_with_mode(
@@ -3302,7 +3356,9 @@ fn load_timeline_text_with_mode(
 ) -> io::Result<String> {
     let events = session_event_store.events(&thread.id)?;
     if events.is_empty() {
-        Ok(render_thread_timeline(thread))
+        Ok(render_thread_timeline_with_mode(
+            thread, mode, filter, limit,
+        ))
     } else {
         Ok(render_session_event_timeline_with_mode(
             &thread.name,
@@ -3439,8 +3495,8 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 mod tests {
     use super::{
         copy_to_clipboard, normalize_for_raw_terminal, render_staged_diff, render_status_summary,
-        render_thread_timeline, render_working_tree_diff, summarize_transcript_rows,
-        tool_update_text, truncate_lines,
+        render_thread_timeline, render_thread_timeline_with_mode, render_working_tree_diff,
+        summarize_transcript_rows, tool_update_text, truncate_lines,
     };
     use crate::{RowKind, StoredThread, TranscriptRow};
     use std::fs;
@@ -3563,6 +3619,49 @@ mod tests {
         assert!(timeline.contains("## Timeline"));
         assert!(timeline.contains("1. [user] build the controller"));
         assert!(timeline.contains("2. [tool] Explored"));
+    }
+
+    #[test]
+    fn render_thread_timeline_recent_respects_limit() {
+        let mut thread = StoredThread::ephemeral("/workspace/pod");
+        thread.name = "Hyperloop controls".to_string();
+        for index in 0..12 {
+            thread.rows.push(TranscriptRow {
+                kind: RowKind::User,
+                text: format!("row {index}"),
+                detail: None,
+            });
+        }
+
+        let timeline = render_thread_timeline_with_mode(&thread, "recent", None, Some(3));
+
+        assert!(timeline.contains("- mode: recent"));
+        assert!(timeline.contains("3. [user] row 11"));
+        assert!(!timeline.contains("4."));
+    }
+
+    #[test]
+    fn render_thread_timeline_filter_limits_to_matching_kind() {
+        let mut thread = StoredThread::ephemeral("/workspace/pod");
+        thread.name = "Hyperloop controls".to_string();
+        thread.rows = vec![
+            TranscriptRow {
+                kind: RowKind::User,
+                text: "user row".to_string(),
+                detail: None,
+            },
+            TranscriptRow {
+                kind: RowKind::Assistant,
+                text: "assistant row".to_string(),
+                detail: None,
+            },
+        ];
+
+        let timeline = render_thread_timeline_with_mode(&thread, "filter", Some("assistant"), None);
+
+        assert!(timeline.contains("- mode: filter"));
+        assert!(timeline.contains("[assistant] assistant row"));
+        assert!(!timeline.contains("[user] user row"));
     }
 
     #[test]
