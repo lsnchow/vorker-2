@@ -74,6 +74,14 @@ pub fn category_label(category: SlashCommandCategory) -> &'static str {
     }
 }
 
+#[must_use]
+pub fn command_is_available(command: SlashCommand, transcript_available: bool) -> bool {
+    match command.availability {
+        SlashCommandAvailability::Always => true,
+        SlashCommandAvailability::TranscriptRequired => transcript_available,
+    }
+}
+
 const NORMAL_ONLY: SlashCommandVisibility = SlashCommandVisibility {
     visible_in_review_mode: false,
     visible_in_normal_mode: true,

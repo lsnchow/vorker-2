@@ -327,6 +327,7 @@ fn slash_theme_list_shows_available_themes() {
 #[test]
 fn slash_export_queues_transcript_export() {
     let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
     for ch in "/export".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
@@ -338,6 +339,7 @@ fn slash_export_queues_transcript_export() {
 #[test]
 fn slash_copy_queues_transcript_copy() {
     let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
     for ch in "/copy".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
@@ -347,8 +349,25 @@ fn slash_copy_queues_transcript_copy() {
 }
 
 #[test]
+fn unavailable_transcript_command_shows_notice_in_empty_thread() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/copy".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert!(app.take_actions().is_empty());
+    let output = app.render(120, false);
+    assert!(
+        output.contains("/copy is unavailable in the current state."),
+        "{output}"
+    );
+}
+
+#[test]
 fn slash_compact_queues_transcript_compaction() {
     let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
     for ch in "/compact".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }
@@ -371,6 +390,7 @@ fn slash_diff_queues_working_tree_diff() {
 #[test]
 fn slash_timeline_queues_thread_timeline() {
     let mut app = App::new(vorker_core::Snapshot::default());
+    app.apply_assistant_text("hello");
     for ch in "/timeline".chars() {
         assert!(app.handle_key(key(KeyCode::Char(ch))));
     }

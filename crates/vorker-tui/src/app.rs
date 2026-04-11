@@ -27,7 +27,8 @@ use crate::render::{DashboardOptions, RowKind, TranscriptRow, render_dashboard};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
 use crate::slash::{
-    SlashCommandId, filtered_commands_for_state, help_summary_for_state, is_slash_mode,
+    SlashCommandId, command_is_available, filtered_commands_for_state, help_summary_for_state,
+    is_slash_mode,
 };
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
@@ -1297,6 +1298,14 @@ impl App {
             self.apply_system_notice("Unknown command.");
             return;
         };
+
+        if !command_is_available(command, !self.rows.is_empty()) {
+            self.apply_system_notice(format!(
+                "{} is unavailable in the current state.",
+                command.name
+            ));
+            return;
+        }
 
         match command.id {
             SlashCommandId::Review => {
