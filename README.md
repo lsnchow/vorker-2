@@ -95,6 +95,7 @@ Inside the shell, type `/` to open the command list.
 /rename <name>         rename the current thread
 /list                  list saved threads
 /list <thread-id>      switch to a saved thread
+/timeline              show a compact timeline of the current thread
 /history               show recent prompts
 /cd <path>             switch project directory
 ```

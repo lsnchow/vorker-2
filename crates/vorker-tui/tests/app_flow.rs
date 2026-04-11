@@ -358,6 +358,17 @@ fn slash_diff_queues_working_tree_diff() {
 }
 
 #[test]
+fn slash_timeline_queues_thread_timeline() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/timeline".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(app.take_actions(), vec![AppCommand::ShowTimeline]);
+}
+
+#[test]
 fn slash_status_queues_status_summary() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/status".chars() {
@@ -623,7 +634,7 @@ fn slash_help_while_busy_uses_the_busy_command_set() {
 
     let output = app.render(160, false);
     assert!(
-        output.contains("Commands: /stop /steer /queue /agent-stop /diff /model /help"),
+        output.contains("Commands: /stop /steer /queue /agent-stop /diff /timeline /model /help"),
         "{output}"
     );
     assert!(!output.contains("/new /permissions"), "{output}");

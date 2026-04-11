@@ -101,6 +101,7 @@ pub enum AppCommand {
     ExportTranscript,
     CopyTranscript,
     ShowDiff,
+    ShowTimeline,
     ShowStatus,
     ListPromptHistory,
     ListSkills,
@@ -1380,6 +1381,9 @@ impl App {
             SlashCommandId::Diff => {
                 self.pending_actions.push(AppCommand::ShowDiff);
             }
+            SlashCommandId::Timeline => {
+                self.pending_actions.push(AppCommand::ShowTimeline);
+            }
             SlashCommandId::Status => {
                 self.pending_actions.push(AppCommand::ShowStatus);
             }
@@ -2555,6 +2559,10 @@ pub fn run_app(
                     let diff = render_working_tree_diff(&cwd, 160)?;
                     app.apply_assistant_text(&diff);
                 }
+                AppCommand::ShowTimeline => {
+                    let timeline = render_thread_timeline(&app.thread_record());
+                    app.apply_assistant_text(&timeline);
+                }
                 AppCommand::ShowStatus => {
                     let jobs = side_agent_store.list_jobs();
                     let running_agents = jobs
@@ -2997,6 +3005,37 @@ fn render_working_tree_diff(cwd: &Path, max_lines: usize) -> io::Result<String> 
     }
 }
 
+fn render_thread_timeline(thread: &StoredThread) -> String {
+    if thread.rows.is_empty() {
+        return "Timeline is empty.".to_string();
+    }
+
+    let mut lines = vec![format!(
+        "## Timeline\n- thread: {}\n- rows: {}",
+        thread.name,
+        thread.rows.len()
+    )];
+    for (index, row) in thread.rows.iter().enumerate() {
+        let kind = match row.kind {
+            RowKind::System => "system",
+            RowKind::User => "user",
+            RowKind::Assistant => "assistant",
+            RowKind::Tool => "tool",
+        };
+        let summary = row
+            .text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(100)
+            .collect::<String>();
+        lines.push(format!("{}. [{}] {}", index + 1, kind, summary));
+    }
+    lines.join("\n")
+}
+
 fn truncate_lines(text: &str, max_lines: usize) -> String {
     let lines = text.lines().collect::<Vec<_>>();
     if lines.len() <= max_lines {
@@ -3095,9 +3134,10 @@ fn load_workspace_files(root: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_to_clipboard, normalize_for_raw_terminal, render_working_tree_diff, tool_update_text,
-        truncate_lines,
+        copy_to_clipboard, normalize_for_raw_terminal, render_thread_timeline,
+        render_working_tree_diff, tool_update_text, truncate_lines,
     };
+    use crate::{RowKind, StoredThread, TranscriptRow};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3165,5 +3205,28 @@ mod tests {
     fn truncate_lines_marks_truncated_output() {
         let text = "a\nb\nc\nd";
         assert_eq!(truncate_lines(text, 2), "a\nb\n\n[diff truncated]");
+    }
+
+    #[test]
+    fn render_thread_timeline_summarizes_rows() {
+        let mut thread = StoredThread::ephemeral("/workspace/pod");
+        thread.name = "Hyperloop controls".to_string();
+        thread.rows = vec![
+            TranscriptRow {
+                kind: RowKind::User,
+                text: "build the controller".to_string(),
+                detail: None,
+            },
+            TranscriptRow {
+                kind: RowKind::Tool,
+                text: "Explored".to_string(),
+                detail: Some("Read src/controller.rs".to_string()),
+            },
+        ];
+
+        let timeline = render_thread_timeline(&thread);
+        assert!(timeline.contains("## Timeline"));
+        assert!(timeline.contains("1. [user] build the controller"));
+        assert!(timeline.contains("2. [tool] Explored"));
     }
 }

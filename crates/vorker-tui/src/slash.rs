@@ -13,6 +13,7 @@ pub enum SlashCommandId {
     Export,
     Copy,
     Diff,
+    Timeline,
     Status,
     History,
     Skills,
@@ -89,7 +90,7 @@ const SHARED: SlashCommandVisibility = SlashCommandVisibility {
     allow_while_busy: true,
 };
 
-pub const SLASH_COMMANDS: [SlashCommand; 26] = [
+pub const SLASH_COMMANDS: [SlashCommand; 27] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -190,6 +191,14 @@ pub const SLASH_COMMANDS: [SlashCommand; 26] = [
         id: SlashCommandId::Diff,
         name: "/diff",
         description: "show the current working tree diff",
+        aliases: &[],
+        category: SlashCommandCategory::Session,
+        visibility: NORMAL_BUSY,
+    },
+    SlashCommand {
+        id: SlashCommandId::Timeline,
+        name: "/timeline",
+        description: "show a compact timeline of the current thread",
         aliases: &[],
         category: SlashCommandCategory::Session,
         visibility: NORMAL_BUSY,
