@@ -2,13 +2,10 @@ node_modules/
 .next/
 certs/
 .DS_Store
-.agents
 .vorker-2/
 .worktrees/
 target/
 .omx/
-.codex/.personality_migration
-.codex/.tmp/
-.codex/log/
-.codex/tmp/
-.codex/skills/.system/
+.codex/
+.agents/
+skills-lock.json
