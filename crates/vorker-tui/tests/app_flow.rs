@@ -677,6 +677,50 @@ fn slash_skills_opens_a_codex_style_action_menu() {
 }
 
 #[test]
+fn skills_popup_arrow_navigation_and_enter_toggle_the_selected_skill() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    app.set_skills(
+        vec![
+            SkillInfo {
+                name: "code-review".to_string(),
+                description: "Review code carefully".to_string(),
+                path: std::path::PathBuf::from("/tmp/code-review/SKILL.md"),
+            },
+            SkillInfo {
+                name: "security-review".to_string(),
+                description: "Audit security posture".to_string(),
+                path: std::path::PathBuf::from("/tmp/security-review/SKILL.md"),
+            },
+        ],
+        std::collections::BTreeSet::new(),
+    );
+
+    for ch in "/skills".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    let output = app.render(120, false);
+    assert!(output.contains("[ ] code-review"), "{output}");
+    assert!(output.contains("[ ] security-review"), "{output}");
+    assert!(!output.contains("Review code carefully"), "{output}");
+    assert!(!output.contains("Audit security posture"), "{output}");
+
+    assert!(app.handle_key(key(KeyCode::Down)));
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SetSkillEnabled {
+            name: "security-review".to_string(),
+            enabled: true,
+        }]
+    );
+}
+
+#[test]
 fn slash_skills_enable_queues_skill_toggle() {
     let mut app = App::new(vorker_core::Snapshot::default());
 

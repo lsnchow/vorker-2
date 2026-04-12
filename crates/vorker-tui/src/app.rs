@@ -890,7 +890,7 @@ impl App {
                 };
                 crate::render::PopupItem {
                     label: format!("{marker} {}", skill.name),
-                    description: Some(skill.description.clone()),
+                    description: None,
                     selectable: true,
                 }
             })
