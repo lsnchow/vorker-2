@@ -37,6 +37,34 @@ pub enum BottomPaneDispatch {
     Composer(ComposerKeyAction),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListSurfaceAction {
+    Move(isize),
+    Submit,
+    Close,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkillToggleSurfaceAction {
+    Move(isize),
+    ToggleSelected,
+    QueryBackspace,
+    QueryInsert(char),
+    Close,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BusySurfaceAction {
+    Move(isize),
+    Submit,
+    EditBackspace,
+    EditInsert(char),
+    Close,
+    None,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BottomPaneState {
     composer: ComposerState,
@@ -129,11 +157,80 @@ impl BottomPaneState {
             _ => ComposerKeyAction::None,
         }
     }
+
+    #[must_use]
+    pub fn dispatch_permission_key(&self, key: KeyEvent) -> ListSurfaceAction {
+        dispatch_list_surface_key(key)
+    }
+
+    #[must_use]
+    pub fn dispatch_skill_action_key(&self, key: KeyEvent) -> ListSurfaceAction {
+        dispatch_list_surface_key(key)
+    }
+
+    #[must_use]
+    pub fn dispatch_model_picker_key(&self, key: KeyEvent) -> ListSurfaceAction {
+        dispatch_list_surface_key(key)
+    }
+
+    #[must_use]
+    pub fn dispatch_mention_key(&self, key: KeyEvent) -> ListSurfaceAction {
+        dispatch_list_surface_key(key)
+    }
+
+    #[must_use]
+    pub fn dispatch_skill_toggle_key(&self, key: KeyEvent) -> SkillToggleSurfaceAction {
+        match key.code {
+            KeyCode::Up => SkillToggleSurfaceAction::Move(-1),
+            KeyCode::Down => SkillToggleSurfaceAction::Move(1),
+            KeyCode::Enter | KeyCode::Char(' ') => SkillToggleSurfaceAction::ToggleSelected,
+            KeyCode::Backspace => SkillToggleSurfaceAction::QueryBackspace,
+            KeyCode::Esc => SkillToggleSurfaceAction::Close,
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                SkillToggleSurfaceAction::QueryInsert(ch)
+            }
+            _ => SkillToggleSurfaceAction::None,
+        }
+    }
+
+    #[must_use]
+    pub fn dispatch_busy_action_key(&self, key: KeyEvent) -> BusySurfaceAction {
+        match key.code {
+            KeyCode::Up => BusySurfaceAction::Move(-1),
+            KeyCode::Down => BusySurfaceAction::Move(1),
+            KeyCode::Enter => BusySurfaceAction::Submit,
+            KeyCode::Esc => BusySurfaceAction::Close,
+            KeyCode::Backspace => BusySurfaceAction::EditBackspace,
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                BusySurfaceAction::EditInsert(ch)
+            }
+            _ => BusySurfaceAction::None,
+        }
+    }
+}
+
+fn dispatch_list_surface_key(key: KeyEvent) -> ListSurfaceAction {
+    match key.code {
+        KeyCode::Up => ListSurfaceAction::Move(-1),
+        KeyCode::Down => ListSurfaceAction::Move(1),
+        KeyCode::Enter => ListSurfaceAction::Submit,
+        KeyCode::Esc => ListSurfaceAction::Close,
+        _ => ListSurfaceAction::None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BottomPaneDispatch, BottomPaneState, BottomPaneSurface, ComposerKeyAction};
+    use super::{
+        BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusySurfaceAction,
+        ComposerKeyAction, ListSurfaceAction, SkillToggleSurfaceAction,
+    };
     use crate::popup_state::PopupMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -177,6 +274,23 @@ mod tests {
         assert_eq!(
             state.dispatch_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), false),
             BottomPaneDispatch::Composer(ComposerKeyAction::RecallHistory(1))
+        );
+    }
+
+    #[test]
+    fn bottom_pane_dispatches_surface_specific_keys() {
+        let state = BottomPaneState::default();
+        assert_eq!(
+            state.dispatch_permission_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            ListSurfaceAction::Move(1)
+        );
+        assert_eq!(
+            state.dispatch_skill_toggle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            SkillToggleSurfaceAction::QueryInsert('x')
+        );
+        assert_eq!(
+            state.dispatch_busy_action_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            BusySurfaceAction::EditBackspace
         );
     }
 }

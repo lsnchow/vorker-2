@@ -25,7 +25,8 @@ mod transcript_export;
 pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 pub use bottom_pane_state::{
-    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, ComposerKeyAction,
+    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusySurfaceAction, ComposerKeyAction,
+    ListSurfaceAction, SkillToggleSurfaceAction,
 };
 pub use composer_state::ComposerState;
 pub use demo::render_hyperloop_mock;

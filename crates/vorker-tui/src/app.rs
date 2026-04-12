@@ -16,7 +16,8 @@ use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 use crate::bottom_pane_state::{
-    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, ComposerKeyAction,
+    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusySurfaceAction, ComposerKeyAction,
+    ListSurfaceAction, SkillToggleSurfaceAction,
 };
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
@@ -750,27 +751,23 @@ impl App {
     }
 
     fn handle_permission_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
+        match self.bottom_pane.dispatch_permission_key(key) {
+            ListSurfaceAction::Move(delta) => {
                 let len = self.popup().permission_items_len();
-                self.popup_mut().cycle_selected_index(len, -1);
+                self.popup_mut().cycle_selected_index(len, delta);
             }
-            KeyCode::Down => {
-                let len = self.popup().permission_items_len();
-                self.popup_mut().cycle_selected_index(len, 1);
-            }
-            KeyCode::Enter => {
+            ListSurfaceAction::Submit => {
                 let option_id = self.popup().permission_option_id();
                 self.pending_actions
                     .push(AppCommand::ResolvePermission { option_id });
                 self.close_permission_prompt();
             }
-            KeyCode::Esc => {
+            ListSurfaceAction::Close => {
                 self.pending_actions
                     .push(AppCommand::ResolvePermission { option_id: None });
                 self.close_permission_prompt();
             }
-            _ => {}
+            ListSurfaceAction::None => {}
         }
     }
 
@@ -779,14 +776,11 @@ impl App {
     }
 
     fn handle_skill_action_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
-                self.popup_mut().cycle_selected_index(2, -1);
+        match self.bottom_pane.dispatch_skill_action_key(key) {
+            ListSurfaceAction::Move(delta) => {
+                self.popup_mut().cycle_selected_index(2, delta);
             }
-            KeyCode::Down => {
-                self.popup_mut().cycle_selected_index(2, 1);
-            }
-            KeyCode::Enter => {
+            ListSurfaceAction::Submit => {
                 if self.popup().selected_index() == 0 {
                     self.pending_actions.push(AppCommand::ListSkills);
                     self.close_skill_popup();
@@ -795,22 +789,18 @@ impl App {
                     self.sync_skill_toggle_items();
                 }
             }
-            KeyCode::Esc => self.close_skill_popup(),
-            _ => {}
+            ListSurfaceAction::Close => self.close_skill_popup(),
+            ListSurfaceAction::None => {}
         }
     }
 
     fn handle_skill_toggle_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
+        match self.bottom_pane.dispatch_skill_toggle_key(key) {
+            SkillToggleSurfaceAction::Move(delta) => {
                 let len = self.filtered_skill_names().len();
-                self.popup_mut().cycle_selected_index(len, -1);
+                self.popup_mut().cycle_selected_index(len, delta);
             }
-            KeyCode::Down => {
-                let len = self.filtered_skill_names().len();
-                self.popup_mut().cycle_selected_index(len, 1);
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            SkillToggleSurfaceAction::ToggleSelected => {
                 if let Some(name) = self
                     .filtered_skill_names()
                     .get(self.popup().selected_index())
@@ -821,20 +811,17 @@ impl App {
                         .push(AppCommand::SetSkillEnabled { name, enabled });
                 }
             }
-            KeyCode::Backspace => {
+            SkillToggleSurfaceAction::QueryBackspace => {
                 self.popup_mut().pop_skill_toggle_char();
                 self.sync_skill_toggle_items();
             }
-            KeyCode::Char(ch)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
+            SkillToggleSurfaceAction::QueryInsert(ch) => {
                 self.popup_mut().push_skill_toggle_char(ch);
                 self.popup_mut().set_selected_index(0);
                 self.sync_skill_toggle_items();
             }
-            KeyCode::Esc => self.close_skill_popup(),
-            _ => {}
+            SkillToggleSurfaceAction::Close => self.close_skill_popup(),
+            SkillToggleSurfaceAction::None => {}
         }
     }
 
@@ -843,14 +830,11 @@ impl App {
     }
 
     fn handle_busy_action_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
-                self.popup_mut().cycle_selected_index(2, -1);
+        match self.bottom_pane.dispatch_busy_action_key(key) {
+            BusySurfaceAction::Move(delta) => {
+                self.popup_mut().cycle_selected_index(2, delta);
             }
-            KeyCode::Down => {
-                self.popup_mut().cycle_selected_index(2, 1);
-            }
-            KeyCode::Enter => {
+            BusySurfaceAction::Submit => {
                 let display_text = self.composer().buffer().trim().to_string();
                 if display_text.is_empty() {
                     self.close_busy_action_popup();
@@ -877,8 +861,8 @@ impl App {
                 self.sync_inline_popup();
                 self.close_busy_action_popup();
             }
-            KeyCode::Esc => self.close_busy_action_popup(),
-            KeyCode::Backspace => {
+            BusySurfaceAction::Close => self.close_busy_action_popup(),
+            BusySurfaceAction::EditBackspace => {
                 let _ = self.composer_mut().pop_char();
                 let bindings = prune_mention_bindings(
                     self.composer().buffer(),
@@ -886,10 +870,7 @@ impl App {
                 );
                 self.composer_mut().set_mention_bindings(bindings);
             }
-            KeyCode::Char(ch)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
+            BusySurfaceAction::EditInsert(ch) => {
                 self.composer_mut().push_char(ch);
                 let bindings = prune_mention_bindings(
                     self.composer().buffer(),
@@ -897,7 +878,7 @@ impl App {
                 );
                 self.composer_mut().set_mention_bindings(bindings);
             }
-            _ => {}
+            BusySurfaceAction::None => {}
         }
     }
 
@@ -956,61 +937,25 @@ impl App {
     }
 
     fn handle_model_picker_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
-                let current = self
-                    .model_picker()
-                    .selected_model_id()
-                    .and_then(|selected| {
-                        self.model_picker()
-                            .model_choices()
-                            .iter()
-                            .position(|item| item == selected)
-                    })
-                    .unwrap_or(0);
-                let index = cycle_index(current, self.model_picker().model_choices().len(), -1);
-                let next = self.model_picker().model_choices().get(index).cloned();
-                self.model_picker_mut().set_selected_model_id(next);
-            }
-            KeyCode::Down => {
-                let current = self
-                    .model_picker()
-                    .selected_model_id()
-                    .and_then(|selected| {
-                        self.model_picker()
-                            .model_choices()
-                            .iter()
-                            .position(|item| item == selected)
-                    })
-                    .unwrap_or(0);
-                let index = cycle_index(current, self.model_picker().model_choices().len(), 1);
-                let next = self.model_picker().model_choices().get(index).cloned();
-                self.model_picker_mut().set_selected_model_id(next);
-            }
-            KeyCode::Enter => {
-                if let Some(model) = self.selected_model_id().map(str::to_string) {
+        match self.bottom_pane.dispatch_model_picker_key(key) {
+            ListSurfaceAction::Move(delta) => self.model_picker_mut().move_selection(delta),
+            ListSurfaceAction::Submit => {
+                if let Some(model) = self.model_picker_mut().confirm_selection() {
                     self.pending_actions.push(AppCommand::SetModel { model });
                 }
-                self.model_picker_mut().close();
             }
-            KeyCode::Esc => {
-                self.model_picker_mut().close();
-            }
-            _ => {}
+            ListSurfaceAction::Close => self.model_picker_mut().close(),
+            ListSurfaceAction::None => {}
         }
     }
 
     fn handle_mention_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => {
+        match self.bottom_pane.dispatch_mention_key(key) {
+            ListSurfaceAction::Move(delta) => {
                 let len = self.popup().mention_items().len();
-                self.popup_mut().cycle_selected_index(len, -1);
+                self.popup_mut().cycle_selected_index(len, delta);
             }
-            KeyCode::Down => {
-                let len = self.popup().mention_items().len();
-                self.popup_mut().cycle_selected_index(len, 1);
-            }
-            KeyCode::Enter => {
+            ListSurfaceAction::Submit => {
                 if let Some(selected) = self
                     .popup()
                     .mention_items()
@@ -1028,10 +973,10 @@ impl App {
                 }
                 self.sync_inline_popup();
             }
-            KeyCode::Esc => {
+            ListSurfaceAction::Close => {
                 self.popup_mut().close();
             }
-            _ => {}
+            ListSurfaceAction::None => {}
         }
     }
 
