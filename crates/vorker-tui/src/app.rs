@@ -199,6 +199,9 @@ pub struct App {
     prompt_queue: VecDeque<(String, String)>,
     prompt_history: Vec<String>,
     prompt_history_cursor: Option<usize>,
+    review_mode: bool,
+    review_scope: Option<String>,
+    review_restore_theme: Option<String>,
     skills: Vec<SkillInfo>,
     enabled_skills: BTreeSet<String>,
     skill_context: String,
@@ -259,6 +262,8 @@ impl App {
     pub fn from_thread(snapshot: Snapshot, thread: StoredThread) -> Self {
         let workspace_path = thread.cwd.clone();
         let selected_model = thread.model.clone();
+        let review_mode = current_review_mode();
+        let review_scope = current_shell_review_scope();
 
         let mut navigation = NavigationState::default();
         navigation.focused_pane = Pane::Input;
@@ -290,6 +295,9 @@ impl App {
             prompt_queue: VecDeque::new(),
             prompt_history: Vec::new(),
             prompt_history_cursor: None,
+            review_mode,
+            review_scope,
+            review_restore_theme: None,
             skills: Vec::new(),
             enabled_skills: BTreeSet::new(),
             skill_context: String::new(),
@@ -306,6 +314,38 @@ impl App {
     #[must_use]
     pub fn workspace_path(&self) -> &str {
         &self.workspace_path
+    }
+
+    #[must_use]
+    pub fn is_review_mode(&self) -> bool {
+        self.review_mode
+    }
+
+    #[must_use]
+    pub fn review_scope(&self) -> Option<String> {
+        self.review_scope.clone()
+    }
+
+    pub fn enter_review_mode(&mut self, scope: Option<String>) {
+        if !self.review_mode {
+            self.review_restore_theme = Some(self.shell_theme.clone());
+        }
+        self.review_mode = true;
+        self.review_scope = scope;
+        self.shell_theme = "review".to_string();
+        self.dirty = true;
+    }
+
+    pub fn exit_review_mode(&mut self) {
+        self.review_mode = false;
+        self.review_scope = None;
+        if self.shell_theme == "review" {
+            self.shell_theme = self
+                .review_restore_theme
+                .take()
+                .unwrap_or_else(|| "default".to_string());
+        }
+        self.dirty = true;
     }
 
     fn composer(&self) -> &crate::ComposerState {
@@ -671,7 +711,7 @@ impl App {
 
     pub fn render(&self, width: usize, color: bool) -> String {
         let popup = self.popup().render_state(&self.filtered_skill_items());
-        let review_mode = current_review_mode();
+        let review_mode = self.review_mode;
         let busy = self.working_started_at.is_some();
         render_dashboard(
             &self.snapshot,
@@ -952,7 +992,7 @@ impl App {
     }
 
     fn handle_escape(&mut self) {
-        match self.bottom_pane.escape_action(current_review_mode()) {
+        match self.bottom_pane.escape_action(self.review_mode) {
             crate::bottom_pane_state::BottomPaneEscapeAction::CloseModelPicker => {
                 self.model_picker_mut().close();
             }
@@ -963,7 +1003,8 @@ impl App {
                 self.bottom_pane.clear_composer();
             }
             crate::bottom_pane_state::BottomPaneEscapeAction::ExitReview => {
-                self.pending_actions.push(AppCommand::ExitShell);
+                self.exit_review_mode();
+                self.apply_system_notice("Exited review mode.");
             }
             crate::bottom_pane_state::BottomPaneEscapeAction::None => {}
         }
@@ -976,7 +1017,7 @@ impl App {
 
         let commands = filtered_commands_for_state(
             self.composer().buffer(),
-            current_review_mode(),
+            self.review_mode,
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
         );
@@ -993,7 +1034,7 @@ impl App {
 
         let commands = filtered_commands_for_state(
             self.composer().buffer(),
-            current_review_mode(),
+            self.review_mode,
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
         );
@@ -1101,7 +1142,7 @@ impl App {
         let command = parse_exact_slash_command(buffer).or_else(|| {
             filtered_commands_for_state(
                 buffer,
-                current_review_mode(),
+                self.review_mode,
                 self.working_started_at.is_some(),
                 !self.rows.is_empty(),
             )
@@ -1120,7 +1161,7 @@ impl App {
 
         if !command_is_enabled_in_state(
             command,
-            current_review_mode(),
+            self.review_mode,
             self.working_started_at.is_some(),
             !self.rows.is_empty(),
         ) {
@@ -1198,7 +1239,7 @@ impl App {
                     coach: true,
                     apply: false,
                     popout: false,
-                    scope: current_shell_review_scope(),
+                    scope: self.review_scope(),
                 });
             }
             SlashCommandId::Apply => {
@@ -1207,11 +1248,12 @@ impl App {
                     coach: true,
                     apply: true,
                     popout: false,
-                    scope: current_shell_review_scope(),
+                    scope: self.review_scope(),
                 });
             }
             SlashCommandId::ExitReview => {
-                self.pending_actions.push(AppCommand::ExitShell);
+                self.exit_review_mode();
+                self.apply_system_notice("Exited review mode.");
             }
             _ => {}
         }
@@ -1450,7 +1492,7 @@ impl App {
             }
             SlashCommandId::Help => {
                 self.apply_system_notice(help_summary_for_state(
-                    current_review_mode(),
+                    self.review_mode,
                     self.working_started_at.is_some(),
                     !self.rows.is_empty(),
                 ));
@@ -1694,7 +1736,7 @@ pub fn run_app(
     let mut review_job = None;
     let mut side_agent_jobs: Vec<SideAgentJob> = Vec::new();
     let mut last_frame = String::new();
-    if current_review_mode()
+    if app.is_review_mode()
         && std::env::var("VORKER_REVIEW_AUTO")
             .ok()
             .is_some_and(|value| value == "1")
@@ -1704,7 +1746,7 @@ pub fn run_app(
             coach: env_flag("VORKER_REVIEW_COACH"),
             apply: env_flag("VORKER_REVIEW_APPLY"),
             popout: false,
-            scope: current_shell_review_scope(),
+            scope: app.review_scope(),
         });
     }
 
@@ -2260,8 +2302,9 @@ fn dispatch_runtime_action(
 #[cfg(test)]
 mod tests {
     use super::{
-        SideAgentJob, normalize_for_raw_terminal, render_agent_roster, render_status_summary,
-        render_thread_timeline, render_thread_timeline_with_mode, tool_update_text,
+        App, SideAgentJob, normalize_for_raw_terminal, render_agent_roster,
+        render_status_summary, render_thread_timeline, render_thread_timeline_with_mode,
+        tool_update_text,
     };
     use crate::app::shell_helpers::{should_redraw_frame, summarize_transcript_rows};
     use crate::app::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
@@ -2453,6 +2496,22 @@ mod tests {
         assert!(summary.contains("Compacted 2 row(s)."));
         assert!(summary.contains("1. [user] first"));
         assert!(summary.contains("2. [assistant] second"));
+    }
+
+    #[test]
+    fn entering_and_exiting_review_mode_restores_the_previous_theme() {
+        let mut app = App::new(vorker_core::Snapshot::default());
+        app.shell_theme = "opencode".to_string();
+
+        app.enter_review_mode(Some("staged".to_string()));
+        assert!(app.is_review_mode());
+        assert_eq!(app.review_scope(), Some("staged".to_string()));
+        assert_eq!(app.shell_theme, "review");
+
+        app.exit_review_mode();
+        assert!(!app.is_review_mode());
+        assert_eq!(app.review_scope(), None);
+        assert_eq!(app.shell_theme, "opencode");
     }
 
     #[test]

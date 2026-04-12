@@ -25,6 +25,7 @@ pub(crate) fn handle_review_runtime_action(
             } else if review_job.is_some() {
                 app.apply_system_notice("A review is already running in this shell.");
             } else {
+                app.enter_review_mode(scope.clone());
                 app.apply_system_notice(format!(
                     "Running adversarial review{}{}.",
                     if coach { " with coaching" } else { "" },
