@@ -1,4 +1,5 @@
 use crate::composer_state::ComposerState;
+use crate::mentions::{insert_selected_mention, prune_mention_bindings};
 use crate::model_picker_state::ModelPickerState;
 use crate::popup_state::{AppPopupState, PopupMode};
 use crate::slash::is_slash_mode;
@@ -199,6 +200,44 @@ impl BottomPaneState {
     pub fn apply_history_recall(&mut self, recalled: String) {
         self.composer.set_buffer(recalled);
         self.composer.clear_mentions();
+    }
+
+    pub fn apply_composer_backspace(&mut self) {
+        let _ = self.composer.pop_char();
+        let bindings =
+            prune_mention_bindings(self.composer.buffer(), self.composer.mention_bindings());
+        self.composer.set_mention_bindings(bindings);
+    }
+
+    pub fn apply_composer_insert(&mut self, ch: char) {
+        self.composer.push_char(ch);
+        let bindings =
+            prune_mention_bindings(self.composer.buffer(), self.composer.mention_bindings());
+        self.composer.set_mention_bindings(bindings);
+    }
+
+    pub fn apply_skill_toggle_query_backspace(&mut self, visible_items_len: usize) {
+        self.popup.pop_skill_toggle_char();
+        self.popup.clamp_selected_index(visible_items_len);
+    }
+
+    pub fn apply_skill_toggle_query_insert(&mut self, ch: char, visible_items_len: usize) {
+        self.popup.push_skill_toggle_char(ch);
+        self.popup.set_selected_index(0);
+        self.popup.clamp_selected_index(visible_items_len);
+    }
+
+    pub fn apply_mention_selection(&mut self, selected: &str) -> bool {
+        if let Some((text, binding)) = insert_selected_mention(self.composer.buffer(), selected) {
+            self.composer.set_buffer(text);
+            let bindings = prune_mention_bindings(
+                self.composer.buffer(),
+                &[self.composer.mention_bindings().to_vec(), vec![binding]].concat(),
+            );
+            self.composer.set_mention_bindings(bindings);
+            return true;
+        }
+        false
     }
 
     #[must_use]
@@ -533,5 +572,18 @@ mod tests {
             state.composer_submit_intent(false),
             ComposerSubmitIntent::SubmitPrompt("ship it".to_string())
         );
+    }
+
+    #[test]
+    fn bottom_pane_can_apply_popup_and_mention_mutations() {
+        let mut state = BottomPaneState::default();
+        state.composer_mut().set_buffer("Check @README.md");
+        assert!(state.apply_mention_selection("README.md"));
+        assert_eq!(state.composer().buffer(), "Check @README.md ");
+
+        state.apply_skill_toggle_query_insert('x', 0);
+        assert_eq!(state.popup().skill_toggle_query(), "x");
+        state.apply_skill_toggle_query_backspace(0);
+        assert_eq!(state.popup().skill_toggle_query(), "");
     }
 }

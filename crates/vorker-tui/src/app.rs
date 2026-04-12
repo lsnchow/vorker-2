@@ -23,7 +23,7 @@ use crate::bottom_pane_state::{
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
-    insert_selected_mention, prune_mention_bindings, resolve_mention_context,
+    prune_mention_bindings, resolve_mention_context,
 };
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
@@ -728,18 +728,13 @@ impl App {
                 ComposerKeyAction::RecallHistory(delta) => self.recall_prompt_history(delta),
                 ComposerKeyAction::Submit => self.submit_current_input(),
                 ComposerKeyAction::Backspace => {
-                    let _ = self.composer_mut().pop_char();
+                    self.bottom_pane.apply_composer_backspace();
                     self.prompt_history_cursor = None;
-                    let bindings = prune_mention_bindings(
-                        self.composer().buffer(),
-                        self.composer().mention_bindings(),
-                    );
-                    self.composer_mut().set_mention_bindings(bindings);
                     self.sync_inline_popup();
                 }
                 ComposerKeyAction::Insert(ch) => {
                     self.navigation.focused_pane = Pane::Input;
-                    self.composer_mut().push_char(ch);
+                    self.bottom_pane.apply_composer_insert(ch);
                     self.prompt_history_cursor = None;
                     self.sync_inline_popup();
                 }
@@ -791,13 +786,12 @@ impl App {
                 }
             }
             SkillToggleSurfaceAction::QueryBackspace => {
-                self.popup_mut().pop_skill_toggle_char();
-                self.sync_skill_toggle_items();
+                let len = self.filtered_skill_names().len();
+                self.bottom_pane.apply_skill_toggle_query_backspace(len);
             }
             SkillToggleSurfaceAction::QueryInsert(ch) => {
-                self.popup_mut().push_skill_toggle_char(ch);
-                self.popup_mut().set_selected_index(0);
-                self.sync_skill_toggle_items();
+                let len = self.filtered_skill_names().len();
+                self.bottom_pane.apply_skill_toggle_query_insert(ch, len);
             }
             SkillToggleSurfaceAction::Close => self.popup_mut().close(),
             SkillToggleSurfaceAction::None => {}
@@ -831,20 +825,10 @@ impl App {
         }
         match action {
             BusySurfaceAction::EditBackspace => {
-                let _ = self.composer_mut().pop_char();
-                let bindings = prune_mention_bindings(
-                    self.composer().buffer(),
-                    self.composer().mention_bindings(),
-                );
-                self.composer_mut().set_mention_bindings(bindings);
+                self.bottom_pane.apply_composer_backspace();
             }
             BusySurfaceAction::EditInsert(ch) => {
-                self.composer_mut().push_char(ch);
-                let bindings = prune_mention_bindings(
-                    self.composer().buffer(),
-                    self.composer().mention_bindings(),
-                );
-                self.composer_mut().set_mention_bindings(bindings);
+                self.bottom_pane.apply_composer_insert(ch);
             }
             BusySurfaceAction::Move(_)
             | BusySurfaceAction::Submit
@@ -924,16 +908,8 @@ impl App {
                     .mention_items()
                     .get(self.popup().selected_index())
                     .cloned()
-                    && let Some((text, binding)) =
-                        insert_selected_mention(self.composer().buffer(), &selected)
-                {
-                    self.composer_mut().set_buffer(text);
-                    let bindings = prune_mention_bindings(
-                        self.composer().buffer(),
-                        &[self.composer().mention_bindings().to_vec(), vec![binding]].concat(),
-                    );
-                    self.composer_mut().set_mention_bindings(bindings);
-                }
+                    && self.bottom_pane.apply_mention_selection(&selected)
+                {}
                 self.sync_inline_popup();
             }
             ListSurfaceAction::Close => {
@@ -1124,6 +1100,41 @@ impl App {
         }
 
         match command.id {
+            SlashCommandId::Review
+            | SlashCommandId::Ralph
+            | SlashCommandId::Coach
+            | SlashCommandId::Apply
+            | SlashCommandId::ExitReview => self.execute_review_command(command.id, buffer),
+            SlashCommandId::Stop
+            | SlashCommandId::Steer
+            | SlashCommandId::Queue
+            | SlashCommandId::Agent
+            | SlashCommandId::Agents
+            | SlashCommandId::AgentStop
+            | SlashCommandId::AgentResult => {
+                self.execute_agent_workflow_command(command.id, buffer)
+            }
+            SlashCommandId::Theme
+            | SlashCommandId::Export
+            | SlashCommandId::Copy
+            | SlashCommandId::Diff
+            | SlashCommandId::Compact
+            | SlashCommandId::Timeline
+            | SlashCommandId::Status
+            | SlashCommandId::History => self.execute_transcript_command(command.id, buffer),
+            SlashCommandId::Skills
+            | SlashCommandId::Model
+            | SlashCommandId::New
+            | SlashCommandId::Help
+            | SlashCommandId::Permissions
+            | SlashCommandId::Rename
+            | SlashCommandId::List
+            | SlashCommandId::Cd => self.execute_session_command(command.id, buffer),
+        }
+    }
+
+    fn execute_review_command(&mut self, command_id: SlashCommandId, buffer: &str) {
+        match command_id {
             SlashCommandId::Review => {
                 let (coach, apply, popout, scope, focus) = parse_review_command(buffer);
                 self.pending_actions.push(AppCommand::RunReview {
@@ -1149,6 +1160,33 @@ impl App {
                     });
                 }
             }
+            SlashCommandId::Coach => {
+                self.pending_actions.push(AppCommand::RunReview {
+                    focus: String::new(),
+                    coach: true,
+                    apply: false,
+                    popout: false,
+                    scope: current_shell_review_scope(),
+                });
+            }
+            SlashCommandId::Apply => {
+                self.pending_actions.push(AppCommand::RunReview {
+                    focus: String::new(),
+                    coach: true,
+                    apply: true,
+                    popout: false,
+                    scope: current_shell_review_scope(),
+                });
+            }
+            SlashCommandId::ExitReview => {
+                self.pending_actions.push(AppCommand::ExitShell);
+            }
+            _ => {}
+        }
+    }
+
+    fn execute_agent_workflow_command(&mut self, command_id: SlashCommandId, buffer: &str) {
+        match command_id {
             SlashCommandId::Stop => {
                 self.pending_actions.push(AppCommand::Stop);
             }
@@ -1209,6 +1247,12 @@ impl App {
                         .push(AppCommand::ShowAgentResult { id });
                 }
             }
+            _ => {}
+        }
+    }
+
+    fn execute_transcript_command(&mut self, command_id: SlashCommandId, buffer: &str) {
+        match command_id {
             SlashCommandId::Theme => {
                 let theme = command_tail(buffer);
                 if theme.is_empty() {
@@ -1295,6 +1339,12 @@ impl App {
             SlashCommandId::History => {
                 self.pending_actions.push(AppCommand::ListPromptHistory);
             }
+            _ => {}
+        }
+    }
+
+    fn execute_session_command(&mut self, command_id: SlashCommandId, buffer: &str) {
+        match command_id {
             SlashCommandId::Skills => {
                 let mut tokens = buffer.split_whitespace().skip(1);
                 match tokens.next() {
@@ -1350,27 +1400,6 @@ impl App {
                         );
                     }
                 }
-            }
-            SlashCommandId::Coach => {
-                self.pending_actions.push(AppCommand::RunReview {
-                    focus: String::new(),
-                    coach: true,
-                    apply: false,
-                    popout: false,
-                    scope: current_shell_review_scope(),
-                });
-            }
-            SlashCommandId::Apply => {
-                self.pending_actions.push(AppCommand::RunReview {
-                    focus: String::new(),
-                    coach: true,
-                    apply: true,
-                    popout: false,
-                    scope: current_shell_review_scope(),
-                });
-            }
-            SlashCommandId::ExitReview => {
-                self.pending_actions.push(AppCommand::ExitShell);
             }
             SlashCommandId::Model => {
                 let requested = buffer.split_whitespace().nth(1).map(str::to_string);
@@ -1441,6 +1470,7 @@ impl App {
                     });
                 }
             }
+            _ => {}
         }
     }
 
