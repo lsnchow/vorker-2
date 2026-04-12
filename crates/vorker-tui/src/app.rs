@@ -140,6 +140,12 @@ pub enum AppCommand {
     ShowAgentResult {
         id: String,
     },
+    ShowAgentLog {
+        id: String,
+    },
+    ResumeAgent {
+        id: String,
+    },
     SetTheme {
         theme: String,
     },
@@ -1184,7 +1190,9 @@ impl App {
             | SlashCommandId::Agent
             | SlashCommandId::Agents
             | SlashCommandId::AgentStop
-            | SlashCommandId::AgentResult => {
+            | SlashCommandId::AgentResult
+            | SlashCommandId::AgentLog
+            | SlashCommandId::AgentResume => {
                 self.execute_agent_workflow_command(command.id, buffer)
             }
             SlashCommandId::Theme
@@ -1319,6 +1327,22 @@ impl App {
                 } else {
                     self.pending_actions
                         .push(AppCommand::ShowAgentResult { id });
+                }
+            }
+            SlashCommandId::AgentLog => {
+                let id = command_tail(buffer);
+                if id.is_empty() {
+                    self.apply_system_notice("Usage: /agent-log <id>");
+                } else {
+                    self.pending_actions.push(AppCommand::ShowAgentLog { id });
+                }
+            }
+            SlashCommandId::AgentResume => {
+                let id = command_tail(buffer);
+                if id.is_empty() {
+                    self.apply_system_notice("Usage: /agent-resume <id>");
+                } else {
+                    self.pending_actions.push(AppCommand::ResumeAgent { id });
                 }
             }
             _ => {}
@@ -2068,6 +2092,28 @@ fn dispatch_runtime_action(
             )?;
             Ok(false)
         }
+        AppCommand::ShowAgentLog { id } => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ShowAgentLog { id },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ResumeAgent { id } => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ResumeAgent { id },
+            )?;
+            Ok(false)
+        }
         AppCommand::SetTheme { theme } => {
             self::review_actions::handle_review_runtime_action(
                 app,
@@ -2578,6 +2624,21 @@ mod tests {
 
         assert!(result.contains("Agent Auth Inspector (agent-1) result:"));
         assert!(result.contains("- turn completed"));
+    }
+
+    #[test]
+    fn format_agent_log_includes_events_and_stderr() {
+        let result = crate::app::side_agent_helpers::format_agent_log(
+            "agent-1",
+            "Auth Inspector",
+            &["turn completed".to_string()],
+            "stderr line",
+        );
+
+        assert!(result.contains("Agent Auth Inspector (agent-1) log:"));
+        assert!(result.contains("- turn completed"));
+        assert!(result.contains("stderr:"));
+        assert!(result.contains("stderr line"));
     }
 
     #[test]

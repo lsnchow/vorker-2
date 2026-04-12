@@ -273,6 +273,38 @@ fn slash_agent_result_queues_result_lookup() {
 }
 
 #[test]
+fn slash_agent_log_queues_log_lookup() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent-log agent-1".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ShowAgentLog {
+            id: "agent-1".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn slash_agent_resume_queues_agent_resume() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent-resume agent-1".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::ResumeAgent {
+            id: "agent-1".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn slash_agent_stop_queues_side_agent_stop() {
     let mut app = App::new(vorker_core::Snapshot::default());
     for ch in "/agent-stop agent-1".chars() {

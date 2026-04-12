@@ -1,5 +1,5 @@
 use super::shell_helpers::spawn_side_agent;
-use super::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
+use super::side_agent_helpers::{format_agent_log, format_agent_result, resolve_agent_identifier};
 use super::*;
 
 pub(crate) fn handle_side_agent_action(
@@ -105,6 +105,71 @@ pub(crate) fn handle_side_agent_action(
                     &events,
                     &output,
                 ));
+            } else {
+                app.apply_system_notice(format!("Unknown agent id: {id}"));
+            }
+        }
+        AppCommand::ShowAgentLog { id } => {
+            let resolved = resolve_agent_identifier(&id, side_agent_jobs, side_agent_store);
+            if let Some(job) = side_agent_jobs
+                .iter()
+                .find(|job| Some(job.id.as_str()) == resolved.as_deref())
+            {
+                let stderr = std::fs::read_to_string(&job.stderr_path).unwrap_or_default();
+                let events = summarize_side_agent_events(
+                    &PathBuf::from(
+                        side_agent_store
+                            .job(&job.id)
+                            .map(|stored| stored.events_path)
+                            .unwrap_or_default(),
+                    ),
+                    16,
+                )
+                .unwrap_or_default();
+                app.apply_assistant_text(&format_agent_log(
+                    &job.id,
+                    &job.display_name,
+                    &events,
+                    &stderr,
+                ));
+            } else if let Some(agent_id) = resolved
+                && let Some(job) = side_agent_store.job(&agent_id)
+            {
+                let stderr = std::fs::read_to_string(&job.stderr_path).unwrap_or_default();
+                let events = summarize_side_agent_events(&PathBuf::from(&job.events_path), 16)
+                    .unwrap_or_default();
+                app.apply_assistant_text(&format_agent_log(
+                    &agent_id,
+                    &job.display_name,
+                    &events,
+                    &stderr,
+                ));
+            } else {
+                app.apply_system_notice(format!("Unknown agent id: {id}"));
+            }
+        }
+        AppCommand::ResumeAgent { id } => {
+            let resolved = resolve_agent_identifier(&id, side_agent_jobs, side_agent_store);
+            if let Some(agent_id) = resolved
+                && let Some(job) = side_agent_store.job(&agent_id)
+            {
+                match spawn_side_agent(
+                    Path::new(&job.cwd),
+                    &job.prompt,
+                    side_agent_store,
+                    &workspace.side_agents_dir(),
+                ) {
+                    Ok(new_job) => {
+                        app.apply_system_notice(format!(
+                            "Respawned Codex agent {} ({}) from {} ({}).",
+                            new_job.display_name, new_job.id, job.display_name, agent_id
+                        ));
+                        side_agent_jobs.push(new_job);
+                    }
+                    Err(error) => {
+                        app.apply_system_notice(format!("Failed to resume agent: {error}"));
+                    }
+                }
             } else {
                 app.apply_system_notice(format!("Unknown agent id: {id}"));
             }

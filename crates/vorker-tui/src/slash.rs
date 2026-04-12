@@ -9,6 +9,8 @@ pub enum SlashCommandId {
     Agents,
     AgentStop,
     AgentResult,
+    AgentLog,
+    AgentResume,
     Theme,
     Export,
     Copy,
@@ -123,7 +125,7 @@ const SHARED: SlashCommandVisibility = SlashCommandVisibility {
     allow_while_busy: true,
 };
 
-pub const SLASH_COMMANDS: [SlashCommand; 28] = [
+pub const SLASH_COMMANDS: [SlashCommand; 30] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
@@ -200,6 +202,24 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
         id: SlashCommandId::AgentResult,
         name: "/agent-result",
         description: "show side agent result",
+        aliases: &[],
+        category: SlashCommandCategory::Agent,
+        visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
+    },
+    SlashCommand {
+        id: SlashCommandId::AgentLog,
+        name: "/agent-log",
+        description: "show a side agent event and stderr log",
+        aliases: &[],
+        category: SlashCommandCategory::Agent,
+        visibility: NORMAL_BUSY,
+        availability: SlashCommandAvailability::Always,
+    },
+    SlashCommand {
+        id: SlashCommandId::AgentResume,
+        name: "/agent-resume",
+        description: "rerun a stored side agent task from its saved prompt",
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_BUSY,
