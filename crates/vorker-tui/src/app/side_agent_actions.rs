@@ -1,3 +1,4 @@
+use super::shell_helpers::spawn_side_agent;
 use super::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
 use super::*;
 

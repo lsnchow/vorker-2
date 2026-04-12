@@ -1,3 +1,4 @@
+use super::shell_helpers::{load_timeline_text, load_timeline_text_with_mode};
 use super::*;
 use crate::diff_reports::{copy_to_clipboard, render_staged_diff, render_working_tree_diff};
 

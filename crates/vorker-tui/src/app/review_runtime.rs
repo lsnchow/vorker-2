@@ -1,4 +1,5 @@
 use super::*;
+use std::process::Stdio;
 
 pub(crate) fn current_review_model() -> String {
     std::env::var("VORKER_REVIEW_MODEL")

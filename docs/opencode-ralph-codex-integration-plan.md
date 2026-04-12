@@ -74,6 +74,13 @@ Durable Vorker fix:
 
 This backlog is now source-backed rather than MVP-scoped. Each lane should be implemented with tests, committed as an independent slice, and re-evaluated before moving to the next lane.
 
+### Immediate Follow-Ups From Active Shell Audit
+
+- [ ] Fix `/skills` navigation so Up / Down move through actions and skills reliably, and `Enter` toggles the selected skill without forcing mouse-like flow.
+- [ ] Tighten the shell layout further toward Codex’s cleaner single-surface shell model; keep removing dashboard leftovers and mismatched spacing.
+- [ ] Expand the harness so Vorker can spawn and track more concurrent agents cleanly instead of treating extra agents as a thin subprocess add-on.
+- [ ] Rework `/review` so it stays in the main terminal session and opens as a dedicated in-shell chat/thread mode instead of relying on external terminal pop-outs.
+
 ### 0. RALPH Wrapper and Runtime Bridge
 
 Source references:

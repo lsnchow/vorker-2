@@ -9,7 +9,7 @@ use crossterm::terminal::{
 use std::collections::{BTreeSet, VecDeque};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Child;
 use std::time::{Duration, Instant};
 
 use vorker_core::Snapshot;
@@ -54,7 +54,9 @@ use crate::workspace_helpers::{load_workspace_files, resolve_directory_change, s
 
 mod review_actions;
 mod review_runtime;
+mod runtime_support;
 mod session_actions;
+mod shell_helpers;
 mod side_agent_actions;
 mod side_agent_helpers;
 mod skill_actions;
@@ -63,6 +65,14 @@ mod workflow_actions;
 mod workspace_actions;
 
 use self::review_runtime::{current_review_model, env_flag, poll_review_job};
+use self::runtime_support::{
+    confirm_project_workspace, drain_bridge_events, hydrate_thread_from_events,
+    persist_dirty_thread, prompt_history_for_app, refresh_skill_state, run_boot_sequence,
+};
+use self::shell_helpers::{
+    current_review_mode, current_shell_review_scope, current_shell_theme, load_bootstrap_snapshot,
+    poll_side_agent_jobs, should_redraw_frame, summarize_transcript_rows,
+};
 use self::skill_actions::{apply_skill_listing, resolve_skill_name};
 
 struct ReviewJob {
@@ -1579,89 +1589,6 @@ fn command_tail(buffer: &str) -> String {
         .unwrap_or_default()
 }
 
-fn current_shell_review_scope() -> Option<String> {
-    std::env::var("VORKER_REVIEW_SCOPE")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn spawn_side_agent(
-    cwd: &Path,
-    prompt_text: &str,
-    store: &mut SideAgentStore,
-    agents_dir: &Path,
-) -> io::Result<SideAgentJob> {
-    let model = current_review_model();
-    let record = store.create_job_in_dir(cwd, prompt_text, &model, agents_dir)?;
-    let output_path = PathBuf::from(&record.output_path);
-    let stderr_path = PathBuf::from(&record.stderr_path);
-    let events_path = PathBuf::from(&record.events_path);
-    let events = std::fs::File::create(&events_path)?;
-    let stderr = std::fs::File::create(&stderr_path)?;
-    let mut command = std::process::Command::new("codex");
-    command
-        .arg("exec")
-        .arg("--model")
-        .arg(model)
-        .arg("--full-auto")
-        .arg("--color")
-        .arg("never")
-        .arg("--json")
-        .arg("--skip-git-repo-check")
-        .arg("--output-last-message")
-        .arg(&output_path)
-        .arg("-C")
-        .arg(cwd)
-        .arg(prompt_text)
-        .stdout(Stdio::from(events))
-        .stderr(Stdio::from(stderr));
-
-    match command.spawn() {
-        Ok(child) => Ok(SideAgentJob {
-            id: record.id,
-            display_name: record.display_name,
-            child,
-            output_path,
-            stderr_path,
-            completed: false,
-        }),
-        Err(error) => {
-            let _ = store.mark_finished(&record.id, SideAgentStatus::Failed);
-            Err(error)
-        }
-    }
-}
-
-fn poll_side_agent_jobs(
-    app: &mut App,
-    jobs: &mut [SideAgentJob],
-    store: &mut SideAgentStore,
-) -> io::Result<()> {
-    for job in jobs.iter_mut().filter(|job| !job.completed) {
-        if let Some(status) = job.child.try_wait()? {
-            job.completed = true;
-            let stored_status = if status.success() {
-                SideAgentStatus::Completed
-            } else {
-                SideAgentStatus::Failed
-            };
-            store.mark_finished(&job.id, stored_status)?;
-            if status.success() {
-                app.apply_system_notice(format!("Side agent {} finished with {}.", job.id, status));
-            } else {
-                let detail = std::fs::read_to_string(&job.stderr_path)
-                    .ok()
-                    .map(|text| text.trim().to_string())
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or_else(|| status.to_string());
-                app.apply_system_notice(format!("Side agent {} failed: {detail}", job.id));
-            }
-        }
-    }
-    Ok(())
-}
-
 #[must_use]
 pub fn render_once(width: usize, default_model: Option<String>) -> String {
     App::with_default_model(load_bootstrap_snapshot(), default_model).render(width, false)
@@ -2330,297 +2257,13 @@ fn dispatch_runtime_action(
     }
 }
 
-fn load_bootstrap_snapshot() -> Snapshot {
-    Snapshot::default()
-}
-
-fn persist_dirty_thread(
-    app: &mut App,
-    thread_store: &mut ThreadStore,
-    session_event_store: &SessionEventStore,
-) -> io::Result<()> {
-    if let Some(thread) = app.take_dirty_thread() {
-        let previous = thread_store.thread(&thread.id);
-        let events = derive_thread_events(previous.as_ref(), &thread);
-        thread_store.upsert(thread.clone())?;
-        session_event_store.append(&thread.id, &events)?;
-    }
-    Ok(())
-}
-
-fn prompt_history_for_app(store: &PromptHistoryStore) -> Vec<String> {
-    let mut prompts = store
-        .recent(50)
-        .into_iter()
-        .map(|entry| entry.text)
-        .collect::<Vec<_>>();
-    prompts.reverse();
-    prompts
-}
-
-fn should_redraw_frame(previous: &str, next: &str) -> bool {
-    previous != next
-}
-
-fn refresh_skill_state(app: &mut App, cwd: &Path, store: &crate::SkillStore) -> io::Result<()> {
-    let skills = discover_skills(&skill_roots_for(cwd))?;
-    let enabled = store.enabled();
-    let context = build_skill_context(&skills, &enabled)?;
-    app.set_skills(skills, enabled);
-    app.set_skill_context(context);
-    Ok(())
-}
-
-fn hydrate_thread_from_events(
-    thread: StoredThread,
-    session_event_store: &SessionEventStore,
-) -> io::Result<StoredThread> {
-    let events = session_event_store.events(&thread.id)?;
-    if events.is_empty() {
-        Ok(thread)
-    } else {
-        Ok(apply_events_to_thread(&thread, &events))
-    }
-}
-
-fn confirm_project_workspace(
-    stdout: &mut io::Stdout,
-    workspace: &ProjectWorkspace,
-) -> io::Result<bool> {
-    let cwd = workspace.cwd().display().to_string();
-    let workspace_path = format_path_for_humans(&workspace.project_dir());
-
-    loop {
-        let width = size()
-            .map(|(columns, _)| usize::from(columns))
-            .unwrap_or(120);
-        let frame = normalize_for_raw_terminal(&render_project_confirmation(
-            width,
-            &cwd,
-            &workspace_path,
-            true,
-        ));
-        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
-        write!(stdout, "{frame}")?;
-        stdout.flush()?;
-
-        if let Event::Key(key) = read()? {
-            match key.code {
-                KeyCode::Enter => {
-                    workspace.confirm()?;
-                    return Ok(true);
-                }
-                KeyCode::Esc => return Ok(false),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Ok(false);
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-fn run_boot_sequence(
-    stdout: &mut io::Stdout,
-    app: &mut App,
-    bridge: &mut AcpBridge,
-    pending_permission_reply: &mut Option<tokio::sync::oneshot::Sender<Option<String>>>,
-) -> io::Result<()> {
-    let mut tick = 0usize;
-    let minimum_ticks = boot_minimum_ticks();
-
-    loop {
-        drain_bridge_events(app, bridge, pending_permission_reply);
-
-        let model = app.selected_model_id().map(str::to_string);
-        let ready = model.is_some();
-        let detail = model
-            .map(|model| format!("ready on {model}"))
-            .unwrap_or_else(|| "loading model inventory".to_string());
-        let status = if ready { "ready" } else { "loading" };
-        let active_step = (!ready).then_some("copilot-session");
-        let steps = [BootStep::new("copilot-session", "copilot", status, &detail)];
-        let width = size()
-            .map(|(columns, _)| usize::from(columns))
-            .unwrap_or(120);
-        let frame =
-            normalize_for_raw_terminal(&render_boot_frame(width, tick, active_step, &steps, true));
-        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
-        write!(stdout, "{frame}")?;
-        stdout.flush()?;
-
-        if ready && tick >= minimum_ticks {
-            break;
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(80));
-        tick = tick.saturating_add(1);
-    }
-
-    Ok(())
-}
-
-fn drain_bridge_events(
-    app: &mut App,
-    bridge: &mut AcpBridge,
-    pending_permission_reply: &mut Option<tokio::sync::oneshot::Sender<Option<String>>>,
-) {
-    while let Ok(event) = bridge.evt_rx.try_recv() {
-        match event {
-            BridgeEvent::TextChunk { text } => app.apply_assistant_chunk(&text),
-            BridgeEvent::ToolCall { title } => app.apply_tool_notice(title, None),
-            BridgeEvent::ToolUpdate { title, detail } => {
-                if let Some(update) = tool_update_text(title, detail) {
-                    app.apply_tool_update(update);
-                }
-            }
-            BridgeEvent::PermissionRequest {
-                title,
-                options,
-                reply,
-            } => {
-                if app.approval_mode() == ApprovalMode::Auto {
-                    if let Some(option) = choose_auto_permission(&options) {
-                        let _ = reply.send(Some(option.option_id.clone()));
-                        app.apply_system_notice(format!("Auto-approved: {}", option.name));
-                    } else {
-                        let _ = reply.send(None);
-                        app.apply_system_notice(format!("Permission cancelled: {title}"));
-                    }
-                    continue;
-                }
-                if let Some(previous) = pending_permission_reply.take() {
-                    let _ = previous.send(None);
-                }
-                *pending_permission_reply = Some(reply);
-                app.open_permission_prompt(
-                    title,
-                    options
-                        .into_iter()
-                        .map(|option| PermissionOptionView {
-                            option_id: option.option_id,
-                            name: option.name,
-                        })
-                        .collect(),
-                );
-            }
-            BridgeEvent::PromptDone => app.finish_prompt(),
-            BridgeEvent::SessionReady {
-                current_model,
-                available_models,
-            } => {
-                if let Some(current_model) = current_model {
-                    app.apply_session_ready(current_model, available_models);
-                } else if !available_models.is_empty() {
-                    app.set_model_choices(available_models);
-                }
-            }
-            BridgeEvent::ModelChanged { model } => app.apply_model_changed(model),
-            BridgeEvent::Error { message } => {
-                app.apply_system_notice(format!("Error: {message}"));
-                app.finish_prompt();
-            }
-        }
-    }
-}
-
-fn load_timeline_text(
-    session_event_store: &SessionEventStore,
-    thread: &StoredThread,
-) -> io::Result<String> {
-    let events = session_event_store.events(&thread.id)?;
-    if events.is_empty() {
-        Ok(render_thread_timeline(thread))
-    } else {
-        Ok(render_session_event_timeline_with_mode(
-            &thread.name,
-            &events,
-            "full",
-            None,
-            None,
-        ))
-    }
-}
-
-fn load_timeline_text_with_mode(
-    session_event_store: &SessionEventStore,
-    thread: &StoredThread,
-    mode: &str,
-    filter: Option<&str>,
-    limit: Option<usize>,
-) -> io::Result<String> {
-    let events = session_event_store.events(&thread.id)?;
-    if events.is_empty() {
-        Ok(render_thread_timeline_with_mode(
-            thread, mode, filter, limit,
-        ))
-    } else {
-        Ok(render_session_event_timeline_with_mode(
-            &thread.name,
-            &events,
-            mode,
-            filter,
-            limit,
-        ))
-    }
-}
-
-fn summarize_transcript_rows(rows: &[TranscriptRow]) -> String {
-    let mut lines = vec![format!("Compacted {} row(s).", rows.len())];
-    for (index, row) in rows.iter().take(8).enumerate() {
-        let kind = match row.kind {
-            RowKind::System => "system",
-            RowKind::User => "user",
-            RowKind::Assistant => "assistant",
-            RowKind::Tool => "tool",
-        };
-        let summary = row
-            .text
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .chars()
-            .take(100)
-            .collect::<String>();
-        lines.push(format!("{}. [{}] {}", index + 1, kind, summary));
-    }
-    if rows.len() > 8 {
-        lines.push(format!("… {} more row(s) omitted", rows.len() - 8));
-    }
-    lines.join("\n")
-}
-
-fn current_shell_theme() -> &'static str {
-    match std::env::var("VORKER_THEME")
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "review" => "review",
-        _ => "default",
-    }
-}
-
-fn current_review_mode() -> bool {
-    matches!(
-        std::env::var("VORKER_REVIEW_MODE")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "review"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         SideAgentJob, normalize_for_raw_terminal, render_agent_roster, render_status_summary,
-        render_thread_timeline, render_thread_timeline_with_mode, should_redraw_frame,
-        summarize_transcript_rows, tool_update_text,
+        render_thread_timeline, render_thread_timeline_with_mode, tool_update_text,
     };
+    use crate::app::shell_helpers::{should_redraw_frame, summarize_transcript_rows};
     use crate::app::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
     use crate::{
         RowKind, SideAgentStatus, SideAgentStore, StoredThread, TranscriptRow, copy_to_clipboard,
