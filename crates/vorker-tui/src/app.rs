@@ -2633,6 +2633,8 @@ mod tests {
         assert!(output.contains("## Side agents"));
         assert!(output.contains("Auth Inspector [running]"));
         assert!(output.contains("id: agent-1"));
+        assert!(output.contains("cwd: /workspace"));
+        assert!(output.contains("elapsed:"));
         assert!(output.contains("prompt: inspect auth"));
     }
 

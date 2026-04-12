@@ -67,6 +67,10 @@ pub fn render_agent_roster(jobs: &[StoredSideAgentJob]) -> String {
         format!("{} tracked", jobs.len()),
     ];
     for job in jobs {
+        let finished = job
+            .finished_at_epoch_seconds
+            .unwrap_or_else(now_epoch_seconds_for_reports);
+        let elapsed = finished.saturating_sub(job.created_at_epoch_seconds);
         lines.push(String::new());
         lines.push(format!(
             "- {} [{}]",
@@ -75,9 +79,18 @@ pub fn render_agent_roster(jobs: &[StoredSideAgentJob]) -> String {
         ));
         lines.push(format!("  id: {}", job.id));
         lines.push(format!("  model: {}", job.model));
+        lines.push(format!("  cwd: {}", format_path_for_humans(Path::new(&job.cwd))));
+        lines.push(format!("  elapsed: {}", format_thread_duration(elapsed)));
         lines.push(format!("  prompt: {}", job.prompt));
     }
     lines.join("\n")
+}
+
+fn now_epoch_seconds_for_reports() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 pub fn render_thread_timeline(thread: &StoredThread) -> String {
