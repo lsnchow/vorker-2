@@ -6,6 +6,7 @@ mod bottom_pane_state;
 mod bridge;
 mod composer_state;
 mod demo;
+mod diff_reports;
 mod mentions;
 mod model_picker_state;
 mod navigation;
@@ -24,6 +25,7 @@ mod slash;
 mod theme;
 mod thread_store;
 mod transcript_export;
+mod workspace_helpers;
 
 pub use app::{App, AppCommand, PermissionOptionView, render_once, run_app};
 pub use boot::{BootStep, boot_minimum_ticks, render_boot_frame};
@@ -34,6 +36,9 @@ pub use bottom_pane_state::{
 };
 pub use composer_state::ComposerState;
 pub use demo::render_hyperloop_mock;
+pub use diff_reports::{
+    copy_to_clipboard, render_staged_diff, render_working_tree_diff, truncate_lines,
+};
 pub use mentions::{
     ComposerMentionBinding, MentionContext, collect_buffer_mentions, extract_active_mention_query,
     filter_mention_items, insert_selected_mention, prune_mention_bindings, resolve_mention_context,
@@ -73,4 +78,7 @@ pub use transcript_export::{
     TranscriptExportMode, render_transcript_markdown, render_transcript_markdown_from_events,
     render_transcript_markdown_from_events_with_options, render_transcript_markdown_with_options,
     write_transcript_export,
+};
+pub use workspace_helpers::{
+    home_dir, load_workspace_files, resolve_directory_change, skill_roots_for,
 };

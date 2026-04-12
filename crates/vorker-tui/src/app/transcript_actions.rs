@@ -1,4 +1,5 @@
 use super::*;
+use crate::diff_reports::{copy_to_clipboard, render_staged_diff, render_working_tree_diff};
 
 pub(crate) fn handle_transcript_runtime_action(
     app: &mut App,
