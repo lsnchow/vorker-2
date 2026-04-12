@@ -1,6 +1,7 @@
 use crate::composer_state::ComposerState;
 use crate::model_picker_state::ModelPickerState;
 use crate::popup_state::{AppPopupState, PopupMode};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BottomPaneSurface {
@@ -13,6 +14,29 @@ pub enum BottomPaneSurface {
     BusyAction,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComposerKeyAction {
+    Escape,
+    AutocompleteSlash,
+    NavigateSlash(isize),
+    RecallHistory(isize),
+    Submit,
+    Backspace,
+    Insert(char),
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BottomPaneDispatch {
+    Permission(KeyEvent),
+    SkillAction(KeyEvent),
+    SkillToggle(KeyEvent),
+    BusyAction(KeyEvent),
+    ModelPicker(KeyEvent),
+    Mention(KeyEvent),
+    Composer(ComposerKeyAction),
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BottomPaneState {
     composer: ComposerState,
@@ -21,6 +45,21 @@ pub struct BottomPaneState {
 }
 
 impl BottomPaneState {
+    #[must_use]
+    pub fn dispatch_key(&self, key: KeyEvent, prompt_history_empty: bool) -> BottomPaneDispatch {
+        match self.active_surface() {
+            BottomPaneSurface::Permission => BottomPaneDispatch::Permission(key),
+            BottomPaneSurface::SkillAction => BottomPaneDispatch::SkillAction(key),
+            BottomPaneSurface::SkillToggle => BottomPaneDispatch::SkillToggle(key),
+            BottomPaneSurface::BusyAction => BottomPaneDispatch::BusyAction(key),
+            BottomPaneSurface::ModelPicker => BottomPaneDispatch::ModelPicker(key),
+            BottomPaneSurface::Mention => BottomPaneDispatch::Mention(key),
+            BottomPaneSurface::Composer => {
+                BottomPaneDispatch::Composer(self.dispatch_composer_key(key, prompt_history_empty))
+            }
+        }
+    }
+
     #[must_use]
     pub fn active_surface(&self) -> BottomPaneSurface {
         if self.popup.is_mode(PopupMode::Permission) {
@@ -66,12 +105,37 @@ impl BottomPaneState {
     pub fn model_picker_mut(&mut self) -> &mut ModelPickerState {
         &mut self.model_picker
     }
+
+    fn dispatch_composer_key(
+        &self,
+        key: KeyEvent,
+        prompt_history_empty: bool,
+    ) -> ComposerKeyAction {
+        match key.code {
+            KeyCode::Esc => ComposerKeyAction::Escape,
+            KeyCode::Tab => ComposerKeyAction::AutocompleteSlash,
+            KeyCode::Up if prompt_history_empty => ComposerKeyAction::NavigateSlash(-1),
+            KeyCode::Up => ComposerKeyAction::RecallHistory(-1),
+            KeyCode::Down if prompt_history_empty => ComposerKeyAction::NavigateSlash(1),
+            KeyCode::Down => ComposerKeyAction::RecallHistory(1),
+            KeyCode::Enter => ComposerKeyAction::Submit,
+            KeyCode::Backspace => ComposerKeyAction::Backspace,
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                ComposerKeyAction::Insert(ch)
+            }
+            _ => ComposerKeyAction::None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BottomPaneState, BottomPaneSurface};
+    use super::{BottomPaneDispatch, BottomPaneState, BottomPaneSurface, ComposerKeyAction};
     use crate::popup_state::PopupMode;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn bottom_pane_state_groups_bottom_pane_modules() {
@@ -101,5 +165,18 @@ mod tests {
         state.popup_mut().open_busy_action();
         assert_eq!(state.active_surface(), BottomPaneSurface::BusyAction);
         assert_eq!(state.popup().mode(), Some(&PopupMode::BusyAction));
+    }
+
+    #[test]
+    fn bottom_pane_dispatches_composer_keys() {
+        let state = BottomPaneState::default();
+        assert_eq!(
+            state.dispatch_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), true),
+            BottomPaneDispatch::Composer(ComposerKeyAction::AutocompleteSlash)
+        );
+        assert_eq!(
+            state.dispatch_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), false),
+            BottomPaneDispatch::Composer(ComposerKeyAction::RecallHistory(1))
+        );
     }
 }

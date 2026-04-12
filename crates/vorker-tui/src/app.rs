@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
-use crate::bottom_pane_state::{BottomPaneState, BottomPaneSurface};
+use crate::bottom_pane_state::{
+    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, ComposerKeyAction,
+};
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
@@ -708,20 +710,23 @@ impl App {
             return false;
         }
 
-        match self.bottom_pane.active_surface() {
-            BottomPaneSurface::Permission => self.handle_permission_key(key),
-            BottomPaneSurface::SkillAction => self.handle_skill_action_key(key),
-            BottomPaneSurface::SkillToggle => self.handle_skill_toggle_key(key),
-            BottomPaneSurface::BusyAction => self.handle_busy_action_key(key),
-            BottomPaneSurface::ModelPicker => self.handle_model_picker_key(key),
-            BottomPaneSurface::Mention => self.handle_mention_key(key),
-            BottomPaneSurface::Composer => match key.code {
-                KeyCode::Esc => self.handle_escape(),
-                KeyCode::Tab => self.autocomplete_slash_command(),
-                KeyCode::Up => self.navigate_slash(-1),
-                KeyCode::Down => self.navigate_slash(1),
-                KeyCode::Enter => self.submit_current_input(),
-                KeyCode::Backspace => {
+        match self
+            .bottom_pane
+            .dispatch_key(key, self.prompt_history.is_empty())
+        {
+            BottomPaneDispatch::Permission(key) => self.handle_permission_key(key),
+            BottomPaneDispatch::SkillAction(key) => self.handle_skill_action_key(key),
+            BottomPaneDispatch::SkillToggle(key) => self.handle_skill_toggle_key(key),
+            BottomPaneDispatch::BusyAction(key) => self.handle_busy_action_key(key),
+            BottomPaneDispatch::ModelPicker(key) => self.handle_model_picker_key(key),
+            BottomPaneDispatch::Mention(key) => self.handle_mention_key(key),
+            BottomPaneDispatch::Composer(action) => match action {
+                ComposerKeyAction::Escape => self.handle_escape(),
+                ComposerKeyAction::AutocompleteSlash => self.autocomplete_slash_command(),
+                ComposerKeyAction::NavigateSlash(delta) => self.navigate_slash(delta),
+                ComposerKeyAction::RecallHistory(delta) => self.recall_prompt_history(delta),
+                ComposerKeyAction::Submit => self.submit_current_input(),
+                ComposerKeyAction::Backspace => {
                     let _ = self.composer_mut().pop_char();
                     self.prompt_history_cursor = None;
                     let bindings = prune_mention_bindings(
@@ -731,16 +736,13 @@ impl App {
                     self.composer_mut().set_mention_bindings(bindings);
                     self.sync_inline_popup();
                 }
-                KeyCode::Char(ch)
-                    if !key.modifiers.contains(KeyModifiers::CONTROL)
-                        && !key.modifiers.contains(KeyModifiers::ALT) =>
-                {
+                ComposerKeyAction::Insert(ch) => {
                     self.navigation.focused_pane = Pane::Input;
                     self.composer_mut().push_char(ch);
                     self.prompt_history_cursor = None;
                     self.sync_inline_popup();
                 }
-                _ => {}
+                ComposerKeyAction::None => {}
             },
         }
 
