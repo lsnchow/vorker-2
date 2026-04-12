@@ -11,21 +11,45 @@ pub(crate) fn handle_side_agent_action(
     action: AppCommand,
 ) -> io::Result<()> {
     match action {
-        AppCommand::SpawnAgent { prompt_text } => {
-            match spawn_side_agent(
-                cwd,
-                &prompt_text,
-                side_agent_store,
-                &workspace.side_agents_dir(),
-            ) {
-                Ok(job) => {
-                    app.apply_system_notice(format!(
-                        "Spawned Codex agent {} ({}).",
-                        job.display_name, job.id
-                    ));
-                    side_agent_jobs.push(job);
+        AppCommand::SpawnAgent { prompt_text, count } => {
+            let mut spawned = Vec::new();
+            for _ in 0..count {
+                match spawn_side_agent(
+                    cwd,
+                    &prompt_text,
+                    side_agent_store,
+                    &workspace.side_agents_dir(),
+                ) {
+                    Ok(job) => spawned.push(job),
+                    Err(error) => {
+                        app.apply_system_notice(format!("Failed to spawn agent: {error}"));
+                        break;
+                    }
                 }
-                Err(error) => app.apply_system_notice(format!("Failed to spawn agent: {error}")),
+            }
+
+            if spawned.is_empty() {
+                return Ok(());
+            }
+
+            if spawned.len() == 1 {
+                let job = spawned.pop().expect("single spawned job");
+                app.apply_system_notice(format!(
+                    "Spawned Codex agent {} ({}).",
+                    job.display_name, job.id
+                ));
+                side_agent_jobs.push(job);
+            } else {
+                let summary = spawned
+                    .iter()
+                    .map(|job| format!("{} ({})", job.display_name, job.id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                app.apply_system_notice(format!(
+                    "Spawned {} Codex agents: {summary}.",
+                    spawned.len()
+                ));
+                side_agent_jobs.extend(spawned);
             }
         }
         AppCommand::ListAgents => {

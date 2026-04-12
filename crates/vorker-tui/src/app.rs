@@ -132,6 +132,7 @@ pub enum AppCommand {
     ClearQueuedPrompts,
     SpawnAgent {
         prompt_text: String,
+        count: usize,
     },
     ListAgents,
     StopAgent {
@@ -1301,12 +1302,12 @@ impl App {
                 }
             }
             SlashCommandId::Agent => {
-                let prompt_text = command_tail(buffer);
-                if prompt_text.is_empty() {
-                    self.apply_system_notice("Usage: /agent <task>");
-                } else {
-                    self.pending_actions
-                        .push(AppCommand::SpawnAgent { prompt_text });
+                match parse_agent_command(buffer) {
+                    Ok((count, prompt_text)) => {
+                        self.pending_actions
+                            .push(AppCommand::SpawnAgent { prompt_text, count });
+                    }
+                    Err(message) => self.apply_system_notice(message),
                 }
             }
             SlashCommandId::Agents => {
@@ -1646,6 +1647,34 @@ fn parse_ralph_command(buffer: &str) -> (bool, bool, Option<String>, String) {
     }
 
     (no_deslop, xhigh, model, task.join(" "))
+}
+
+fn parse_agent_command(buffer: &str) -> Result<(usize, String), &'static str> {
+    let mut count = 1usize;
+    let mut task = Vec::new();
+    let mut tokens = buffer.split_whitespace().skip(1);
+
+    while let Some(token) = tokens.next() {
+        match token {
+            "--count" | "-n" => {
+                let Some(value) = tokens.next() else {
+                    return Err("Usage: /agent [--count <n>] <task>");
+                };
+                count = value
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or("Usage: /agent [--count <n>] <task>")?;
+            }
+            value => task.push(value.to_string()),
+        }
+    }
+
+    if task.is_empty() {
+        return Err("Usage: /agent [--count <n>] <task>");
+    }
+
+    Ok((count, task.join(" ")))
 }
 
 fn command_tail(buffer: &str) -> String {
@@ -2048,14 +2077,14 @@ fn dispatch_runtime_action(
             )?;
             Ok(false)
         }
-        AppCommand::SpawnAgent { prompt_text } => {
+        AppCommand::SpawnAgent { prompt_text, count } => {
             self::side_agent_actions::handle_side_agent_action(
                 app,
                 cwd,
                 workspace,
                 side_agent_store,
                 side_agent_jobs,
-                AppCommand::SpawnAgent { prompt_text },
+                AppCommand::SpawnAgent { prompt_text, count },
             )?;
             Ok(false)
         }

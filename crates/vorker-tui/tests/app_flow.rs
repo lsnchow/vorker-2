@@ -220,6 +220,7 @@ fn slash_agent_queues_codex_side_agent() {
         app.take_actions(),
         vec![AppCommand::SpawnAgent {
             prompt_text: "inspect auth".to_string(),
+            count: 1,
         }]
     );
 }
@@ -241,6 +242,24 @@ fn exact_slash_command_wins_over_stale_popup_selection() {
         app.take_actions(),
         vec![AppCommand::SpawnAgent {
             prompt_text: "inspect auth".to_string(),
+            count: 1,
+        }]
+    );
+}
+
+#[test]
+fn slash_agent_count_queues_multiple_side_agents() {
+    let mut app = App::new(vorker_core::Snapshot::default());
+    for ch in "/agent --count 3 inspect auth".chars() {
+        assert!(app.handle_key(key(KeyCode::Char(ch))));
+    }
+    assert!(app.handle_key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.take_actions(),
+        vec![AppCommand::SpawnAgent {
+            prompt_text: "inspect auth".to_string(),
+            count: 3,
         }]
     );
 }

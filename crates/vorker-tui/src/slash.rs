@@ -174,7 +174,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 30] = [
     SlashCommand {
         id: SlashCommandId::Agent,
         name: "/agent",
-        description: "spawn a Codex-backed side agent",
+        description: "spawn one or more Codex-backed side agents; use --count <n> to fan out",
         aliases: &[],
         category: SlashCommandCategory::Agent,
         visibility: NORMAL_ONLY,

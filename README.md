@@ -77,9 +77,11 @@ Inside the shell, type `/` to open the command list.
 /coach                 rerun review with teaching guidance
 /apply                 rerun review and request a safe patch
 /skills                list or toggle project skills
-/agent                 spawn a Codex-backed side agent
+/agent                 spawn one or more Codex-backed side agents
 /agents                list side-agent jobs
 /agent-result <id>     show side-agent output
+/agent-log <id>        show side-agent event/stderr log
+/agent-resume <id>     rerun a stored side-agent task
 /agent-stop <id>       stop a side-agent job
 /queue <prompt>        queue follow-up work
 /queue list            show queued follow-up prompts
@@ -188,6 +190,7 @@ Spawn a Codex side agent:
 
 ```text
 /agent inspect the auth boundary
+/agent --count 3 inspect the auth boundary
 ```
 
 Vorker stores side-agent metadata and logs under:
