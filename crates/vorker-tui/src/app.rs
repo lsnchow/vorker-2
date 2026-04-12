@@ -60,6 +60,7 @@ mod side_agent_helpers;
 mod skill_actions;
 mod transcript_actions;
 mod workflow_actions;
+mod workspace_actions;
 
 use self::review_runtime::{current_review_model, env_flag, poll_review_job};
 use self::skill_actions::{apply_skill_listing, resolve_skill_name};
@@ -1864,117 +1865,77 @@ fn dispatch_runtime_action(
     action: AppCommand,
 ) -> io::Result<bool> {
     match action {
-        AppCommand::NewThread => {
-            let previous_thread = app
-                .take_archived_thread()
-                .unwrap_or_else(|| app.thread_record());
-            thread_store.upsert(previous_thread)?;
-            if let Some(reply) = pending_permission_reply.take() {
-                let _ = reply.send(None);
-            }
-            let next_bridge =
-                runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
-            let old_bridge = std::mem::replace(bridge, next_bridge);
-            runtime.block_on(old_bridge.shutdown())?;
-            let mut thread = thread_store.create_thread(&*cwd);
-            thread.model = default_model.clone();
-            thread.approval_mode = app.approval_mode();
-            app.load_thread(thread);
-            app.set_workspace_files(load_workspace_files(&*cwd));
-            *thread_store = workspace.open_thread_store()?;
-            Ok(false)
-        }
-        AppCommand::ListThreads => {
-            let threads = ProjectWorkspace::list_all_threads_under(global_root.to_path_buf())?;
-            app.list_threads(&threads);
-            Ok(false)
-        }
+        AppCommand::NewThread => self::workspace_actions::handle_workspace_runtime_action(
+            runtime,
+            bridge,
+            app,
+            stdout,
+            global_root,
+            default_model,
+            cwd,
+            workspace,
+            thread_store,
+            side_agent_store,
+            prompt_history_store,
+            skill_store,
+            session_event_store,
+            pending_permission_reply,
+            AppCommand::NewThread,
+        ),
+        AppCommand::ListThreads => self::workspace_actions::handle_workspace_runtime_action(
+            runtime,
+            bridge,
+            app,
+            stdout,
+            global_root,
+            default_model,
+            cwd,
+            workspace,
+            thread_store,
+            side_agent_store,
+            prompt_history_store,
+            skill_store,
+            session_event_store,
+            pending_permission_reply,
+            AppCommand::ListThreads,
+        ),
         AppCommand::SwitchThread { thread_id } => {
-            thread_store.upsert(app.thread_record())?;
-            if let Some(thread) =
-                ProjectWorkspace::find_thread_under(global_root.to_path_buf(), &thread_id)?
-            {
-                let next_cwd = PathBuf::from(&thread.cwd);
-                let next_workspace =
-                    ProjectWorkspace::at_root(global_root.to_path_buf(), &next_cwd)?;
-                if !next_workspace.is_confirmed()
-                    && !confirm_project_workspace(stdout, &next_workspace)?
-                {
-                    app.apply_system_notice("Thread switch cancelled.");
-                    return Ok(false);
-                }
-                if let Err(error) = std::env::set_current_dir(&next_cwd) {
-                    app.apply_system_notice(format!("Error: {error}"));
-                    return Ok(false);
-                }
-                *cwd = next_cwd;
-                *workspace = next_workspace;
-                if let Some(reply) = pending_permission_reply.take() {
-                    let _ = reply.send(None);
-                }
-                let next_bridge =
-                    runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
-                let old_bridge = std::mem::replace(bridge, next_bridge);
-                runtime.block_on(old_bridge.shutdown())?;
-                *thread_store = workspace.open_thread_store()?;
-                *side_agent_store = workspace.open_side_agent_store()?;
-                *prompt_history_store = workspace.open_prompt_history_store()?;
-                *skill_store = workspace.open_skill_store()?;
-                *session_event_store = workspace.open_session_event_store()?;
-                let thread = hydrate_thread_from_events(thread, session_event_store)?;
-                app.load_thread(thread);
-                app.set_prompt_history(prompt_history_for_app(prompt_history_store));
-                app.set_workspace_files(load_workspace_files(&*cwd));
-                refresh_skill_state(app, &*cwd, skill_store)?;
-            } else {
-                app.apply_system_notice(format!("Unknown thread id: {thread_id}"));
-            }
-            Ok(false)
+            self::workspace_actions::handle_workspace_runtime_action(
+                runtime,
+                bridge,
+                app,
+                stdout,
+                global_root,
+                default_model,
+                cwd,
+                workspace,
+                thread_store,
+                side_agent_store,
+                prompt_history_store,
+                skill_store,
+                session_event_store,
+                pending_permission_reply,
+                AppCommand::SwitchThread { thread_id },
+            )
         }
         AppCommand::ChangeDirectory { path } => {
-            let next_cwd = resolve_directory_change(&*cwd, &path)?;
-            let next_workspace = ProjectWorkspace::at_root(global_root.to_path_buf(), &next_cwd)?;
-            if !next_workspace.is_confirmed()
-                && !confirm_project_workspace(stdout, &next_workspace)?
-            {
-                app.apply_system_notice("Directory change cancelled.");
-                return Ok(false);
-            }
-            thread_store.upsert(app.thread_record())?;
-            std::env::set_current_dir(&next_cwd)?;
-            *cwd = next_cwd;
-            *workspace = next_workspace;
-            if let Some(reply) = pending_permission_reply.take() {
-                let _ = reply.send(None);
-            }
-            let next_bridge =
-                runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
-            let old_bridge = std::mem::replace(bridge, next_bridge);
-            runtime.block_on(old_bridge.shutdown())?;
-            *thread_store = workspace.open_thread_store()?;
-            *side_agent_store = workspace.open_side_agent_store()?;
-            *prompt_history_store = workspace.open_prompt_history_store()?;
-            *skill_store = workspace.open_skill_store()?;
-            *session_event_store = workspace.open_session_event_store()?;
-            let thread = thread_store.latest_for_cwd(&*cwd).unwrap_or_else(|| {
-                let mut created = thread_store.create_thread(&*cwd);
-                created.model = default_model.clone();
-                created.approval_mode = app.approval_mode();
-                created
-            });
-            let thread = hydrate_thread_from_events(thread, session_event_store)?;
-            app.load_thread(thread);
-            app.set_workspace_files(load_workspace_files(&*cwd));
-            app.set_prompt_history(prompt_history_for_app(prompt_history_store));
-            refresh_skill_state(app, &*cwd, skill_store)?;
-            app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
-            let cwd_label = cwd.display().to_string();
-            let threads = ProjectWorkspace::list_all_threads_under(global_root.to_path_buf())?
-                .into_iter()
-                .filter(|thread| thread.cwd == cwd_label)
-                .collect::<Vec<_>>();
-            app.list_threads(&threads);
-            Ok(false)
+            self::workspace_actions::handle_workspace_runtime_action(
+                runtime,
+                bridge,
+                app,
+                stdout,
+                global_root,
+                default_model,
+                cwd,
+                workspace,
+                thread_store,
+                side_agent_store,
+                prompt_history_store,
+                skill_store,
+                session_event_store,
+                pending_permission_reply,
+                AppCommand::ChangeDirectory { path },
+            )
         }
         AppCommand::RunReview {
             focus,
