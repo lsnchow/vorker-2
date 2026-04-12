@@ -36,6 +36,7 @@ use crate::session_event_store::{
     SessionEventStore, apply_events_to_thread, derive_thread_events,
     render_session_event_timeline_with_mode,
 };
+use crate::shell_launch::{open_ralph_window, open_review_window};
 use crate::shell_reports::{
     format_path_for_humans, format_thread_duration, render_agent_roster, render_status_summary,
     render_thread_timeline, render_thread_timeline_with_mode,
@@ -51,9 +52,10 @@ use crate::transcript_export::write_transcript_export;
 use crate::workspace_helpers::{load_workspace_files, resolve_directory_change, skill_roots_for};
 
 mod review_actions;
-mod runtime_actions;
+mod session_actions;
 mod side_agent_actions;
 mod transcript_actions;
+mod workflow_actions;
 
 struct ReviewJob {
     child: Child,
@@ -1818,107 +1820,6 @@ fn resolve_agent_identifier(
     (matches.len() == 1).then(|| matches.remove(0))
 }
 
-fn open_review_window(
-    cwd: &Path,
-    model: &str,
-    scope: Option<String>,
-    coach: bool,
-    apply: bool,
-    focus: &str,
-) -> io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        let scope = scope.unwrap_or_else(|| "auto".to_string());
-        let command = format!(
-            "cd '{}' && VORKER_THEME=review VORKER_REVIEW_MODE=1 VORKER_REVIEW_AUTO=1 VORKER_REVIEW_SCOPE={} VORKER_REVIEW_COACH={} VORKER_REVIEW_APPLY={} VORKER_REVIEW_FOCUS='{}' vorker --model {}",
-            escape_single_quotes(&cwd.display().to_string()),
-            scope,
-            if coach { "1" } else { "0" },
-            if apply { "1" } else { "0" },
-            escape_single_quotes(focus),
-            shell_escape_arg(model),
-        );
-        let script = format!(
-            "tell application \"Terminal\" to do script \"{}\"",
-            command.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        let status = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .status()?;
-        if status.success() {
-            return Ok(());
-        }
-        return Err(io::Error::other("failed to open review window"));
-    }
-
-    #[allow(unreachable_code)]
-    Err(io::Error::other(
-        "review popout is currently supported on macOS only",
-    ))
-}
-
-fn open_ralph_window(
-    cwd: &Path,
-    task: &str,
-    model: Option<&str>,
-    no_deslop: bool,
-    xhigh: bool,
-) -> io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut args = vec!["ralph".to_string()];
-        if no_deslop {
-            args.push("--no-deslop".to_string());
-        }
-        if xhigh {
-            args.push("--xhigh".to_string());
-        }
-        if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
-            args.push("--model".to_string());
-            args.push(shell_escape_arg(model));
-        }
-        args.push(shell_escape_arg(task));
-        let command = format!(
-            "cd '{}' && vorker {}",
-            escape_single_quotes(&cwd.display().to_string()),
-            args.join(" ")
-        );
-        let script = format!(
-            "tell application \"Terminal\" to do script \"{}\"",
-            command.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        let status = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .status()?;
-        if status.success() {
-            return Ok(());
-        }
-        return Err(io::Error::other("failed to open RALPH window"));
-    }
-
-    #[allow(unreachable_code)]
-    Err(io::Error::other(
-        "RALPH popout is currently supported on macOS only",
-    ))
-}
-
-fn escape_single_quotes(input: &str) -> String {
-    input.replace('\'', "'\"'\"'")
-}
-
-fn shell_escape_arg(input: &str) -> String {
-    if input
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'))
-    {
-        input.to_string()
-    } else {
-        format!("'{}'", escape_single_quotes(input))
-    }
-}
-
 #[must_use]
 pub fn render_once(width: usize, default_model: Option<String>) -> String {
     App::with_default_model(load_bootstrap_snapshot(), default_model).render(width, false)
@@ -2214,7 +2115,7 @@ pub fn run_app(
                     },
                 )?,
                 AppCommand::Stop => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2225,7 +2126,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::SteerPrompt { prompt_text } => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2239,7 +2140,7 @@ pub fn run_app(
                     display_text,
                     prompt_text,
                 } => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2253,7 +2154,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ListQueuedPrompts => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2264,7 +2165,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::PopQueuedPrompt => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2275,7 +2176,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ClearQueuedPrompts => {
-                    self::runtime_actions::handle_workflow_action(
+                    self::workflow_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2446,7 +2347,7 @@ pub fn run_app(
                     )?
                 }
                 AppCommand::ListPromptHistory => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2458,7 +2359,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ListSkills => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2470,7 +2371,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::SetSkillEnabled { name, enabled } => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2482,7 +2383,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::SetModel { model } => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2497,7 +2398,7 @@ pub fn run_app(
                     display_text,
                     prompt_text,
                 } => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2512,7 +2413,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::CancelPrompt => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2524,7 +2425,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ResolvePermission { option_id } => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2536,7 +2437,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ExitShell => {
-                    should_exit = self::runtime_actions::handle_local_session_action(
+                    should_exit = self::session_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
