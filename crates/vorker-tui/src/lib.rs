@@ -4,6 +4,7 @@ mod app;
 mod boot;
 mod bottom_pane_state;
 mod bridge;
+mod bridge_helpers;
 mod composer_state;
 mod demo;
 mod diff_reports;
@@ -35,6 +36,7 @@ pub use bottom_pane_state::{
     BusyActionIntent, BusySurfaceAction, ComposerKeyAction, ComposerSubmitIntent,
     ListSurfaceAction, PermissionIntent, SkillActionIntent, SkillToggleSurfaceAction,
 };
+pub use bridge_helpers::{choose_auto_permission, tool_update_text};
 pub use composer_state::ComposerState;
 pub use demo::render_hyperloop_mock;
 pub use diff_reports::{

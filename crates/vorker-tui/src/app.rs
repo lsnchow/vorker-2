@@ -21,6 +21,7 @@ use crate::bottom_pane_state::{
     SkillActionIntent, SkillToggleSurfaceAction,
 };
 use crate::bridge::{AcpBridge, BridgeEvent};
+use crate::bridge_helpers::{choose_auto_permission, tool_update_text};
 use crate::mentions::{
     collect_buffer_mentions, extract_active_mention_query, filter_mention_items,
     prune_mention_bindings, resolve_mention_context,
@@ -56,10 +57,12 @@ mod review_runtime;
 mod session_actions;
 mod side_agent_actions;
 mod side_agent_helpers;
+mod skill_actions;
 mod transcript_actions;
 mod workflow_actions;
 
-use self::review_runtime::{current_review_model, env_flag, poll_review_job, spawn_review_job};
+use self::review_runtime::{current_review_model, env_flag, poll_review_job};
+use self::skill_actions::{apply_skill_listing, resolve_skill_name};
 
 struct ReviewJob {
     child: Child,
@@ -2358,55 +2361,6 @@ fn hydrate_thread_from_events(
     }
 }
 
-fn apply_skill_listing(app: &mut App) {
-    if app.skills.is_empty() {
-        app.apply_system_notice("No skills found.");
-        return;
-    }
-
-    app.apply_system_notice("Skills:");
-    for skill in app.skills.clone() {
-        let marker = if app.enabled_skills.contains(&skill.name) {
-            "[x]"
-        } else {
-            "[ ]"
-        };
-        app.apply_system_notice(format!(
-            "{marker} {}  [Skill] {}",
-            skill.name, skill.description
-        ));
-    }
-    app.apply_system_notice(
-        "Use /skills enable <name>, /skills disable <name>, or /skills toggle <name>.",
-    );
-}
-
-fn resolve_skill_name(skills: &[SkillInfo], requested: &str) -> Option<String> {
-    let requested = requested.trim();
-    if requested.is_empty() {
-        return None;
-    }
-
-    skills
-        .iter()
-        .find(|skill| skill.name == requested)
-        .or_else(|| {
-            let lower = requested.to_ascii_lowercase();
-            skills
-                .iter()
-                .find(|skill| skill.name.to_ascii_lowercase() == lower)
-        })
-        .or_else(|| {
-            let lower = requested.to_ascii_lowercase();
-            let mut matches = skills
-                .iter()
-                .filter(|skill| skill.name.to_ascii_lowercase().contains(&lower));
-            let first = matches.next()?;
-            matches.next().is_none().then_some(first)
-        })
-        .map(|skill| skill.name.clone())
-}
-
 fn confirm_project_workspace(
     stdout: &mut io::Stdout,
     workspace: &ProjectWorkspace,
@@ -2546,26 +2500,6 @@ fn drain_bridge_events(
             }
         }
     }
-}
-
-fn tool_update_text(title: Option<String>, detail: Option<String>) -> Option<String> {
-    detail
-        .filter(|detail| !detail.trim().is_empty())
-        .or_else(|| title.filter(|title| !title.trim().is_empty()))
-}
-
-fn choose_auto_permission(
-    options: &[crate::bridge::PermissionOption],
-) -> Option<crate::bridge::PermissionOption> {
-    let mut ranked = options.to_vec();
-    ranked.sort_by_key(|option| match option.kind.as_str() {
-        "allow_always" => 0,
-        "allow_once" => 1,
-        "reject_once" => 2,
-        "reject_always" => 3,
-        _ => 4,
-    });
-    ranked.into_iter().next()
 }
 
 fn load_timeline_text(
