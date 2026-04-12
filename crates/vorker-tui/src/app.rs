@@ -51,6 +51,7 @@ use crate::transcript_export::write_transcript_export;
 
 mod runtime_actions;
 mod side_agent_actions;
+mod transcript_actions;
 
 struct ReviewJob {
     child: Child,
@@ -2331,7 +2332,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ExportTranscript { mode } => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2341,7 +2342,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::CopyTranscriptMode { mode } => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2350,7 +2351,7 @@ pub fn run_app(
                         AppCommand::CopyTranscriptMode { mode },
                     )?;
                 }
-                AppCommand::CopyDiff => self::runtime_actions::handle_transcript_runtime_action(
+                AppCommand::CopyDiff => self::transcript_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2359,7 +2360,7 @@ pub fn run_app(
                     AppCommand::CopyDiff,
                 )?,
                 AppCommand::CopyStatus => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2369,7 +2370,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::CopyTimeline => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2378,7 +2379,7 @@ pub fn run_app(
                         AppCommand::CopyTimeline,
                     )?
                 }
-                AppCommand::ShowDiff => self::runtime_actions::handle_transcript_runtime_action(
+                AppCommand::ShowDiff => self::transcript_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2387,7 +2388,7 @@ pub fn run_app(
                     AppCommand::ShowDiff,
                 )?,
                 AppCommand::ShowStagedDiff => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2397,7 +2398,7 @@ pub fn run_app(
                     )?
                 }
                 AppCommand::CompactTranscript => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2407,7 +2408,7 @@ pub fn run_app(
                     )?
                 }
                 AppCommand::ShowTimeline => {
-                    self::runtime_actions::handle_transcript_runtime_action(
+                    self::transcript_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2420,7 +2421,7 @@ pub fn run_app(
                     mode,
                     filter,
                     limit,
-                } => self::runtime_actions::handle_transcript_runtime_action(
+                } => self::transcript_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2432,14 +2433,16 @@ pub fn run_app(
                         limit,
                     },
                 )?,
-                AppCommand::ShowStatus => self::runtime_actions::handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::ShowStatus,
-                )?,
+                AppCommand::ShowStatus => {
+                    self::transcript_actions::handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::ShowStatus,
+                    )?
+                }
                 AppCommand::ListPromptHistory => {
                     should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
