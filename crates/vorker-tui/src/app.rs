@@ -49,6 +49,9 @@ use crate::slash::{
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
 
+mod runtime_actions;
+use self::runtime_actions::handle_local_session_action;
+
 struct ReviewJob {
     child: Child,
     report_path: PathBuf,
@@ -2179,57 +2182,34 @@ pub fn run_app(
                     apply,
                     popout,
                     scope,
-                } => {
-                    if popout {
-                        let review_model = current_review_model();
-                        open_review_window(
-                            &cwd,
-                            &review_model,
-                            scope.clone(),
-                            coach,
-                            apply,
-                            &focus,
-                        )?;
-                        app.apply_system_notice(
-                            "Adversarial review started in the review window. Use Esc there to exit review mode."
-                                .to_string(),
-                        );
-                    } else {
-                        if review_job.is_some() {
-                            app.apply_system_notice("A review is already running in this shell.");
-                        } else {
-                            app.apply_system_notice(format!(
-                                "Running adversarial review{}{}.",
-                                if coach { " with coaching" } else { "" },
-                                if apply { " and patch follow-up" } else { "" },
-                            ));
-                            review_job = Some(spawn_review_job(
-                                &cwd,
-                                current_review_model(),
-                                scope,
-                                coach,
-                                apply,
-                                &focus,
-                            )?);
-                            app.working_started_at = Some(Instant::now());
-                            app.apply_tool_notice(
-                                "Review job".to_string(),
-                                Some("queued".to_string()),
-                            );
-                        }
-                    }
-                }
+                } => self::handle_review_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &mut review_job,
+                    AppCommand::RunReview {
+                        focus,
+                        coach,
+                        apply,
+                        popout,
+                        scope,
+                    },
+                )?,
                 AppCommand::RunRalph {
                     task,
                     model,
                     no_deslop,
                     xhigh,
-                } => {
-                    let selected_model =
-                        model.or_else(|| app.selected_model_id().map(str::to_string));
-                    open_ralph_window(&cwd, &task, selected_model.as_deref(), no_deslop, xhigh)?;
-                    app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
-                }
+                } => self::handle_review_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &mut review_job,
+                    AppCommand::RunRalph {
+                        task,
+                        model,
+                        no_deslop,
+                        xhigh,
+                    },
+                )?,
                 AppCommand::Stop => {
                     handle_workflow_action(
                         &runtime,
@@ -2343,17 +2323,12 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::SetTheme { theme } => {
-                    let normalized = match theme.trim().to_ascii_lowercase().as_str() {
-                        "default" | "green" => "default",
-                        "review" | "purple" => "review",
-                        "opencode" | "oc" => "opencode",
-                        other => {
-                            app.apply_system_notice(format!("Unknown theme: {other}"));
-                            continue;
-                        }
-                    };
-                    app.shell_theme = normalized.to_string();
-                    app.apply_system_notice(format!("Theme changed to {normalized}."));
+                    self::handle_review_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &mut review_job,
+                        AppCommand::SetTheme { theme },
+                    )?;
                 }
                 AppCommand::ExportTranscript { mode } => {
                     handle_transcript_runtime_action(
@@ -2649,6 +2624,76 @@ fn handle_workflow_action(
     Ok(())
 }
 
+fn handle_review_runtime_action(
+    app: &mut App,
+    cwd: &Path,
+    review_job: &mut Option<ReviewJob>,
+    action: AppCommand,
+) -> io::Result<()> {
+    match action {
+        AppCommand::RunReview {
+            focus,
+            coach,
+            apply,
+            popout,
+            scope,
+        } => {
+            if popout {
+                let review_model = current_review_model();
+                open_review_window(cwd, &review_model, scope.clone(), coach, apply, &focus)?;
+                app.apply_system_notice(
+                    "Adversarial review started in the review window. Use Esc there to exit review mode."
+                        .to_string(),
+                );
+            } else if review_job.is_some() {
+                app.apply_system_notice("A review is already running in this shell.");
+            } else {
+                app.apply_system_notice(format!(
+                    "Running adversarial review{}{}.",
+                    if coach { " with coaching" } else { "" },
+                    if apply { " and patch follow-up" } else { "" },
+                ));
+                *review_job = Some(spawn_review_job(
+                    cwd,
+                    current_review_model(),
+                    scope,
+                    coach,
+                    apply,
+                    &focus,
+                )?);
+                app.working_started_at = Some(Instant::now());
+                app.apply_tool_notice("Review job".to_string(), Some("queued".to_string()));
+            }
+        }
+        AppCommand::RunRalph {
+            task,
+            model,
+            no_deslop,
+            xhigh,
+        } => {
+            let selected_model = model.or_else(|| app.selected_model_id().map(str::to_string));
+            open_ralph_window(cwd, &task, selected_model.as_deref(), no_deslop, xhigh)?;
+            app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
+        }
+        AppCommand::SetTheme { theme } => {
+            let normalized = match theme.trim().to_ascii_lowercase().as_str() {
+                "default" | "green" => "default",
+                "review" | "purple" => "review",
+                "opencode" | "oc" => "opencode",
+                other => {
+                    app.apply_system_notice(format!("Unknown theme: {other}"));
+                    return Ok(());
+                }
+            };
+            app.shell_theme = normalized.to_string();
+            app.apply_system_notice(format!("Theme changed to {normalized}."));
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 fn handle_transcript_runtime_action(
     app: &mut App,
     cwd: &Path,
@@ -2810,75 +2855,6 @@ fn handle_transcript_runtime_action(
     }
 
     Ok(())
-}
-
-fn handle_local_session_action(
-    runtime: &tokio::runtime::Runtime,
-    bridge: &mut AcpBridge,
-    app: &mut App,
-    prompt_history_store: &mut PromptHistoryStore,
-    skill_store: &mut crate::SkillStore,
-    cwd: &Path,
-    pending_permission_reply: &mut Option<tokio::sync::oneshot::Sender<Option<String>>>,
-    action: AppCommand,
-) -> io::Result<bool> {
-    match action {
-        AppCommand::ListPromptHistory => {
-            let recent = prompt_history_store.recent(10);
-            if recent.is_empty() {
-                app.apply_system_notice("No prompt history yet.");
-            } else {
-                app.apply_system_notice("Prompt history:");
-                for entry in recent {
-                    app.apply_system_notice(format!("- {}", entry.text));
-                }
-            }
-            Ok(false)
-        }
-        AppCommand::ListSkills => {
-            apply_skill_listing(app);
-            Ok(false)
-        }
-        AppCommand::SetSkillEnabled { name, enabled } => {
-            let Some(skill_name) = resolve_skill_name(&app.skills, &name) else {
-                app.apply_system_notice(format!("Unknown skill: {name}"));
-                return Ok(false);
-            };
-            skill_store.set_enabled(&skill_name, enabled)?;
-            refresh_skill_state(app, cwd, skill_store)?;
-            app.apply_system_notice(format!(
-                "{} skill {}.",
-                if enabled { "Enabled" } else { "Disabled" },
-                skill_name
-            ));
-            Ok(false)
-        }
-        AppCommand::SetModel { model } => {
-            runtime.block_on(bridge.set_model(model))?;
-            Ok(false)
-        }
-        AppCommand::SubmitPrompt {
-            display_text,
-            prompt_text,
-        } => {
-            prompt_history_store.append(display_text.clone())?;
-            app.record_prompt_history(display_text);
-            runtime.block_on(bridge.prompt(prompt_text))?;
-            Ok(false)
-        }
-        AppCommand::CancelPrompt => {
-            let _ = runtime.block_on(bridge.cancel());
-            Ok(false)
-        }
-        AppCommand::ResolvePermission { option_id } => {
-            if let Some(reply) = pending_permission_reply.take() {
-                let _ = reply.send(option_id);
-            }
-            Ok(false)
-        }
-        AppCommand::ExitShell => Ok(true),
-        _ => Ok(false),
-    }
 }
 
 fn handle_side_agent_action(
