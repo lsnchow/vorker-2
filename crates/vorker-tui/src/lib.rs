@@ -11,6 +11,7 @@ mod model_picker_state;
 mod navigation;
 mod popup_state;
 mod project_workspace;
+mod prompt_context;
 mod prompt_history;
 mod render;
 mod review_output;
@@ -44,6 +45,7 @@ pub use navigation::{
 };
 pub use popup_state::{AppPopupState, PopupMode};
 pub use project_workspace::{ProjectWorkspace, render_project_confirmation};
+pub use prompt_context::{render_transcript_replay, vorker_harness_instructions};
 pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{
     DashboardOptions, FooterMode, PopupItem, RowKind, TranscriptRow, render_dashboard,

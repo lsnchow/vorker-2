@@ -28,6 +28,7 @@ use crate::mentions::{
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
+use crate::prompt_context::{render_transcript_replay, vorker_harness_instructions};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
 use crate::review_output::parse_review_markdown;
@@ -1495,26 +1496,6 @@ impl App {
     }
 }
 
-fn render_transcript_replay(rows: &[TranscriptRow]) -> String {
-    rows.iter()
-        .map(|row| {
-            let role = match row.kind {
-                RowKind::User => "User",
-                RowKind::Assistant => "Assistant",
-                RowKind::Tool => "Tool",
-                RowKind::System => "System",
-            };
-            let mut line = format!("{role}: {}", row.text);
-            if let Some(detail) = &row.detail {
-                line.push('\n');
-                line.push_str(detail);
-            }
-            line
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn cycle_index(current: usize, len: usize, delta: isize) -> usize {
     if len == 0 {
         return 0;
@@ -1528,10 +1509,6 @@ fn parse_exact_slash_command(buffer: &str) -> Option<crate::slash::SlashCommand>
         .iter()
         .copied()
         .find(|entry| entry.matches_exact(command))
-}
-
-fn vorker_harness_instructions() -> &'static str {
-    "Vorker harness instructions:\n- You are Vorker, a concise local CLI coding agent, not GitHub Copilot.\n- Do not introduce yourself as Copilot and do not use emojis or generic onboarding.\n- Be direct, pragmatic, and focus on the user's repository and requested change.\n- Use enabled skills when relevant; follow their instructions unless they conflict with higher-priority user, developer, or system instructions."
 }
 
 fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, String) {
@@ -2481,53 +2458,106 @@ pub fn run_app(
                     AppCommand::ShowStatus,
                 )?,
                 AppCommand::ListPromptHistory => {
-                    let recent = prompt_history_store.recent(10);
-                    if recent.is_empty() {
-                        app.apply_system_notice("No prompt history yet.");
-                    } else {
-                        app.apply_system_notice("Prompt history:");
-                        for entry in recent {
-                            app.apply_system_notice(format!("- {}", entry.text));
-                        }
-                    }
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::ListPromptHistory,
+                    )? || should_exit;
                 }
                 AppCommand::ListSkills => {
-                    apply_skill_listing(&mut app);
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::ListSkills,
+                    )? || should_exit;
                 }
                 AppCommand::SetSkillEnabled { name, enabled } => {
-                    let Some(skill_name) = resolve_skill_name(&app.skills, &name) else {
-                        app.apply_system_notice(format!("Unknown skill: {name}"));
-                        continue;
-                    };
-                    skill_store.set_enabled(&skill_name, enabled)?;
-                    refresh_skill_state(&mut app, &cwd, &skill_store)?;
-                    app.apply_system_notice(format!(
-                        "{} skill {}.",
-                        if enabled { "Enabled" } else { "Disabled" },
-                        skill_name
-                    ));
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::SetSkillEnabled { name, enabled },
+                    )? || should_exit;
                 }
                 AppCommand::SetModel { model } => {
-                    runtime.block_on(bridge.set_model(model))?;
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::SetModel { model },
+                    )? || should_exit;
                 }
                 AppCommand::SubmitPrompt {
                     display_text,
                     prompt_text,
                 } => {
-                    prompt_history_store.append(display_text.clone())?;
-                    app.record_prompt_history(display_text);
-                    runtime.block_on(bridge.prompt(prompt_text))?;
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::SubmitPrompt {
+                            display_text,
+                            prompt_text,
+                        },
+                    )? || should_exit;
                 }
                 AppCommand::CancelPrompt => {
-                    let _ = runtime.block_on(bridge.cancel());
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::CancelPrompt,
+                    )? || should_exit;
                 }
                 AppCommand::ResolvePermission { option_id } => {
-                    if let Some(reply) = pending_permission_reply.take() {
-                        let _ = reply.send(option_id);
-                    }
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::ResolvePermission { option_id },
+                    )? || should_exit;
                 }
                 AppCommand::ExitShell => {
-                    should_exit = true;
+                    should_exit = handle_local_session_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut prompt_history_store,
+                        &mut skill_store,
+                        &cwd,
+                        &mut pending_permission_reply,
+                        AppCommand::ExitShell,
+                    )? || should_exit;
                 }
             }
         }
@@ -2780,6 +2810,75 @@ fn handle_transcript_runtime_action(
     }
 
     Ok(())
+}
+
+fn handle_local_session_action(
+    runtime: &tokio::runtime::Runtime,
+    bridge: &mut AcpBridge,
+    app: &mut App,
+    prompt_history_store: &mut PromptHistoryStore,
+    skill_store: &mut crate::SkillStore,
+    cwd: &Path,
+    pending_permission_reply: &mut Option<tokio::sync::oneshot::Sender<Option<String>>>,
+    action: AppCommand,
+) -> io::Result<bool> {
+    match action {
+        AppCommand::ListPromptHistory => {
+            let recent = prompt_history_store.recent(10);
+            if recent.is_empty() {
+                app.apply_system_notice("No prompt history yet.");
+            } else {
+                app.apply_system_notice("Prompt history:");
+                for entry in recent {
+                    app.apply_system_notice(format!("- {}", entry.text));
+                }
+            }
+            Ok(false)
+        }
+        AppCommand::ListSkills => {
+            apply_skill_listing(app);
+            Ok(false)
+        }
+        AppCommand::SetSkillEnabled { name, enabled } => {
+            let Some(skill_name) = resolve_skill_name(&app.skills, &name) else {
+                app.apply_system_notice(format!("Unknown skill: {name}"));
+                return Ok(false);
+            };
+            skill_store.set_enabled(&skill_name, enabled)?;
+            refresh_skill_state(app, cwd, skill_store)?;
+            app.apply_system_notice(format!(
+                "{} skill {}.",
+                if enabled { "Enabled" } else { "Disabled" },
+                skill_name
+            ));
+            Ok(false)
+        }
+        AppCommand::SetModel { model } => {
+            runtime.block_on(bridge.set_model(model))?;
+            Ok(false)
+        }
+        AppCommand::SubmitPrompt {
+            display_text,
+            prompt_text,
+        } => {
+            prompt_history_store.append(display_text.clone())?;
+            app.record_prompt_history(display_text);
+            runtime.block_on(bridge.prompt(prompt_text))?;
+            Ok(false)
+        }
+        AppCommand::CancelPrompt => {
+            let _ = runtime.block_on(bridge.cancel());
+            Ok(false)
+        }
+        AppCommand::ResolvePermission { option_id } => {
+            if let Some(reply) = pending_permission_reply.take() {
+                let _ = reply.send(option_id);
+            }
+            Ok(false)
+        }
+        AppCommand::ExitShell => Ok(true),
+        _ => Ok(false),
+    }
 }
 
 fn handle_side_agent_action(
