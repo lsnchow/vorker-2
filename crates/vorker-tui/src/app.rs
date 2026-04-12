@@ -1540,7 +1540,7 @@ fn parse_exact_slash_command(buffer: &str) -> Option<crate::slash::SlashCommand>
 fn parse_review_command(buffer: &str) -> (bool, bool, bool, Option<String>, String) {
     let mut coach = false;
     let mut apply = false;
-    let mut popout = true;
+    let mut popout = false;
     let mut scope = None;
     let mut focus = Vec::new();
 

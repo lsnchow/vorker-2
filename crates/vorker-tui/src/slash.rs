@@ -127,7 +127,7 @@ pub const SLASH_COMMANDS: [SlashCommand; 28] = [
     SlashCommand {
         id: SlashCommandId::Review,
         name: "/review",
-        description: "run adversarial review; --coach teaches, --apply patches, --staged reviews staged files",
+        description: "run adversarial review in this shell; --coach teaches, --apply patches, --staged reviews staged files",
         aliases: &[],
         category: SlashCommandCategory::Review,
         visibility: NORMAL_ONLY,

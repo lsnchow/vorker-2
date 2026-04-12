@@ -94,7 +94,7 @@ fn slash_review_queues_an_adversarial_run_with_flags() {
             focus: "question the retry logic".to_string(),
             coach: true,
             apply: true,
-            popout: true,
+            popout: false,
             scope: None,
         }]
     );

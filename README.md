@@ -73,7 +73,7 @@ Inside the shell, type `/` to open the command list.
 ```text
 /model                 choose the active model
 /new                   start a fresh thread
-/review                open adversarial review
+/review                run adversarial review in this shell
 /coach                 rerun review with teaching guidance
 /apply                 rerun review and request a safe patch
 /skills                list or toggle project skills
@@ -157,7 +157,7 @@ Enabled skills are stored per project and prepended to the Copilot ACP prompt wi
 From the shell:
 
 ```text
-/review --coach --no-popout review the API shape
+/review --coach review the API shape
 /apply
 ```
 
