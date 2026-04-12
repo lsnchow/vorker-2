@@ -50,9 +50,6 @@ use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
 
 mod runtime_actions;
-mod transcript_actions;
-use self::runtime_actions::handle_local_session_action;
-use self::transcript_actions::handle_transcript_runtime_action;
 
 struct ReviewJob {
     child: Child,
@@ -2184,7 +2181,7 @@ pub fn run_app(
                     apply,
                     popout,
                     scope,
-                } => self::handle_review_runtime_action(
+                } => self::runtime_actions::handle_review_runtime_action(
                     &mut app,
                     &cwd,
                     &mut review_job,
@@ -2201,7 +2198,7 @@ pub fn run_app(
                     model,
                     no_deslop,
                     xhigh,
-                } => self::handle_review_runtime_action(
+                } => self::runtime_actions::handle_review_runtime_action(
                     &mut app,
                     &cwd,
                     &mut review_job,
@@ -2213,7 +2210,7 @@ pub fn run_app(
                     },
                 )?,
                 AppCommand::Stop => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2224,7 +2221,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::SteerPrompt { prompt_text } => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2238,7 +2235,7 @@ pub fn run_app(
                     display_text,
                     prompt_text,
                 } => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2252,7 +2249,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ListQueuedPrompts => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2263,7 +2260,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::PopQueuedPrompt => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2274,7 +2271,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ClearQueuedPrompts => {
-                    handle_workflow_action(
+                    self::runtime_actions::handle_workflow_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2325,7 +2322,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::SetTheme { theme } => {
-                    self::handle_review_runtime_action(
+                    self::runtime_actions::handle_review_runtime_action(
                         &mut app,
                         &cwd,
                         &mut review_job,
@@ -2333,7 +2330,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::ExportTranscript { mode } => {
-                    handle_transcript_runtime_action(
+                    self::runtime_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2343,7 +2340,7 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::CopyTranscriptMode { mode } => {
-                    handle_transcript_runtime_action(
+                    self::runtime_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2352,7 +2349,7 @@ pub fn run_app(
                         AppCommand::CopyTranscriptMode { mode },
                     )?;
                 }
-                AppCommand::CopyDiff => handle_transcript_runtime_action(
+                AppCommand::CopyDiff => self::runtime_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2361,7 +2358,7 @@ pub fn run_app(
                     AppCommand::CopyDiff,
                 )?,
                 AppCommand::CopyStatus => {
-                    handle_transcript_runtime_action(
+                    self::runtime_actions::handle_transcript_runtime_action(
                         &mut app,
                         &cwd,
                         &workspace,
@@ -2370,15 +2367,17 @@ pub fn run_app(
                         AppCommand::CopyStatus,
                     )?;
                 }
-                AppCommand::CopyTimeline => handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::CopyTimeline,
-                )?,
-                AppCommand::ShowDiff => handle_transcript_runtime_action(
+                AppCommand::CopyTimeline => {
+                    self::runtime_actions::handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::CopyTimeline,
+                    )?
+                }
+                AppCommand::ShowDiff => self::runtime_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2386,35 +2385,41 @@ pub fn run_app(
                     &side_agent_store,
                     AppCommand::ShowDiff,
                 )?,
-                AppCommand::ShowStagedDiff => handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::ShowStagedDiff,
-                )?,
-                AppCommand::CompactTranscript => handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::CompactTranscript,
-                )?,
-                AppCommand::ShowTimeline => handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::ShowTimeline,
-                )?,
+                AppCommand::ShowStagedDiff => {
+                    self::runtime_actions::handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::ShowStagedDiff,
+                    )?
+                }
+                AppCommand::CompactTranscript => {
+                    self::runtime_actions::handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::CompactTranscript,
+                    )?
+                }
+                AppCommand::ShowTimeline => {
+                    self::runtime_actions::handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::ShowTimeline,
+                    )?
+                }
                 AppCommand::ShowTimelineMode {
                     mode,
                     filter,
                     limit,
-                } => handle_transcript_runtime_action(
+                } => self::runtime_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2426,7 +2431,7 @@ pub fn run_app(
                         limit,
                     },
                 )?,
-                AppCommand::ShowStatus => handle_transcript_runtime_action(
+                AppCommand::ShowStatus => self::runtime_actions::handle_transcript_runtime_action(
                     &mut app,
                     &cwd,
                     &workspace,
@@ -2435,7 +2440,7 @@ pub fn run_app(
                     AppCommand::ShowStatus,
                 )?,
                 AppCommand::ListPromptHistory => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2447,7 +2452,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ListSkills => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2459,7 +2464,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::SetSkillEnabled { name, enabled } => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2471,7 +2476,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::SetModel { model } => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2486,7 +2491,7 @@ pub fn run_app(
                     display_text,
                     prompt_text,
                 } => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2501,7 +2506,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::CancelPrompt => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2513,7 +2518,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ResolvePermission { option_id } => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2525,7 +2530,7 @@ pub fn run_app(
                     )? || should_exit;
                 }
                 AppCommand::ExitShell => {
-                    should_exit = handle_local_session_action(
+                    should_exit = self::runtime_actions::handle_local_session_action(
                         &runtime,
                         &mut bridge,
                         &mut app,
@@ -2557,143 +2562,6 @@ pub fn run_app(
 
 fn load_bootstrap_snapshot() -> Snapshot {
     Snapshot::default()
-}
-
-fn handle_workflow_action(
-    runtime: &tokio::runtime::Runtime,
-    bridge: &mut AcpBridge,
-    app: &mut App,
-    review_job: &mut Option<ReviewJob>,
-    side_agent_store: &mut SideAgentStore,
-    side_agent_jobs: &mut Vec<SideAgentJob>,
-    action: AppCommand,
-) -> io::Result<()> {
-    match action {
-        AppCommand::Stop => {
-            let _ = runtime.block_on(bridge.cancel());
-            if let Some(job) = review_job.as_mut() {
-                let _ = job.child.kill();
-            }
-            let mut stopped_agents = 0usize;
-            for job in side_agent_jobs.iter_mut().filter(|job| !job.completed) {
-                let _ = job.child.kill();
-                job.completed = true;
-                let _ = side_agent_store.mark_finished(&job.id, SideAgentStatus::Stopped);
-                stopped_agents += 1;
-            }
-            *review_job = None;
-            app.stop_working_timer();
-            let queued = app.queued_prompt_count();
-            app.apply_system_notice(format!(
-                "Stopped active work. {stopped_agents} side agent(s) stopped; {queued} queued prompt(s) remain."
-            ));
-        }
-        AppCommand::SteerPrompt { prompt_text } => {
-            runtime.block_on(bridge.prompt(prompt_text))?;
-            app.apply_system_notice("Sent steering guidance.");
-        }
-        AppCommand::QueuePrompt {
-            display_text,
-            prompt_text,
-        } => {
-            app.queue_prompt(display_text, prompt_text);
-        }
-        AppCommand::ListQueuedPrompts => {
-            let queued = app.queued_prompts();
-            if queued.is_empty() {
-                app.apply_system_notice("Queue is empty.");
-            } else {
-                app.apply_system_notice(format!("Queued prompts ({})", queued.len()));
-                for (index, prompt) in queued.iter().enumerate() {
-                    app.apply_system_notice(format!("{}. {}", index + 1, prompt));
-                }
-            }
-        }
-        AppCommand::PopQueuedPrompt => {
-            if let Some(prompt) = app.pop_queued_prompt() {
-                app.apply_system_notice(format!("Removed queued prompt: {prompt}"));
-            } else {
-                app.apply_system_notice("Queue is empty.");
-            }
-        }
-        AppCommand::ClearQueuedPrompts => {
-            let cleared = app.clear_queued_prompts();
-            app.apply_system_notice(format!("Cleared {cleared} queued prompt(s)."));
-        }
-        _ => {}
-    }
-
-    Ok(())
-}
-
-fn handle_review_runtime_action(
-    app: &mut App,
-    cwd: &Path,
-    review_job: &mut Option<ReviewJob>,
-    action: AppCommand,
-) -> io::Result<()> {
-    match action {
-        AppCommand::RunReview {
-            focus,
-            coach,
-            apply,
-            popout,
-            scope,
-        } => {
-            if popout {
-                let review_model = current_review_model();
-                open_review_window(cwd, &review_model, scope.clone(), coach, apply, &focus)?;
-                app.apply_system_notice(
-                    "Adversarial review started in the review window. Use Esc there to exit review mode."
-                        .to_string(),
-                );
-            } else if review_job.is_some() {
-                app.apply_system_notice("A review is already running in this shell.");
-            } else {
-                app.apply_system_notice(format!(
-                    "Running adversarial review{}{}.",
-                    if coach { " with coaching" } else { "" },
-                    if apply { " and patch follow-up" } else { "" },
-                ));
-                *review_job = Some(spawn_review_job(
-                    cwd,
-                    current_review_model(),
-                    scope,
-                    coach,
-                    apply,
-                    &focus,
-                )?);
-                app.working_started_at = Some(Instant::now());
-                app.apply_tool_notice("Review job".to_string(), Some("queued".to_string()));
-            }
-        }
-        AppCommand::RunRalph {
-            task,
-            model,
-            no_deslop,
-            xhigh,
-        } => {
-            let selected_model = model.or_else(|| app.selected_model_id().map(str::to_string));
-            open_ralph_window(cwd, &task, selected_model.as_deref(), no_deslop, xhigh)?;
-            app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
-        }
-        AppCommand::SetTheme { theme } => {
-            let normalized = match theme.trim().to_ascii_lowercase().as_str() {
-                "default" | "green" => "default",
-                "review" | "purple" => "review",
-                "opencode" | "oc" => "opencode",
-                other => {
-                    app.apply_system_notice(format!("Unknown theme: {other}"));
-                    return Ok(());
-                }
-            };
-            app.shell_theme = normalized.to_string();
-            app.apply_system_notice(format!("Theme changed to {normalized}."));
-        }
-        _ => {}
-    }
-
-    Ok(())
 }
 
 fn handle_side_agent_action(
