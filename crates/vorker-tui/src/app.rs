@@ -1806,490 +1806,25 @@ pub fn run_app(
 
         let mut should_exit = false;
         for action in app.take_actions() {
-            match action {
-                AppCommand::NewThread => {
-                    let previous_thread = app
-                        .take_archived_thread()
-                        .unwrap_or_else(|| app.thread_record());
-                    thread_store.upsert(previous_thread)?;
-                    if let Some(reply) = pending_permission_reply.take() {
-                        let _ = reply.send(None);
-                    }
-                    runtime.block_on(bridge.shutdown())?;
-                    let mut thread = thread_store.create_thread(&cwd);
-                    thread.model = default_model.clone();
-                    thread.approval_mode = app.approval_mode();
-                    app.load_thread(thread);
-                    app.set_workspace_files(load_workspace_files(&cwd));
-                    thread_store = workspace.open_thread_store()?;
-                    bridge = runtime.block_on(AcpBridge::start(
-                        cwd.clone(),
-                        None,
-                        default_model.clone(),
-                    ))?;
-                }
-                AppCommand::ListThreads => {
-                    let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?;
-                    app.list_threads(&threads);
-                }
-                AppCommand::SwitchThread { thread_id } => {
-                    thread_store.upsert(app.thread_record())?;
-                    if let Some(thread) =
-                        ProjectWorkspace::find_thread_under(global_root.clone(), &thread_id)?
-                    {
-                        let next_cwd = PathBuf::from(&thread.cwd);
-                        let next_workspace =
-                            ProjectWorkspace::at_root(global_root.clone(), &next_cwd)?;
-                        if !next_workspace.is_confirmed()
-                            && !confirm_project_workspace(&mut stdout, &next_workspace)?
-                        {
-                            app.apply_system_notice("Thread switch cancelled.");
-                            continue;
-                        }
-                        if let Err(error) = std::env::set_current_dir(&next_cwd) {
-                            app.apply_system_notice(format!("Error: {error}"));
-                            continue;
-                        }
-                        cwd = next_cwd;
-                        workspace = next_workspace;
-                        if let Some(reply) = pending_permission_reply.take() {
-                            let _ = reply.send(None);
-                        }
-                        runtime.block_on(bridge.shutdown())?;
-                        thread_store = workspace.open_thread_store()?;
-                        side_agent_store = workspace.open_side_agent_store()?;
-                        prompt_history_store = workspace.open_prompt_history_store()?;
-                        skill_store = workspace.open_skill_store()?;
-                        session_event_store = workspace.open_session_event_store()?;
-                        let thread = hydrate_thread_from_events(thread, &session_event_store)?;
-                        app.load_thread(thread);
-                        app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
-                        app.set_workspace_files(load_workspace_files(&cwd));
-                        refresh_skill_state(&mut app, &cwd, &skill_store)?;
-                        bridge = runtime.block_on(AcpBridge::start(
-                            cwd.clone(),
-                            None,
-                            default_model.clone(),
-                        ))?;
-                    } else {
-                        app.apply_system_notice(format!("Unknown thread id: {thread_id}"));
-                    }
-                }
-                AppCommand::ChangeDirectory { path } => {
-                    let next_cwd = resolve_directory_change(&cwd, &path)?;
-                    let next_workspace = ProjectWorkspace::at_root(global_root.clone(), &next_cwd)?;
-                    if !next_workspace.is_confirmed()
-                        && !confirm_project_workspace(&mut stdout, &next_workspace)?
-                    {
-                        app.apply_system_notice("Directory change cancelled.");
-                        continue;
-                    }
-                    thread_store.upsert(app.thread_record())?;
-                    std::env::set_current_dir(&next_cwd)?;
-                    cwd = next_cwd;
-                    workspace = next_workspace;
-                    if let Some(reply) = pending_permission_reply.take() {
-                        let _ = reply.send(None);
-                    }
-                    runtime.block_on(bridge.shutdown())?;
-                    thread_store = workspace.open_thread_store()?;
-                    side_agent_store = workspace.open_side_agent_store()?;
-                    prompt_history_store = workspace.open_prompt_history_store()?;
-                    skill_store = workspace.open_skill_store()?;
-                    session_event_store = workspace.open_session_event_store()?;
-                    let thread = thread_store.latest_for_cwd(&cwd).unwrap_or_else(|| {
-                        let mut created = thread_store.create_thread(&cwd);
-                        created.model = default_model.clone();
-                        created.approval_mode = app.approval_mode();
-                        created
-                    });
-                    let thread = hydrate_thread_from_events(thread, &session_event_store)?;
-                    app.load_thread(thread);
-                    app.set_workspace_files(load_workspace_files(&cwd));
-                    app.set_prompt_history(prompt_history_for_app(&prompt_history_store));
-                    refresh_skill_state(&mut app, &cwd, &skill_store)?;
-                    app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
-                    let cwd_label = cwd.display().to_string();
-                    let threads = ProjectWorkspace::list_all_threads_under(global_root.clone())?
-                        .into_iter()
-                        .filter(|thread| thread.cwd == cwd_label)
-                        .collect::<Vec<_>>();
-                    app.list_threads(&threads);
-                    bridge = runtime.block_on(AcpBridge::start(
-                        cwd.clone(),
-                        None,
-                        default_model.clone(),
-                    ))?;
-                }
-                AppCommand::RunReview {
-                    focus,
-                    coach,
-                    apply,
-                    popout,
-                    scope,
-                } => self::review_actions::handle_review_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &mut review_job,
-                    AppCommand::RunReview {
-                        focus,
-                        coach,
-                        apply,
-                        popout,
-                        scope,
-                    },
-                )?,
-                AppCommand::RunRalph {
-                    task,
-                    model,
-                    no_deslop,
-                    xhigh,
-                } => self::review_actions::handle_review_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &mut review_job,
-                    AppCommand::RunRalph {
-                        task,
-                        model,
-                        no_deslop,
-                        xhigh,
-                    },
-                )?,
-                AppCommand::Stop => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::Stop,
-                    )?;
-                }
-                AppCommand::SteerPrompt { prompt_text } => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::SteerPrompt { prompt_text },
-                    )?;
-                }
-                AppCommand::QueuePrompt {
-                    display_text,
-                    prompt_text,
-                } => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::QueuePrompt {
-                            display_text,
-                            prompt_text,
-                        },
-                    )?;
-                }
-                AppCommand::ListQueuedPrompts => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::ListQueuedPrompts,
-                    )?;
-                }
-                AppCommand::PopQueuedPrompt => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::PopQueuedPrompt,
-                    )?;
-                }
-                AppCommand::ClearQueuedPrompts => {
-                    self::workflow_actions::handle_workflow_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut review_job,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::ClearQueuedPrompts,
-                    )?;
-                }
-                AppCommand::SpawnAgent { prompt_text } => {
-                    self::side_agent_actions::handle_side_agent_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::SpawnAgent { prompt_text },
-                    )?;
-                }
-                AppCommand::ListAgents => {
-                    self::side_agent_actions::handle_side_agent_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::ListAgents,
-                    )?;
-                }
-                AppCommand::StopAgent { id } => {
-                    self::side_agent_actions::handle_side_agent_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::StopAgent { id },
-                    )?;
-                }
-                AppCommand::ShowAgentResult { id } => {
-                    self::side_agent_actions::handle_side_agent_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &mut side_agent_store,
-                        &mut side_agent_jobs,
-                        AppCommand::ShowAgentResult { id },
-                    )?;
-                }
-                AppCommand::SetTheme { theme } => {
-                    self::review_actions::handle_review_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &mut review_job,
-                        AppCommand::SetTheme { theme },
-                    )?
-                }
-                AppCommand::ExportTranscript { mode } => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::ExportTranscript { mode },
-                    )?;
-                }
-                AppCommand::CopyTranscriptMode { mode } => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::CopyTranscriptMode { mode },
-                    )?;
-                }
-                AppCommand::CopyDiff => self::transcript_actions::handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::CopyDiff,
-                )?,
-                AppCommand::CopyStatus => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::CopyStatus,
-                    )?;
-                }
-                AppCommand::CopyTimeline => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::CopyTimeline,
-                    )?
-                }
-                AppCommand::ShowDiff => self::transcript_actions::handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::ShowDiff,
-                )?,
-                AppCommand::ShowStagedDiff => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::ShowStagedDiff,
-                    )?
-                }
-                AppCommand::CompactTranscript => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::CompactTranscript,
-                    )?
-                }
-                AppCommand::ShowTimeline => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::ShowTimeline,
-                    )?
-                }
-                AppCommand::ShowTimelineMode {
-                    mode,
-                    filter,
-                    limit,
-                } => self::transcript_actions::handle_transcript_runtime_action(
-                    &mut app,
-                    &cwd,
-                    &workspace,
-                    &session_event_store,
-                    &side_agent_store,
-                    AppCommand::ShowTimelineMode {
-                        mode,
-                        filter,
-                        limit,
-                    },
-                )?,
-                AppCommand::ShowStatus => {
-                    self::transcript_actions::handle_transcript_runtime_action(
-                        &mut app,
-                        &cwd,
-                        &workspace,
-                        &session_event_store,
-                        &side_agent_store,
-                        AppCommand::ShowStatus,
-                    )?
-                }
-                AppCommand::ListPromptHistory => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::ListPromptHistory,
-                    )? || should_exit;
-                }
-                AppCommand::ListSkills => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::ListSkills,
-                    )? || should_exit;
-                }
-                AppCommand::SetSkillEnabled { name, enabled } => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::SetSkillEnabled { name, enabled },
-                    )? || should_exit;
-                }
-                AppCommand::SetModel { model } => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::SetModel { model },
-                    )? || should_exit;
-                }
-                AppCommand::SubmitPrompt {
-                    display_text,
-                    prompt_text,
-                } => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::SubmitPrompt {
-                            display_text,
-                            prompt_text,
-                        },
-                    )? || should_exit;
-                }
-                AppCommand::CancelPrompt => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::CancelPrompt,
-                    )? || should_exit;
-                }
-                AppCommand::ResolvePermission { option_id } => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::ResolvePermission { option_id },
-                    )? || should_exit;
-                }
-                AppCommand::ExitShell => {
-                    should_exit = self::session_actions::handle_local_session_action(
-                        &runtime,
-                        &mut bridge,
-                        &mut app,
-                        &mut prompt_history_store,
-                        &mut skill_store,
-                        &cwd,
-                        &mut pending_permission_reply,
-                        AppCommand::ExitShell,
-                    )? || should_exit;
-                }
-            }
+            should_exit = dispatch_runtime_action(
+                &runtime,
+                &mut bridge,
+                &mut app,
+                &mut stdout,
+                &global_root,
+                &default_model,
+                &mut cwd,
+                &mut workspace,
+                &mut thread_store,
+                &mut side_agent_store,
+                &mut prompt_history_store,
+                &mut skill_store,
+                &mut session_event_store,
+                &mut review_job,
+                &mut side_agent_jobs,
+                &mut pending_permission_reply,
+                action,
+            )? || should_exit;
         }
         persist_dirty_thread(&mut app, &mut thread_store, &session_event_store)?;
         if should_exit {
@@ -2306,6 +1841,532 @@ pub fn run_app(
     }
     disable_raw_mode()?;
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dispatch_runtime_action(
+    runtime: &tokio::runtime::Runtime,
+    bridge: &mut AcpBridge,
+    app: &mut App,
+    stdout: &mut io::Stdout,
+    global_root: &Path,
+    default_model: &Option<String>,
+    cwd: &mut PathBuf,
+    workspace: &mut ProjectWorkspace,
+    thread_store: &mut ThreadStore,
+    side_agent_store: &mut SideAgentStore,
+    prompt_history_store: &mut PromptHistoryStore,
+    skill_store: &mut crate::SkillStore,
+    session_event_store: &mut SessionEventStore,
+    review_job: &mut Option<ReviewJob>,
+    side_agent_jobs: &mut Vec<SideAgentJob>,
+    pending_permission_reply: &mut Option<tokio::sync::oneshot::Sender<Option<String>>>,
+    action: AppCommand,
+) -> io::Result<bool> {
+    match action {
+        AppCommand::NewThread => {
+            let previous_thread = app
+                .take_archived_thread()
+                .unwrap_or_else(|| app.thread_record());
+            thread_store.upsert(previous_thread)?;
+            if let Some(reply) = pending_permission_reply.take() {
+                let _ = reply.send(None);
+            }
+            let next_bridge =
+                runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+            let old_bridge = std::mem::replace(bridge, next_bridge);
+            runtime.block_on(old_bridge.shutdown())?;
+            let mut thread = thread_store.create_thread(&*cwd);
+            thread.model = default_model.clone();
+            thread.approval_mode = app.approval_mode();
+            app.load_thread(thread);
+            app.set_workspace_files(load_workspace_files(&*cwd));
+            *thread_store = workspace.open_thread_store()?;
+            Ok(false)
+        }
+        AppCommand::ListThreads => {
+            let threads = ProjectWorkspace::list_all_threads_under(global_root.to_path_buf())?;
+            app.list_threads(&threads);
+            Ok(false)
+        }
+        AppCommand::SwitchThread { thread_id } => {
+            thread_store.upsert(app.thread_record())?;
+            if let Some(thread) =
+                ProjectWorkspace::find_thread_under(global_root.to_path_buf(), &thread_id)?
+            {
+                let next_cwd = PathBuf::from(&thread.cwd);
+                let next_workspace =
+                    ProjectWorkspace::at_root(global_root.to_path_buf(), &next_cwd)?;
+                if !next_workspace.is_confirmed()
+                    && !confirm_project_workspace(stdout, &next_workspace)?
+                {
+                    app.apply_system_notice("Thread switch cancelled.");
+                    return Ok(false);
+                }
+                if let Err(error) = std::env::set_current_dir(&next_cwd) {
+                    app.apply_system_notice(format!("Error: {error}"));
+                    return Ok(false);
+                }
+                *cwd = next_cwd;
+                *workspace = next_workspace;
+                if let Some(reply) = pending_permission_reply.take() {
+                    let _ = reply.send(None);
+                }
+                let next_bridge =
+                    runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+                let old_bridge = std::mem::replace(bridge, next_bridge);
+                runtime.block_on(old_bridge.shutdown())?;
+                *thread_store = workspace.open_thread_store()?;
+                *side_agent_store = workspace.open_side_agent_store()?;
+                *prompt_history_store = workspace.open_prompt_history_store()?;
+                *skill_store = workspace.open_skill_store()?;
+                *session_event_store = workspace.open_session_event_store()?;
+                let thread = hydrate_thread_from_events(thread, session_event_store)?;
+                app.load_thread(thread);
+                app.set_prompt_history(prompt_history_for_app(prompt_history_store));
+                app.set_workspace_files(load_workspace_files(&*cwd));
+                refresh_skill_state(app, &*cwd, skill_store)?;
+            } else {
+                app.apply_system_notice(format!("Unknown thread id: {thread_id}"));
+            }
+            Ok(false)
+        }
+        AppCommand::ChangeDirectory { path } => {
+            let next_cwd = resolve_directory_change(&*cwd, &path)?;
+            let next_workspace = ProjectWorkspace::at_root(global_root.to_path_buf(), &next_cwd)?;
+            if !next_workspace.is_confirmed()
+                && !confirm_project_workspace(stdout, &next_workspace)?
+            {
+                app.apply_system_notice("Directory change cancelled.");
+                return Ok(false);
+            }
+            thread_store.upsert(app.thread_record())?;
+            std::env::set_current_dir(&next_cwd)?;
+            *cwd = next_cwd;
+            *workspace = next_workspace;
+            if let Some(reply) = pending_permission_reply.take() {
+                let _ = reply.send(None);
+            }
+            let next_bridge =
+                runtime.block_on(AcpBridge::start(cwd.clone(), None, default_model.clone()))?;
+            let old_bridge = std::mem::replace(bridge, next_bridge);
+            runtime.block_on(old_bridge.shutdown())?;
+            *thread_store = workspace.open_thread_store()?;
+            *side_agent_store = workspace.open_side_agent_store()?;
+            *prompt_history_store = workspace.open_prompt_history_store()?;
+            *skill_store = workspace.open_skill_store()?;
+            *session_event_store = workspace.open_session_event_store()?;
+            let thread = thread_store.latest_for_cwd(&*cwd).unwrap_or_else(|| {
+                let mut created = thread_store.create_thread(&*cwd);
+                created.model = default_model.clone();
+                created.approval_mode = app.approval_mode();
+                created
+            });
+            let thread = hydrate_thread_from_events(thread, session_event_store)?;
+            app.load_thread(thread);
+            app.set_workspace_files(load_workspace_files(&*cwd));
+            app.set_prompt_history(prompt_history_for_app(prompt_history_store));
+            refresh_skill_state(app, &*cwd, skill_store)?;
+            app.apply_system_notice(format!("Project directory set to {}.", cwd.display()));
+            let cwd_label = cwd.display().to_string();
+            let threads = ProjectWorkspace::list_all_threads_under(global_root.to_path_buf())?
+                .into_iter()
+                .filter(|thread| thread.cwd == cwd_label)
+                .collect::<Vec<_>>();
+            app.list_threads(&threads);
+            Ok(false)
+        }
+        AppCommand::RunReview {
+            focus,
+            coach,
+            apply,
+            popout,
+            scope,
+        } => {
+            self::review_actions::handle_review_runtime_action(
+                app,
+                cwd,
+                review_job,
+                AppCommand::RunReview {
+                    focus,
+                    coach,
+                    apply,
+                    popout,
+                    scope,
+                },
+            )?;
+            Ok(false)
+        }
+        AppCommand::RunRalph {
+            task,
+            model,
+            no_deslop,
+            xhigh,
+        } => {
+            self::review_actions::handle_review_runtime_action(
+                app,
+                cwd,
+                review_job,
+                AppCommand::RunRalph {
+                    task,
+                    model,
+                    no_deslop,
+                    xhigh,
+                },
+            )?;
+            Ok(false)
+        }
+        AppCommand::Stop => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::Stop,
+            )?;
+            Ok(false)
+        }
+        AppCommand::SteerPrompt { prompt_text } => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::SteerPrompt { prompt_text },
+            )?;
+            Ok(false)
+        }
+        AppCommand::QueuePrompt {
+            display_text,
+            prompt_text,
+        } => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::QueuePrompt {
+                    display_text,
+                    prompt_text,
+                },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ListQueuedPrompts => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ListQueuedPrompts,
+            )?;
+            Ok(false)
+        }
+        AppCommand::PopQueuedPrompt => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::PopQueuedPrompt,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ClearQueuedPrompts => {
+            self::workflow_actions::handle_workflow_action(
+                runtime,
+                bridge,
+                app,
+                review_job,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ClearQueuedPrompts,
+            )?;
+            Ok(false)
+        }
+        AppCommand::SpawnAgent { prompt_text } => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::SpawnAgent { prompt_text },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ListAgents => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ListAgents,
+            )?;
+            Ok(false)
+        }
+        AppCommand::StopAgent { id } => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::StopAgent { id },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowAgentResult { id } => {
+            self::side_agent_actions::handle_side_agent_action(
+                app,
+                cwd,
+                workspace,
+                side_agent_store,
+                side_agent_jobs,
+                AppCommand::ShowAgentResult { id },
+            )?;
+            Ok(false)
+        }
+        AppCommand::SetTheme { theme } => {
+            self::review_actions::handle_review_runtime_action(
+                app,
+                cwd,
+                review_job,
+                AppCommand::SetTheme { theme },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ExportTranscript { mode } => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ExportTranscript { mode },
+            )?;
+            Ok(false)
+        }
+        AppCommand::CopyTranscriptMode { mode } => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::CopyTranscriptMode { mode },
+            )?;
+            Ok(false)
+        }
+        AppCommand::CopyDiff => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::CopyDiff,
+            )?;
+            Ok(false)
+        }
+        AppCommand::CopyStatus => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::CopyStatus,
+            )?;
+            Ok(false)
+        }
+        AppCommand::CopyTimeline => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::CopyTimeline,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowDiff => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ShowDiff,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowStagedDiff => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ShowStagedDiff,
+            )?;
+            Ok(false)
+        }
+        AppCommand::CompactTranscript => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::CompactTranscript,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowTimeline => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ShowTimeline,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowTimelineMode {
+            mode,
+            filter,
+            limit,
+        } => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ShowTimelineMode {
+                    mode,
+                    filter,
+                    limit,
+                },
+            )?;
+            Ok(false)
+        }
+        AppCommand::ShowStatus => {
+            self::transcript_actions::handle_transcript_runtime_action(
+                app,
+                cwd,
+                workspace,
+                session_event_store,
+                side_agent_store,
+                AppCommand::ShowStatus,
+            )?;
+            Ok(false)
+        }
+        AppCommand::ListPromptHistory => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::ListPromptHistory,
+        ),
+        AppCommand::ListSkills => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::ListSkills,
+        ),
+        AppCommand::SetSkillEnabled { name, enabled } => {
+            self::session_actions::handle_local_session_action(
+                runtime,
+                bridge,
+                app,
+                prompt_history_store,
+                skill_store,
+                cwd,
+                pending_permission_reply,
+                AppCommand::SetSkillEnabled { name, enabled },
+            )
+        }
+        AppCommand::SetModel { model } => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::SetModel { model },
+        ),
+        AppCommand::SubmitPrompt {
+            display_text,
+            prompt_text,
+        } => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::SubmitPrompt {
+                display_text,
+                prompt_text,
+            },
+        ),
+        AppCommand::CancelPrompt => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::CancelPrompt,
+        ),
+        AppCommand::ResolvePermission { option_id } => {
+            self::session_actions::handle_local_session_action(
+                runtime,
+                bridge,
+                app,
+                prompt_history_store,
+                skill_store,
+                cwd,
+                pending_permission_reply,
+                AppCommand::ResolvePermission { option_id },
+            )
+        }
+        AppCommand::ExitShell => self::session_actions::handle_local_session_action(
+            runtime,
+            bridge,
+            app,
+            prompt_history_store,
+            skill_store,
+            cwd,
+            pending_permission_reply,
+            AppCommand::ExitShell,
+        ),
+    }
 }
 
 fn load_bootstrap_snapshot() -> Snapshot {
