@@ -65,6 +65,15 @@ pub enum BusySurfaceAction {
     None,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BottomPaneEscapeAction {
+    CloseModelPicker,
+    ClosePopup,
+    ClearComposer,
+    ExitReview,
+    None,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BottomPaneState {
     composer: ComposerState,
@@ -85,6 +94,21 @@ impl BottomPaneState {
             BottomPaneSurface::Composer => {
                 BottomPaneDispatch::Composer(self.dispatch_composer_key(key, prompt_history_empty))
             }
+        }
+    }
+
+    #[must_use]
+    pub fn escape_action(&self, review_mode: bool) -> BottomPaneEscapeAction {
+        if self.model_picker.is_open() {
+            BottomPaneEscapeAction::CloseModelPicker
+        } else if self.popup.mode().is_some() {
+            BottomPaneEscapeAction::ClosePopup
+        } else if !self.composer.buffer().is_empty() {
+            BottomPaneEscapeAction::ClearComposer
+        } else if review_mode {
+            BottomPaneEscapeAction::ExitReview
+        } else {
+            BottomPaneEscapeAction::None
         }
     }
 
@@ -132,6 +156,20 @@ impl BottomPaneState {
 
     pub fn model_picker_mut(&mut self) -> &mut ModelPickerState {
         &mut self.model_picker
+    }
+
+    pub fn clear_composer(&mut self) {
+        self.composer.clear_buffer();
+        self.composer.clear_mentions();
+    }
+
+    pub fn apply_autocomplete(&mut self, completed_command: &str) {
+        self.composer.set_buffer(format!("{completed_command} "));
+    }
+
+    pub fn apply_history_recall(&mut self, recalled: String) {
+        self.composer.set_buffer(recalled);
+        self.composer.clear_mentions();
     }
 
     fn dispatch_composer_key(
@@ -228,8 +266,8 @@ fn dispatch_list_surface_key(key: KeyEvent) -> ListSurfaceAction {
 #[cfg(test)]
 mod tests {
     use super::{
-        BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusySurfaceAction,
-        ComposerKeyAction, ListSurfaceAction, SkillToggleSurfaceAction,
+        BottomPaneDispatch, BottomPaneEscapeAction, BottomPaneState, BottomPaneSurface,
+        BusySurfaceAction, ComposerKeyAction, ListSurfaceAction, SkillToggleSurfaceAction,
     };
     use crate::popup_state::PopupMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -292,5 +330,48 @@ mod tests {
             state.dispatch_busy_action_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
             BusySurfaceAction::EditBackspace
         );
+    }
+
+    #[test]
+    fn bottom_pane_escape_action_respects_surface_and_draft_precedence() {
+        let mut state = BottomPaneState::default();
+        assert_eq!(state.escape_action(false), BottomPaneEscapeAction::None);
+
+        state.composer_mut().set_buffer("hello");
+        assert_eq!(
+            state.escape_action(false),
+            BottomPaneEscapeAction::ClearComposer
+        );
+
+        state.popup_mut().open_mention();
+        assert_eq!(
+            state.escape_action(false),
+            BottomPaneEscapeAction::ClosePopup
+        );
+
+        state.model_picker_mut().open();
+        assert_eq!(
+            state.escape_action(false),
+            BottomPaneEscapeAction::CloseModelPicker
+        );
+
+        let state = BottomPaneState::default();
+        assert_eq!(
+            state.escape_action(true),
+            BottomPaneEscapeAction::ExitReview
+        );
+    }
+
+    #[test]
+    fn bottom_pane_can_apply_composer_transitions() {
+        let mut state = BottomPaneState::default();
+        state.apply_autocomplete("/review");
+        assert_eq!(state.composer().buffer(), "/review ");
+
+        state.apply_history_recall("hello".to_string());
+        assert_eq!(state.composer().buffer(), "hello");
+
+        state.clear_composer();
+        assert_eq!(state.composer().buffer(), "");
     }
 }

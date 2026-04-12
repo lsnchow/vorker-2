@@ -26,7 +26,6 @@ use crate::mentions::{
 };
 use crate::navigation::{NavigationState, Pane};
 pub use crate::popup_state::PermissionOptionView;
-use crate::popup_state::PopupMode;
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
@@ -981,34 +980,20 @@ impl App {
     }
 
     fn handle_escape(&mut self) {
-        if self.model_picker().is_open() {
-            self.model_picker_mut().close();
-            return;
-        }
-
-        if self.popup().mode().is_some() {
-            if self.popup().is_mode(PopupMode::BusyAction) {
-                self.close_busy_action_popup();
-                return;
+        match self.bottom_pane.escape_action(current_review_mode()) {
+            crate::bottom_pane_state::BottomPaneEscapeAction::CloseModelPicker => {
+                self.model_picker_mut().close();
             }
-            if self.popup().is_mode(PopupMode::SkillAction)
-                || self.popup().is_mode(PopupMode::SkillToggle)
-            {
-                self.close_skill_popup();
-                return;
+            crate::bottom_pane_state::BottomPaneEscapeAction::ClosePopup => {
+                self.popup_mut().close();
             }
-            self.popup_mut().close();
-            return;
-        }
-
-        if !self.composer().buffer().is_empty() {
-            self.composer_mut().clear_buffer();
-            self.composer_mut().clear_mentions();
-            return;
-        }
-
-        if current_review_mode() {
-            self.pending_actions.push(AppCommand::ExitShell);
+            crate::bottom_pane_state::BottomPaneEscapeAction::ClearComposer => {
+                self.bottom_pane.clear_composer();
+            }
+            crate::bottom_pane_state::BottomPaneEscapeAction::ExitReview => {
+                self.pending_actions.push(AppCommand::ExitShell);
+            }
+            crate::bottom_pane_state::BottomPaneEscapeAction::None => {}
         }
     }
 
@@ -1024,7 +1009,7 @@ impl App {
             !self.rows.is_empty(),
         );
         if let Some(command) = commands.get(self.composer().slash_selected_index()) {
-            self.composer_mut().set_buffer(format!("{} ", command.name));
+            self.bottom_pane.apply_autocomplete(command.name);
         }
     }
 
@@ -1075,8 +1060,7 @@ impl App {
         let recalled = next
             .and_then(|index| self.prompt_history.get(index).cloned())
             .unwrap_or_default();
-        self.composer_mut().set_buffer(recalled);
-        self.composer_mut().clear_mentions();
+        self.bottom_pane.apply_history_recall(recalled);
         self.sync_inline_popup();
     }
 
@@ -1123,8 +1107,7 @@ impl App {
         });
         self.needs_replay_context = false;
         self.dirty = true;
-        self.composer_mut().clear_buffer();
-        self.composer_mut().clear_mentions();
+        self.bottom_pane.clear_composer();
         self.sync_inline_popup();
     }
 
