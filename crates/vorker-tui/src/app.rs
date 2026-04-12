@@ -54,6 +54,7 @@ use crate::workspace_helpers::{load_workspace_files, resolve_directory_change, s
 mod review_actions;
 mod session_actions;
 mod side_agent_actions;
+mod side_agent_helpers;
 mod transcript_actions;
 mod workflow_actions;
 
@@ -1782,44 +1783,6 @@ fn poll_side_agent_jobs(
     Ok(())
 }
 
-fn format_agent_result(id: &str, display_name: &str, events: &[String], output: &str) -> String {
-    let mut sections = vec![format!("Agent {display_name} ({id}) result:")];
-    if !events.is_empty() {
-        sections.push("Events:".to_string());
-        sections.extend(events.iter().map(|event| format!("- {event}")));
-    }
-    sections.push("Output:".to_string());
-    sections.push(output.to_string());
-    sections.join("\n")
-}
-
-fn resolve_agent_identifier(
-    requested: &str,
-    live_jobs: &[SideAgentJob],
-    store: &SideAgentStore,
-) -> Option<String> {
-    if live_jobs.iter().any(|job| job.id == requested) || store.job(requested).is_some() {
-        return Some(requested.to_string());
-    }
-
-    let lower = requested.to_ascii_lowercase();
-    let mut matches = live_jobs
-        .iter()
-        .map(|job| (job.id.clone(), job.display_name.clone()))
-        .chain(
-            store
-                .list_jobs()
-                .into_iter()
-                .map(|job| (job.id, job.display_name)),
-        )
-        .filter(|(_, name)| name.to_ascii_lowercase() == lower)
-        .map(|(id, _)| id)
-        .collect::<Vec<_>>();
-    matches.sort();
-    matches.dedup();
-    (matches.len() == 1).then(|| matches.remove(0))
-}
-
 #[must_use]
 pub fn render_once(width: usize, default_model: Option<String>) -> String {
     App::with_default_model(load_bootstrap_snapshot(), default_model).render(width, false)
@@ -2823,10 +2786,11 @@ fn current_review_mode() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        SideAgentJob, format_agent_result, normalize_for_raw_terminal, render_agent_roster,
-        render_status_summary, render_thread_timeline, render_thread_timeline_with_mode,
-        resolve_agent_identifier, should_redraw_frame, summarize_transcript_rows, tool_update_text,
+        SideAgentJob, normalize_for_raw_terminal, render_agent_roster, render_status_summary,
+        render_thread_timeline, render_thread_timeline_with_mode, should_redraw_frame,
+        summarize_transcript_rows, tool_update_text,
     };
+    use crate::app::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
     use crate::{
         RowKind, SideAgentStatus, SideAgentStore, StoredThread, TranscriptRow, copy_to_clipboard,
         render_staged_diff, render_working_tree_diff, truncate_lines,

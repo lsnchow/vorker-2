@@ -1,3 +1,4 @@
+use super::side_agent_helpers::{format_agent_result, resolve_agent_identifier};
 use super::*;
 
 pub(crate) fn handle_side_agent_action(
