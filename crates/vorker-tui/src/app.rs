@@ -48,7 +48,9 @@ use crate::slash::{
 };
 use crate::thread_store::{ApprovalMode, StoredThread, ThreadStore};
 use crate::transcript_export::write_transcript_export;
+use crate::workspace_helpers::{load_workspace_files, resolve_directory_change, skill_roots_for};
 
+mod review_actions;
 mod runtime_actions;
 mod side_agent_actions;
 mod transcript_actions;
@@ -2183,7 +2185,7 @@ pub fn run_app(
                     apply,
                     popout,
                     scope,
-                } => self::runtime_actions::handle_review_runtime_action(
+                } => self::review_actions::handle_review_runtime_action(
                     &mut app,
                     &cwd,
                     &mut review_job,
@@ -2200,7 +2202,7 @@ pub fn run_app(
                     model,
                     no_deslop,
                     xhigh,
-                } => self::runtime_actions::handle_review_runtime_action(
+                } => self::review_actions::handle_review_runtime_action(
                     &mut app,
                     &cwd,
                     &mut review_job,
@@ -2324,12 +2326,12 @@ pub fn run_app(
                     )?;
                 }
                 AppCommand::SetTheme { theme } => {
-                    self::runtime_actions::handle_review_runtime_action(
+                    self::review_actions::handle_review_runtime_action(
                         &mut app,
                         &cwd,
                         &mut review_job,
                         AppCommand::SetTheme { theme },
-                    )?;
+                    )?
                 }
                 AppCommand::ExportTranscript { mode } => {
                     self::transcript_actions::handle_transcript_runtime_action(
@@ -2664,45 +2666,6 @@ fn resolve_skill_name(skills: &[SkillInfo], requested: &str) -> Option<String> {
             matches.next().is_none().then_some(first)
         })
         .map(|skill| skill.name.clone())
-}
-
-fn skill_roots_for(cwd: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![
-        cwd.join(".codex").join("skills"),
-        cwd.join(".agents").join("skills"),
-        cwd.join(".github").join("skills"),
-    ];
-
-    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-        roots.push(PathBuf::from(codex_home).join("skills"));
-    } else if let Some(home) = home_dir() {
-        roots.push(home.join(".codex").join("skills"));
-        roots.push(home.join(".codex").join("superpowers").join("skills"));
-        roots.push(home.join(".agents").join("skills"));
-    }
-
-    roots
-}
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
-}
-
-fn resolve_directory_change(current: &Path, requested: &str) -> io::Result<PathBuf> {
-    let candidate = PathBuf::from(requested);
-    let resolved = if candidate.is_absolute() {
-        candidate
-    } else {
-        current.join(candidate)
-    };
-    let resolved = resolved.canonicalize()?;
-    if !resolved.is_dir() {
-        return Err(io::Error::other(format!(
-            "{} is not a directory",
-            resolved.display()
-        )));
-    }
-    Ok(resolved)
 }
 
 fn confirm_project_workspace(
@@ -3063,45 +3026,6 @@ fn current_review_mode() -> bool {
             .as_str(),
         "1" | "true" | "yes" | "review"
     )
-}
-
-fn load_workspace_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        let entries = match std::fs::read_dir(&path) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let entry_path = entry.path();
-            let Ok(relative) = entry_path.strip_prefix(root) else {
-                continue;
-            };
-            if relative.as_os_str().is_empty() {
-                continue;
-            }
-
-            if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                let skip = relative.iter().any(|segment| {
-                    matches!(
-                        segment.to_string_lossy().as_ref(),
-                        ".git" | "node_modules" | "target" | ".next" | "dist"
-                    )
-                });
-                if !skip {
-                    stack.push(entry_path);
-                }
-                continue;
-            }
-
-            files.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
-
-    files.sort();
-    files
 }
 
 #[cfg(test)]
