@@ -30,6 +30,7 @@ pub use crate::popup_state::PermissionOptionView;
 use crate::project_workspace::{ProjectWorkspace, render_project_confirmation};
 use crate::prompt_history::PromptHistoryStore;
 use crate::render::{DashboardOptions, FooterMode, RowKind, TranscriptRow, render_dashboard};
+use crate::review_output::parse_review_markdown;
 use crate::session_event_store::{
     SessionEventStore, apply_events_to_thread, derive_thread_events,
     render_session_event_timeline_with_mode,
@@ -1510,132 +1511,6 @@ fn render_transcript_replay(rows: &[TranscriptRow]) -> String {
         .join("\n")
 }
 
-fn parse_review_markdown(markdown: &str) -> Vec<TranscriptRow> {
-    let mut rows = Vec::new();
-    let mut current: Option<TranscriptRow> = None;
-    let mut in_code_block = false;
-    let mut code_lines = Vec::new();
-
-    let flush_current = |rows: &mut Vec<TranscriptRow>, current: &mut Option<TranscriptRow>| {
-        if let Some(row) = current.take() {
-            rows.push(row);
-        }
-    };
-
-    for raw_line in markdown.lines() {
-        let line = raw_line.trim_end();
-        if line.starts_with("```") {
-            if in_code_block {
-                if let Some(row) = current.as_mut() {
-                    let snippet = code_lines
-                        .iter()
-                        .map(|line| format!("    {line}"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    row.detail = Some(match row.detail.take() {
-                        Some(existing) if !existing.is_empty() => {
-                            format!("{existing}\n\n{snippet}")
-                        }
-                        _ => snippet,
-                    });
-                }
-                code_lines.clear();
-                in_code_block = false;
-            } else {
-                in_code_block = true;
-            }
-            continue;
-        }
-
-        if in_code_block {
-            code_lines.push(line.to_string());
-            continue;
-        }
-
-        if let Some(text) = line.strip_prefix("# ") {
-            flush_current(&mut rows, &mut current);
-            current = Some(TranscriptRow {
-                kind: RowKind::System,
-                text: text.to_string(),
-                detail: None,
-            });
-            continue;
-        }
-
-        if let Some(text) = line.strip_prefix("## ") {
-            flush_current(&mut rows, &mut current);
-            current = Some(TranscriptRow {
-                kind: RowKind::System,
-                text: text.to_string(),
-                detail: None,
-            });
-            continue;
-        }
-
-        if let Some(text) = line.strip_prefix("### ") {
-            flush_current(&mut rows, &mut current);
-            current = Some(TranscriptRow {
-                kind: RowKind::Tool,
-                text: text.to_string(),
-                detail: None,
-            });
-            continue;
-        }
-
-        if line.starts_with("- ") {
-            if let Some(row) = current.as_mut() {
-                let bullet = line.trim_start_matches("- ").to_string();
-                if bullet.starts_with("Confidence:") {
-                    continue;
-                }
-                row.detail = Some(match row.detail.take() {
-                    Some(existing) if !existing.is_empty() => format!("{existing}\n{bullet}"),
-                    _ => bullet,
-                });
-            } else {
-                rows.push(TranscriptRow {
-                    kind: RowKind::System,
-                    text: line.trim_start_matches("- ").to_string(),
-                    detail: None,
-                });
-            }
-            continue;
-        }
-
-        if line.is_empty() {
-            flush_current(&mut rows, &mut current);
-            continue;
-        }
-
-        let text = line
-            .trim_start_matches("**")
-            .trim_end_matches("**")
-            .to_string();
-
-        if let Some(row) = current.as_mut() {
-            row.detail = Some(match row.detail.take() {
-                Some(existing) if !existing.is_empty() => format!("{existing}\n{text}"),
-                _ => text,
-            });
-        } else {
-            current = Some(TranscriptRow {
-                kind: RowKind::Assistant,
-                text,
-                detail: None,
-            });
-        }
-    }
-
-    if in_code_block
-        && !code_lines.is_empty()
-        && let Some(row) = current.as_mut()
-    {
-        row.detail = Some(code_lines.join("\n"));
-    }
-    flush_current(&mut rows, &mut current);
-    rows
-}
-
 fn cycle_index(current: usize, len: usize, delta: isize) -> usize {
     if len == 0 {
         return 0;
@@ -2375,55 +2250,76 @@ pub fn run_app(
                     app.apply_system_notice(format!("RALPH started in a new terminal: {task}"));
                 }
                 AppCommand::Stop => {
-                    let _ = runtime.block_on(bridge.cancel());
-                    if let Some(job) = review_job.as_mut() {
-                        let _ = job.child.kill();
-                    }
-                    let mut stopped_agents = 0usize;
-                    for job in side_agent_jobs.iter_mut().filter(|job| !job.completed) {
-                        let _ = job.child.kill();
-                        job.completed = true;
-                        let _ = side_agent_store.mark_finished(&job.id, SideAgentStatus::Stopped);
-                        stopped_agents += 1;
-                    }
-                    review_job = None;
-                    app.stop_working_timer();
-                    let queued = app.queued_prompt_count();
-                    app.apply_system_notice(format!(
-                        "Stopped active work. {stopped_agents} side agent(s) stopped; {queued} queued prompt(s) remain."
-                    ));
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::Stop,
+                    )?;
                 }
                 AppCommand::SteerPrompt { prompt_text } => {
-                    runtime.block_on(bridge.prompt(prompt_text))?;
-                    app.apply_system_notice("Sent steering guidance.");
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::SteerPrompt { prompt_text },
+                    )?;
                 }
                 AppCommand::QueuePrompt {
                     display_text,
                     prompt_text,
                 } => {
-                    app.queue_prompt(display_text, prompt_text);
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::QueuePrompt {
+                            display_text,
+                            prompt_text,
+                        },
+                    )?;
                 }
                 AppCommand::ListQueuedPrompts => {
-                    let queued = app.queued_prompts();
-                    if queued.is_empty() {
-                        app.apply_system_notice("Queue is empty.");
-                    } else {
-                        app.apply_system_notice(format!("Queued prompts ({})", queued.len()));
-                        for (index, prompt) in queued.iter().enumerate() {
-                            app.apply_system_notice(format!("{}. {}", index + 1, prompt));
-                        }
-                    }
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::ListQueuedPrompts,
+                    )?;
                 }
                 AppCommand::PopQueuedPrompt => {
-                    if let Some(prompt) = app.pop_queued_prompt() {
-                        app.apply_system_notice(format!("Removed queued prompt: {prompt}"));
-                    } else {
-                        app.apply_system_notice("Queue is empty.");
-                    }
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::PopQueuedPrompt,
+                    )?;
                 }
                 AppCommand::ClearQueuedPrompts => {
-                    let cleared = app.clear_queued_prompts();
-                    app.apply_system_notice(format!("Cleared {cleared} queued prompt(s)."));
+                    handle_workflow_action(
+                        &runtime,
+                        &mut bridge,
+                        &mut app,
+                        &mut review_job,
+                        &mut side_agent_store,
+                        &mut side_agent_jobs,
+                        AppCommand::ClearQueuedPrompts,
+                    )?;
                 }
                 AppCommand::SpawnAgent { prompt_text } => {
                     handle_side_agent_action(
@@ -2701,6 +2597,73 @@ pub fn run_app(
 
 fn load_bootstrap_snapshot() -> Snapshot {
     Snapshot::default()
+}
+
+fn handle_workflow_action(
+    runtime: &tokio::runtime::Runtime,
+    bridge: &mut AcpBridge,
+    app: &mut App,
+    review_job: &mut Option<ReviewJob>,
+    side_agent_store: &mut SideAgentStore,
+    side_agent_jobs: &mut Vec<SideAgentJob>,
+    action: AppCommand,
+) -> io::Result<()> {
+    match action {
+        AppCommand::Stop => {
+            let _ = runtime.block_on(bridge.cancel());
+            if let Some(job) = review_job.as_mut() {
+                let _ = job.child.kill();
+            }
+            let mut stopped_agents = 0usize;
+            for job in side_agent_jobs.iter_mut().filter(|job| !job.completed) {
+                let _ = job.child.kill();
+                job.completed = true;
+                let _ = side_agent_store.mark_finished(&job.id, SideAgentStatus::Stopped);
+                stopped_agents += 1;
+            }
+            *review_job = None;
+            app.stop_working_timer();
+            let queued = app.queued_prompt_count();
+            app.apply_system_notice(format!(
+                "Stopped active work. {stopped_agents} side agent(s) stopped; {queued} queued prompt(s) remain."
+            ));
+        }
+        AppCommand::SteerPrompt { prompt_text } => {
+            runtime.block_on(bridge.prompt(prompt_text))?;
+            app.apply_system_notice("Sent steering guidance.");
+        }
+        AppCommand::QueuePrompt {
+            display_text,
+            prompt_text,
+        } => {
+            app.queue_prompt(display_text, prompt_text);
+        }
+        AppCommand::ListQueuedPrompts => {
+            let queued = app.queued_prompts();
+            if queued.is_empty() {
+                app.apply_system_notice("Queue is empty.");
+            } else {
+                app.apply_system_notice(format!("Queued prompts ({})", queued.len()));
+                for (index, prompt) in queued.iter().enumerate() {
+                    app.apply_system_notice(format!("{}. {}", index + 1, prompt));
+                }
+            }
+        }
+        AppCommand::PopQueuedPrompt => {
+            if let Some(prompt) = app.pop_queued_prompt() {
+                app.apply_system_notice(format!("Removed queued prompt: {prompt}"));
+            } else {
+                app.apply_system_notice("Queue is empty.");
+            }
+        }
+        AppCommand::ClearQueuedPrompts => {
+            let cleared = app.clear_queued_prompts();
+            app.apply_system_notice(format!("Cleared {cleared} queued prompt(s)."));
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 fn handle_side_agent_action(

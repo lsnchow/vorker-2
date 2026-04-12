@@ -13,6 +13,7 @@ mod popup_state;
 mod project_workspace;
 mod prompt_history;
 mod render;
+mod review_output;
 mod rich_text;
 mod session_event_store;
 mod side_agent_store;
@@ -46,6 +47,7 @@ pub use prompt_history::{PromptHistoryEntry, PromptHistoryStore};
 pub use render::{
     DashboardOptions, FooterMode, PopupItem, RowKind, TranscriptRow, render_dashboard,
 };
+pub use review_output::parse_review_markdown;
 pub use session_event_store::{
     SessionEvent, SessionEventKind, SessionEventStore, apply_events_to_thread,
     derive_thread_events, render_session_event_timeline, render_session_event_timeline_with_mode,
