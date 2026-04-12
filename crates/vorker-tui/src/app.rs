@@ -35,6 +35,10 @@ use crate::session_event_store::{
     SessionEventStore, apply_events_to_thread, derive_thread_events,
     render_session_event_timeline_with_mode,
 };
+use crate::shell_reports::{
+    format_path_for_humans, format_thread_duration, render_agent_roster, render_status_summary,
+    render_thread_timeline, render_thread_timeline_with_mode,
+};
 use crate::side_agent_store::{SideAgentStatus, SideAgentStore, summarize_side_agent_events};
 use crate::skill_store::{SkillInfo, build_skill_context, discover_skills};
 use crate::slash::{
@@ -2375,158 +2379,107 @@ pub fn run_app(
                     app.apply_system_notice(format!("Theme changed to {normalized}."));
                 }
                 AppCommand::ExportTranscript { mode } => {
-                    let thread = app.thread_record();
-                    let events = session_event_store.events(&thread.id)?;
-                    match write_transcript_export(
-                        &workspace.project_dir().join("exports"),
-                        &thread,
-                        Some(&events),
-                        &mode,
-                    ) {
-                        Ok(path) => app.apply_system_notice(format!(
-                            "Transcript exported to {}",
-                            path.display()
-                        )),
-                        Err(error) => app.apply_system_notice(format!("Export failed: {error}")),
-                    }
+                    handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::ExportTranscript { mode },
+                    )?;
                 }
                 AppCommand::CopyTranscriptMode { mode } => {
-                    let thread = app.thread_record();
-                    let events = session_event_store.events(&thread.id)?;
-                    let markdown = match mode.trim().to_ascii_lowercase().as_str() {
-                        "events" => crate::render_transcript_markdown_from_events(&thread, &events),
-                        "rows" => crate::render_transcript_markdown(&thread),
-                        "brief" => {
-                            if events.is_empty() {
-                                crate::render_transcript_markdown_with_options(
-                                    &thread, false, false,
-                                )
-                            } else {
-                                crate::render_transcript_markdown_from_events_with_options(
-                                    &thread, &events, false, false,
-                                )
-                            }
-                        }
-                        _ => {
-                            if events.is_empty() {
-                                crate::render_transcript_markdown(&thread)
-                            } else {
-                                crate::render_transcript_markdown_from_events(&thread, &events)
-                            }
-                        }
-                    };
-                    match copy_to_clipboard(&markdown) {
-                        Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
-                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
-                    }
+                    handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::CopyTranscriptMode { mode },
+                    )?;
                 }
-                AppCommand::CopyDiff => match render_working_tree_diff(&cwd, 160) {
-                    Ok(diff) => match copy_to_clipboard(&diff) {
-                        Ok(()) => app.apply_system_notice("Diff copied to clipboard."),
-                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
-                    },
-                    Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
-                },
+                AppCommand::CopyDiff => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::CopyDiff,
+                )?,
                 AppCommand::CopyStatus => {
-                    let jobs = side_agent_store.list_jobs();
-                    let running_agents = jobs
-                        .iter()
-                        .filter(|job| job.status == SideAgentStatus::Running)
-                        .count();
-                    let running_agent_names = jobs
-                        .iter()
-                        .filter(|job| job.status == SideAgentStatus::Running)
-                        .map(|job| job.display_name.clone())
-                        .collect::<Vec<_>>();
-                    let event_count = session_event_store
-                        .events(&app.thread_record().id)
-                        .map(|events| events.len())
-                        .unwrap_or(0);
-                    let status = render_status_summary(
-                        app.selected_model_id().unwrap_or("detecting..."),
-                        &cwd.display().to_string(),
-                        &workspace.project_dir().display().to_string(),
-                        app.approval_mode().label(),
-                        app.thread_name(),
-                        &format_thread_duration(app.thread_duration_seconds()),
-                        app.rows.len(),
-                        event_count,
-                        app.queued_prompt_count(),
-                        jobs.len(),
-                        running_agents,
-                        &running_agent_names,
-                    );
-                    match copy_to_clipboard(&status) {
-                        Ok(()) => app.apply_system_notice("Status copied to clipboard."),
-                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
-                    }
+                    handle_transcript_runtime_action(
+                        &mut app,
+                        &cwd,
+                        &workspace,
+                        &session_event_store,
+                        &side_agent_store,
+                        AppCommand::CopyStatus,
+                    )?;
                 }
-                AppCommand::CopyTimeline => {
-                    let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
-                    match copy_to_clipboard(&timeline) {
-                        Ok(()) => app.apply_system_notice("Timeline copied to clipboard."),
-                        Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
-                    }
-                }
-                AppCommand::ShowDiff => match render_working_tree_diff(&cwd, 160) {
-                    Ok(diff) => app.apply_assistant_text(&diff),
-                    Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
-                },
-                AppCommand::ShowStagedDiff => match render_staged_diff(&cwd, 160) {
-                    Ok(diff) => app.apply_assistant_text(&diff),
-                    Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
-                },
-                AppCommand::CompactTranscript => {
-                    app.compact_transcript();
-                }
-                AppCommand::ShowTimeline => {
-                    let timeline = load_timeline_text(&session_event_store, &app.thread_record())?;
-                    app.apply_assistant_text(&timeline);
-                }
+                AppCommand::CopyTimeline => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::CopyTimeline,
+                )?,
+                AppCommand::ShowDiff => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::ShowDiff,
+                )?,
+                AppCommand::ShowStagedDiff => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::ShowStagedDiff,
+                )?,
+                AppCommand::CompactTranscript => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::CompactTranscript,
+                )?,
+                AppCommand::ShowTimeline => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::ShowTimeline,
+                )?,
                 AppCommand::ShowTimelineMode {
                     mode,
                     filter,
                     limit,
-                } => {
-                    let timeline = load_timeline_text_with_mode(
-                        &session_event_store,
-                        &app.thread_record(),
-                        &mode,
-                        filter.as_deref(),
+                } => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::ShowTimelineMode {
+                        mode,
+                        filter,
                         limit,
-                    )?;
-                    app.apply_assistant_text(&timeline);
-                }
-                AppCommand::ShowStatus => {
-                    let jobs = side_agent_store.list_jobs();
-                    let running_agents = jobs
-                        .iter()
-                        .filter(|job| job.status == SideAgentStatus::Running)
-                        .count();
-                    let running_agent_names = jobs
-                        .iter()
-                        .filter(|job| job.status == SideAgentStatus::Running)
-                        .map(|job| job.display_name.clone())
-                        .collect::<Vec<_>>();
-                    let event_count = session_event_store
-                        .events(&app.thread_record().id)
-                        .map(|events| events.len())
-                        .unwrap_or(0);
-                    app.apply_system_notice(render_status_summary(
-                        app.selected_model_id().unwrap_or("detecting..."),
-                        &cwd.display().to_string(),
-                        &workspace.project_dir().display().to_string(),
-                        app.approval_mode().label(),
-                        app.thread_name(),
-                        &format_thread_duration(app.thread_duration_seconds()),
-                        app.rows.len(),
-                        event_count,
-                        app.queued_prompt_count(),
-                        jobs.len(),
-                        running_agents,
-                        &running_agent_names,
-                    ));
-                }
+                    },
+                )?,
+                AppCommand::ShowStatus => handle_transcript_runtime_action(
+                    &mut app,
+                    &cwd,
+                    &workspace,
+                    &session_event_store,
+                    &side_agent_store,
+                    AppCommand::ShowStatus,
+                )?,
                 AppCommand::ListPromptHistory => {
                     let recent = prompt_history_store.recent(10);
                     if recent.is_empty() {
@@ -2659,6 +2612,169 @@ fn handle_workflow_action(
         AppCommand::ClearQueuedPrompts => {
             let cleared = app.clear_queued_prompts();
             app.apply_system_notice(format!("Cleared {cleared} queued prompt(s)."));
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn handle_transcript_runtime_action(
+    app: &mut App,
+    cwd: &Path,
+    workspace: &ProjectWorkspace,
+    session_event_store: &SessionEventStore,
+    side_agent_store: &SideAgentStore,
+    action: AppCommand,
+) -> io::Result<()> {
+    match action {
+        AppCommand::ExportTranscript { mode } => {
+            let thread = app.thread_record();
+            let events = session_event_store.events(&thread.id)?;
+            match write_transcript_export(
+                &workspace.project_dir().join("exports"),
+                &thread,
+                Some(&events),
+                &mode,
+            ) {
+                Ok(path) => {
+                    app.apply_system_notice(format!("Transcript exported to {}", path.display()))
+                }
+                Err(error) => app.apply_system_notice(format!("Export failed: {error}")),
+            }
+        }
+        AppCommand::CopyTranscriptMode { mode } => {
+            let thread = app.thread_record();
+            let events = session_event_store.events(&thread.id)?;
+            let markdown = match mode.trim().to_ascii_lowercase().as_str() {
+                "events" => crate::render_transcript_markdown_from_events(&thread, &events),
+                "rows" => crate::render_transcript_markdown(&thread),
+                "brief" => {
+                    if events.is_empty() {
+                        crate::render_transcript_markdown_with_options(&thread, false, false)
+                    } else {
+                        crate::render_transcript_markdown_from_events_with_options(
+                            &thread, &events, false, false,
+                        )
+                    }
+                }
+                _ => {
+                    if events.is_empty() {
+                        crate::render_transcript_markdown(&thread)
+                    } else {
+                        crate::render_transcript_markdown_from_events(&thread, &events)
+                    }
+                }
+            };
+            match copy_to_clipboard(&markdown) {
+                Ok(()) => app.apply_system_notice("Transcript copied to clipboard."),
+                Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+            }
+        }
+        AppCommand::CopyDiff => match render_working_tree_diff(cwd, 160) {
+            Ok(diff) => match copy_to_clipboard(&diff) {
+                Ok(()) => app.apply_system_notice("Diff copied to clipboard."),
+                Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+            },
+            Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+        },
+        AppCommand::CopyStatus => {
+            let jobs = side_agent_store.list_jobs();
+            let running_agents = jobs
+                .iter()
+                .filter(|job| job.status == SideAgentStatus::Running)
+                .count();
+            let running_agent_names = jobs
+                .iter()
+                .filter(|job| job.status == SideAgentStatus::Running)
+                .map(|job| job.display_name.clone())
+                .collect::<Vec<_>>();
+            let event_count = session_event_store
+                .events(&app.thread_record().id)
+                .map(|events| events.len())
+                .unwrap_or(0);
+            let status = render_status_summary(
+                app.selected_model_id().unwrap_or("detecting..."),
+                &cwd.display().to_string(),
+                &workspace.project_dir().display().to_string(),
+                app.approval_mode().label(),
+                app.thread_name(),
+                &format_thread_duration(app.thread_duration_seconds()),
+                app.rows.len(),
+                event_count,
+                app.queued_prompt_count(),
+                jobs.len(),
+                running_agents,
+                &running_agent_names,
+            );
+            match copy_to_clipboard(&status) {
+                Ok(()) => app.apply_system_notice("Status copied to clipboard."),
+                Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+            }
+        }
+        AppCommand::CopyTimeline => {
+            let timeline = load_timeline_text(session_event_store, &app.thread_record())?;
+            match copy_to_clipboard(&timeline) {
+                Ok(()) => app.apply_system_notice("Timeline copied to clipboard."),
+                Err(error) => app.apply_system_notice(format!("Copy failed: {error}")),
+            }
+        }
+        AppCommand::ShowDiff => match render_working_tree_diff(cwd, 160) {
+            Ok(diff) => app.apply_assistant_text(&diff),
+            Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
+        },
+        AppCommand::ShowStagedDiff => match render_staged_diff(cwd, 160) {
+            Ok(diff) => app.apply_assistant_text(&diff),
+            Err(error) => app.apply_system_notice(format!("Diff failed: {error}")),
+        },
+        AppCommand::CompactTranscript => app.compact_transcript(),
+        AppCommand::ShowTimeline => {
+            let timeline = load_timeline_text(session_event_store, &app.thread_record())?;
+            app.apply_assistant_text(&timeline);
+        }
+        AppCommand::ShowTimelineMode {
+            mode,
+            filter,
+            limit,
+        } => {
+            let timeline = load_timeline_text_with_mode(
+                session_event_store,
+                &app.thread_record(),
+                &mode,
+                filter.as_deref(),
+                limit,
+            )?;
+            app.apply_assistant_text(&timeline);
+        }
+        AppCommand::ShowStatus => {
+            let jobs = side_agent_store.list_jobs();
+            let running_agents = jobs
+                .iter()
+                .filter(|job| job.status == SideAgentStatus::Running)
+                .count();
+            let running_agent_names = jobs
+                .iter()
+                .filter(|job| job.status == SideAgentStatus::Running)
+                .map(|job| job.display_name.clone())
+                .collect::<Vec<_>>();
+            let event_count = session_event_store
+                .events(&app.thread_record().id)
+                .map(|events| events.len())
+                .unwrap_or(0);
+            app.apply_system_notice(render_status_summary(
+                app.selected_model_id().unwrap_or("detecting..."),
+                &cwd.display().to_string(),
+                &workspace.project_dir().display().to_string(),
+                app.approval_mode().label(),
+                app.thread_name(),
+                &format_thread_duration(app.thread_duration_seconds()),
+                app.rows.len(),
+                event_count,
+                app.queued_prompt_count(),
+                jobs.len(),
+                running_agents,
+                &running_agent_names,
+            ));
         }
         _ => {}
     }
@@ -3077,84 +3193,6 @@ fn choose_auto_permission(
     ranked.into_iter().next()
 }
 
-fn format_thread_duration(seconds: u64) -> String {
-    match seconds {
-        0..=59 => format!("{seconds}s"),
-        60..=3599 => format!("{}m {}s", seconds / 60, seconds % 60),
-        _ => format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60),
-    }
-}
-
-fn format_path_for_humans(path: &Path) -> String {
-    let raw = path.display().to_string();
-    if let Some(home) = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|value| value.display().to_string())
-        && raw.starts_with(&home)
-    {
-        return raw.replacen(&home, "~", 1);
-    }
-    raw
-}
-
-fn render_status_summary(
-    model: &str,
-    cwd: &str,
-    workspace: &str,
-    approvals: &str,
-    thread_name: &str,
-    thread_duration: &str,
-    transcript_rows: usize,
-    event_count: usize,
-    queued_prompts: usize,
-    total_agents: usize,
-    running_agents: usize,
-    running_agent_names: &[String],
-) -> String {
-    let mut lines = vec![
-        "Status".to_string(),
-        format!("model: {model}"),
-        format!("cwd: {cwd}"),
-        format!("workspace: {workspace}"),
-        format!("approvals: {approvals}"),
-        format!("thread: {thread_name} ({thread_duration})"),
-        format!("transcript rows: {transcript_rows}"),
-        format!("events: {event_count}"),
-        format!("queued prompts: {queued_prompts}"),
-        format!("side agents: {total_agents} total, {running_agents} running"),
-    ];
-    if !running_agent_names.is_empty() {
-        lines.push(format!(
-            "running agents: {}",
-            running_agent_names.join(", ")
-        ));
-    }
-    lines.join("\n")
-}
-
-fn render_agent_roster(jobs: &[crate::StoredSideAgentJob]) -> String {
-    if jobs.is_empty() {
-        return "No side agents in this session.".to_string();
-    }
-
-    let mut lines = vec![
-        "## Side agents".to_string(),
-        format!("{} tracked", jobs.len()),
-    ];
-    for job in jobs {
-        lines.push(String::new());
-        lines.push(format!(
-            "- {} [{}]",
-            job.display_name,
-            job.status.label().to_ascii_lowercase()
-        ));
-        lines.push(format!("  id: {}", job.id));
-        lines.push(format!("  model: {}", job.model));
-        lines.push(format!("  prompt: {}", job.prompt));
-    }
-    lines.join("\n")
-}
-
 fn copy_to_clipboard(text: &str) -> io::Result<()> {
     let mut child = std::process::Command::new("pbcopy")
         .stdin(Stdio::piped())
@@ -3228,80 +3266,6 @@ fn render_staged_diff(cwd: &Path, max_lines: usize) -> io::Result<String> {
         Ok("No staged changes.".to_string())
     } else {
         Ok(sections.join("\n\n"))
-    }
-}
-
-fn render_thread_timeline(thread: &StoredThread) -> String {
-    render_thread_timeline_with_mode(thread, "full", None, None)
-}
-
-fn render_thread_timeline_with_mode(
-    thread: &StoredThread,
-    mode: &str,
-    filter: Option<&str>,
-    limit: Option<usize>,
-) -> String {
-    if thread.rows.is_empty() {
-        return "Timeline is empty.".to_string();
-    }
-
-    let filtered = filter
-        .map(|filter| {
-            thread
-                .rows
-                .iter()
-                .filter(|row| row_matches_filter(row, filter))
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|| thread.rows.clone());
-
-    let visible = if mode.eq_ignore_ascii_case("recent") {
-        let window = limit.unwrap_or(10);
-        let start = filtered.len().saturating_sub(window);
-        filtered[start..].to_vec()
-    } else {
-        filtered
-    };
-
-    if visible.is_empty() {
-        return "Timeline is empty.".to_string();
-    }
-
-    let mut lines = vec![format!(
-        "## Timeline\n- thread: {}\n- rows: {}\n- mode: {}",
-        thread.name,
-        visible.len(),
-        mode
-    )];
-    for (index, row) in visible.iter().enumerate() {
-        let kind = match row.kind {
-            RowKind::System => "system",
-            RowKind::User => "user",
-            RowKind::Assistant => "assistant",
-            RowKind::Tool => "tool",
-        };
-        let summary = row
-            .text
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .chars()
-            .take(100)
-            .collect::<String>();
-        lines.push(format!("{}. [{}] {}", index + 1, kind, summary));
-    }
-    lines.join("\n")
-}
-
-fn row_matches_filter(row: &TranscriptRow, filter: &str) -> bool {
-    match filter.to_ascii_lowercase().as_str() {
-        "system" => row.kind == RowKind::System,
-        "user" => row.kind == RowKind::User,
-        "assistant" => row.kind == RowKind::Assistant,
-        "tool" => row.kind == RowKind::Tool,
-        _ => false,
     }
 }
 

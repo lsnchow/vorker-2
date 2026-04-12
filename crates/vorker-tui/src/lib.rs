@@ -16,6 +16,7 @@ mod render;
 mod review_output;
 mod rich_text;
 mod session_event_store;
+mod shell_reports;
 mod side_agent_store;
 mod skill_store;
 mod slash;
@@ -51,6 +52,10 @@ pub use review_output::parse_review_markdown;
 pub use session_event_store::{
     SessionEvent, SessionEventKind, SessionEventStore, apply_events_to_thread,
     derive_thread_events, render_session_event_timeline, render_session_event_timeline_with_mode,
+};
+pub use shell_reports::{
+    format_path_for_humans, format_thread_duration, render_agent_roster, render_status_summary,
+    render_thread_timeline, render_thread_timeline_with_mode,
 };
 pub use side_agent_store::{
     SideAgentStatus, SideAgentStore, StoredSideAgentJob, summarize_side_agent_events,
