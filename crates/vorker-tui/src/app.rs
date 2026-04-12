@@ -16,8 +16,9 @@ use vorker_core::Snapshot;
 
 use crate::boot::{BootStep, boot_minimum_ticks, render_boot_frame};
 use crate::bottom_pane_state::{
-    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusySurfaceAction, ComposerKeyAction,
-    ListSurfaceAction, SkillToggleSurfaceAction,
+    BottomPaneDispatch, BottomPaneState, BottomPaneSurface, BusyActionIntent, BusySurfaceAction,
+    ComposerKeyAction, ComposerSubmitIntent, ListSurfaceAction, PermissionIntent,
+    SkillActionIntent, SkillToggleSurfaceAction,
 };
 use crate::bridge::{AcpBridge, BridgeEvent};
 use crate::mentions::{
@@ -750,46 +751,25 @@ impl App {
     }
 
     fn handle_permission_key(&mut self, key: KeyEvent) {
-        match self.bottom_pane.dispatch_permission_key(key) {
-            ListSurfaceAction::Move(delta) => {
-                let len = self.popup().permission_items_len();
-                self.popup_mut().cycle_selected_index(len, delta);
-            }
-            ListSurfaceAction::Submit => {
-                let option_id = self.popup().permission_option_id();
-                self.pending_actions
-                    .push(AppCommand::ResolvePermission { option_id });
-                self.close_permission_prompt();
-            }
-            ListSurfaceAction::Close => {
-                self.pending_actions
-                    .push(AppCommand::ResolvePermission { option_id: None });
-                self.close_permission_prompt();
-            }
-            ListSurfaceAction::None => {}
+        match self
+            .bottom_pane
+            .handle_permission_action(self.bottom_pane.dispatch_permission_key(key))
+        {
+            PermissionIntent::Resolve(option_id) => self
+                .pending_actions
+                .push(AppCommand::ResolvePermission { option_id }),
+            PermissionIntent::None => {}
         }
     }
 
-    fn close_permission_prompt(&mut self) {
-        self.popup_mut().close();
-    }
-
     fn handle_skill_action_key(&mut self, key: KeyEvent) {
-        match self.bottom_pane.dispatch_skill_action_key(key) {
-            ListSurfaceAction::Move(delta) => {
-                self.popup_mut().cycle_selected_index(2, delta);
-            }
-            ListSurfaceAction::Submit => {
-                if self.popup().selected_index() == 0 {
-                    self.pending_actions.push(AppCommand::ListSkills);
-                    self.close_skill_popup();
-                } else {
-                    self.popup_mut().open_skill_toggle(true);
-                    self.sync_skill_toggle_items();
-                }
-            }
-            ListSurfaceAction::Close => self.close_skill_popup(),
-            ListSurfaceAction::None => {}
+        match self
+            .bottom_pane
+            .handle_skill_action(self.bottom_pane.dispatch_skill_action_key(key))
+        {
+            SkillActionIntent::ListSkills => self.pending_actions.push(AppCommand::ListSkills),
+            SkillActionIntent::OpenSkillToggle => self.sync_skill_toggle_items(),
+            SkillActionIntent::None => {}
         }
     }
 
@@ -819,48 +799,37 @@ impl App {
                 self.popup_mut().set_selected_index(0);
                 self.sync_skill_toggle_items();
             }
-            SkillToggleSurfaceAction::Close => self.close_skill_popup(),
+            SkillToggleSurfaceAction::Close => self.popup_mut().close(),
             SkillToggleSurfaceAction::None => {}
         }
     }
 
-    fn close_skill_popup(&mut self) {
-        self.popup_mut().close();
-    }
-
     fn handle_busy_action_key(&mut self, key: KeyEvent) {
-        match self.bottom_pane.dispatch_busy_action_key(key) {
-            BusySurfaceAction::Move(delta) => {
-                self.popup_mut().cycle_selected_index(2, delta);
-            }
-            BusySurfaceAction::Submit => {
-                let display_text = self.composer().buffer().trim().to_string();
-                if display_text.is_empty() {
-                    self.close_busy_action_popup();
-                    return;
-                }
-
-                match self.popup().selected_index() {
-                    0 => {
-                        let prompt_text = self.build_prompt_text(&display_text);
-                        self.pending_actions.push(AppCommand::QueuePrompt {
-                            display_text,
-                            prompt_text,
-                        });
-                    }
-                    _ => {
-                        self.pending_actions.push(AppCommand::SteerPrompt {
-                            prompt_text: format!("[STEER]\n{display_text}"),
-                        });
-                    }
-                }
-
-                self.composer_mut().clear_buffer();
-                self.composer_mut().clear_mentions();
+        let action = self.bottom_pane.dispatch_busy_action_key(key);
+        let display_text = self.composer().buffer().trim().to_string();
+        match self
+            .bottom_pane
+            .handle_busy_action(action, !display_text.is_empty())
+        {
+            BusyActionIntent::Queue => {
+                let prompt_text = self.build_prompt_text(&display_text);
+                self.pending_actions.push(AppCommand::QueuePrompt {
+                    display_text,
+                    prompt_text,
+                });
+                self.bottom_pane.clear_composer();
                 self.sync_inline_popup();
-                self.close_busy_action_popup();
             }
-            BusySurfaceAction::Close => self.close_busy_action_popup(),
+            BusyActionIntent::Steer => {
+                self.pending_actions.push(AppCommand::SteerPrompt {
+                    prompt_text: format!("[STEER]\n{display_text}"),
+                });
+                self.bottom_pane.clear_composer();
+                self.sync_inline_popup();
+            }
+            BusyActionIntent::None => {}
+        }
+        match action {
             BusySurfaceAction::EditBackspace => {
                 let _ = self.composer_mut().pop_char();
                 let bindings = prune_mention_bindings(
@@ -877,12 +846,11 @@ impl App {
                 );
                 self.composer_mut().set_mention_bindings(bindings);
             }
-            BusySurfaceAction::None => {}
+            BusySurfaceAction::Move(_)
+            | BusySurfaceAction::Submit
+            | BusySurfaceAction::Close
+            | BusySurfaceAction::None => {}
         }
-    }
-
-    fn close_busy_action_popup(&mut self) {
-        self.popup_mut().close();
     }
 
     fn filtered_skill_items(&self) -> Vec<crate::render::PopupItem> {
@@ -936,15 +904,11 @@ impl App {
     }
 
     fn handle_model_picker_key(&mut self, key: KeyEvent) {
-        match self.bottom_pane.dispatch_model_picker_key(key) {
-            ListSurfaceAction::Move(delta) => self.model_picker_mut().move_selection(delta),
-            ListSurfaceAction::Submit => {
-                if let Some(model) = self.model_picker_mut().confirm_selection() {
-                    self.pending_actions.push(AppCommand::SetModel { model });
-                }
-            }
-            ListSurfaceAction::Close => self.model_picker_mut().close(),
-            ListSurfaceAction::None => {}
+        if let Some(model) = self
+            .bottom_pane
+            .handle_model_picker_action(self.bottom_pane.dispatch_model_picker_key(key))
+        {
+            self.pending_actions.push(AppCommand::SetModel { model });
         }
     }
 
@@ -1065,50 +1029,35 @@ impl App {
     }
 
     fn submit_current_input(&mut self) {
-        if self.working_started_at.is_some() {
-            let display_text = self.composer().buffer().trim().to_string();
-            if is_slash_mode(&display_text) {
-                self.execute_slash_command(&display_text);
-                return;
+        match self
+            .bottom_pane
+            .composer_submit_intent(self.working_started_at.is_some())
+        {
+            ComposerSubmitIntent::None => {}
+            ComposerSubmitIntent::ExecuteSlash(command) => {
+                self.execute_slash_command(&command);
             }
-
-            if !display_text.is_empty() {
+            ComposerSubmitIntent::OpenBusyAction => {
                 self.popup_mut().open_busy_action();
             }
-            return;
+            ComposerSubmitIntent::SubmitPrompt(display_text) => {
+                let prompt_text = self.build_prompt_text(&display_text);
+                self.rows.push(TranscriptRow {
+                    kind: RowKind::User,
+                    text: display_text.clone(),
+                    detail: None,
+                });
+                self.working_started_at = Some(Instant::now());
+                self.pending_actions.push(AppCommand::SubmitPrompt {
+                    display_text,
+                    prompt_text,
+                });
+                self.needs_replay_context = false;
+                self.dirty = true;
+                self.bottom_pane.clear_composer();
+                self.sync_inline_popup();
+            }
         }
-
-        if self.model_picker().is_open() {
-            self.handle_model_picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-            return;
-        }
-
-        let trimmed = self.composer().buffer().trim().to_string();
-        if trimmed.is_empty() {
-            return;
-        }
-
-        if is_slash_mode(&trimmed) {
-            self.execute_slash_command(&trimmed);
-            return;
-        }
-
-        let display_text = trimmed;
-        let prompt_text = self.build_prompt_text(&display_text);
-        self.rows.push(TranscriptRow {
-            kind: RowKind::User,
-            text: display_text.clone(),
-            detail: None,
-        });
-        self.working_started_at = Some(Instant::now());
-        self.pending_actions.push(AppCommand::SubmitPrompt {
-            display_text,
-            prompt_text,
-        });
-        self.needs_replay_context = false;
-        self.dirty = true;
-        self.bottom_pane.clear_composer();
-        self.sync_inline_popup();
     }
 
     fn build_prompt_text(&mut self, display_text: &str) -> String {

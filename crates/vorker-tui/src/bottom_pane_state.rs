@@ -1,6 +1,7 @@
 use crate::composer_state::ComposerState;
 use crate::model_picker_state::ModelPickerState;
 use crate::popup_state::{AppPopupState, PopupMode};
+use crate::slash::is_slash_mode;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +66,26 @@ pub enum BusySurfaceAction {
     None,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PermissionIntent {
+    None,
+    Resolve(Option<String>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkillActionIntent {
+    None,
+    ListSkills,
+    OpenSkillToggle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BusyActionIntent {
+    None,
+    Queue,
+    Steer,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BottomPaneEscapeAction {
     CloseModelPicker,
@@ -72,6 +93,14 @@ pub enum BottomPaneEscapeAction {
     ClearComposer,
     ExitReview,
     None,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComposerSubmitIntent {
+    None,
+    ExecuteSlash(String),
+    OpenBusyAction,
+    SubmitPrompt(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -172,6 +201,111 @@ impl BottomPaneState {
         self.composer.clear_mentions();
     }
 
+    #[must_use]
+    pub fn composer_submit_intent(&self, working: bool) -> ComposerSubmitIntent {
+        let trimmed = self.composer.buffer().trim().to_string();
+        if trimmed.is_empty() {
+            ComposerSubmitIntent::None
+        } else if is_slash_mode(&trimmed) {
+            ComposerSubmitIntent::ExecuteSlash(trimmed)
+        } else if working {
+            ComposerSubmitIntent::OpenBusyAction
+        } else {
+            ComposerSubmitIntent::SubmitPrompt(trimmed)
+        }
+    }
+
+    pub fn handle_permission_action(&mut self, action: ListSurfaceAction) -> PermissionIntent {
+        match action {
+            ListSurfaceAction::Move(delta) => {
+                self.popup
+                    .cycle_selected_index(self.popup.permission_items_len(), delta);
+                PermissionIntent::None
+            }
+            ListSurfaceAction::Submit => {
+                let option = self.popup.permission_option_id();
+                self.popup.close();
+                PermissionIntent::Resolve(option)
+            }
+            ListSurfaceAction::Close => {
+                self.popup.close();
+                PermissionIntent::Resolve(None)
+            }
+            ListSurfaceAction::None => PermissionIntent::None,
+        }
+    }
+
+    pub fn handle_skill_action(&mut self, action: ListSurfaceAction) -> SkillActionIntent {
+        match action {
+            ListSurfaceAction::Move(delta) => {
+                self.popup.cycle_selected_index(2, delta);
+                SkillActionIntent::None
+            }
+            ListSurfaceAction::Submit => {
+                if self.popup.selected_index() == 0 {
+                    self.popup.close();
+                    SkillActionIntent::ListSkills
+                } else {
+                    self.popup.open_skill_toggle(true);
+                    SkillActionIntent::OpenSkillToggle
+                }
+            }
+            ListSurfaceAction::Close => {
+                self.popup.close();
+                SkillActionIntent::None
+            }
+            ListSurfaceAction::None => SkillActionIntent::None,
+        }
+    }
+
+    pub fn handle_busy_action(
+        &mut self,
+        action: BusySurfaceAction,
+        has_display_text: bool,
+    ) -> BusyActionIntent {
+        match action {
+            BusySurfaceAction::Move(delta) => {
+                self.popup.cycle_selected_index(2, delta);
+                BusyActionIntent::None
+            }
+            BusySurfaceAction::Submit => {
+                if !has_display_text {
+                    self.popup.close();
+                    return BusyActionIntent::None;
+                }
+                let intent = if self.popup.selected_index() == 0 {
+                    BusyActionIntent::Queue
+                } else {
+                    BusyActionIntent::Steer
+                };
+                self.popup.close();
+                intent
+            }
+            BusySurfaceAction::Close => {
+                self.popup.close();
+                BusyActionIntent::None
+            }
+            BusySurfaceAction::EditBackspace
+            | BusySurfaceAction::EditInsert(_)
+            | BusySurfaceAction::None => BusyActionIntent::None,
+        }
+    }
+
+    pub fn handle_model_picker_action(&mut self, action: ListSurfaceAction) -> Option<String> {
+        match action {
+            ListSurfaceAction::Move(delta) => {
+                self.model_picker.move_selection(delta);
+                None
+            }
+            ListSurfaceAction::Submit => self.model_picker.confirm_selection(),
+            ListSurfaceAction::Close => {
+                self.model_picker.close();
+                None
+            }
+            ListSurfaceAction::None => None,
+        }
+    }
+
     fn dispatch_composer_key(
         &self,
         key: KeyEvent,
@@ -267,7 +401,8 @@ fn dispatch_list_surface_key(key: KeyEvent) -> ListSurfaceAction {
 mod tests {
     use super::{
         BottomPaneDispatch, BottomPaneEscapeAction, BottomPaneState, BottomPaneSurface,
-        BusySurfaceAction, ComposerKeyAction, ListSurfaceAction, SkillToggleSurfaceAction,
+        BusySurfaceAction, ComposerKeyAction, ComposerSubmitIntent, ListSurfaceAction,
+        SkillToggleSurfaceAction,
     };
     use crate::popup_state::PopupMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -373,5 +508,30 @@ mod tests {
 
         state.clear_composer();
         assert_eq!(state.composer().buffer(), "");
+    }
+
+    #[test]
+    fn bottom_pane_composer_submit_intent_covers_main_paths() {
+        let mut state = BottomPaneState::default();
+        assert_eq!(
+            state.composer_submit_intent(false),
+            ComposerSubmitIntent::None
+        );
+
+        state.composer_mut().set_buffer("/status");
+        assert_eq!(
+            state.composer_submit_intent(false),
+            ComposerSubmitIntent::ExecuteSlash("/status".to_string())
+        );
+
+        state.composer_mut().set_buffer("ship it");
+        assert_eq!(
+            state.composer_submit_intent(true),
+            ComposerSubmitIntent::OpenBusyAction
+        );
+        assert_eq!(
+            state.composer_submit_intent(false),
+            ComposerSubmitIntent::SubmitPrompt("ship it".to_string())
+        );
     }
 }
